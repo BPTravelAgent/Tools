@@ -40,6 +40,8 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
     <script src="firebase_init.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+    <script src="slw_excel_generator.js"></script>
 </head>
 <body class="bg-gray-100 flex items-center justify-center min-h-screen py-12">
 
@@ -82,6 +84,10 @@
         <button onclick="openSaveQuotationModal()" class="py-2 px-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold rounded-lg shadow-md hover:shadow-lg transition flex items-center gap-1.5 text-xs" title="Save current costing as INQ Quotation to Cloud">
             <i class="fas fa-cloud-upload-alt"></i>
             <span>💾 Save as INQ</span>
+        </button>
+        <button onclick="downloadCurrentCostingExcel()" class="py-2 px-3.5 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-bold rounded-lg shadow-md hover:shadow-lg transition flex items-center gap-1.5 text-xs" title="Download dynamic Costing Excel (.xlsx) with live formulas and rates">
+            <i class="fas fa-file-excel text-sm"></i>
+            <span>📊 Download Excel (.xlsx)</span>
         </button>
         <div class="flex items-center">
              <button onclick="document.getElementById('logoUpload').click()" class="py-2 px-6 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition">
@@ -1297,6 +1303,9 @@
                     <i class="fas fa-copy text-indigo-600"></i> <span>Copy JSON Code</span>
                 </button>
             </div>
+            <button onclick="downloadCurrentCostingExcel()" class="w-full py-2.5 px-4 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-bold rounded-lg shadow transition flex items-center justify-center gap-2 text-xs">
+                <i class="fas fa-file-excel"></i> <span>📊 Download Costing Excel (.xlsx)</span>
+            </button>
         </div>
     </div>
 </div>
@@ -1408,6 +1417,9 @@
             <div class="flex flex-col sm:flex-row gap-2 pt-3 border-t">
                 <button type="submit" id="btnSaveQuotationSubmit" class="flex-1 py-2.5 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold rounded-lg shadow transition flex items-center justify-center gap-2 text-sm">
                     <i class="fas fa-save"></i> <span>Save Quotation</span>
+                </button>
+                <button type="button" onclick="downloadCurrentCostingExcel()" class="py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow transition flex items-center justify-center gap-2 text-sm" title="Download dynamic Costing Excel (.xlsx)">
+                    <i class="fas fa-file-excel"></i> <span>Excel (.xlsx)</span>
                 </button>
                 <button type="button" onclick="executeSaveQuotation(true)" class="py-2.5 px-4 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-lg shadow transition flex items-center justify-center gap-2 text-sm">
                     <i class="fas fa-paper-plane"></i> <span>Save &amp; Open Itinerary</span>
@@ -6066,6 +6078,9 @@
                     <button onclick="openInqQuotationItinerary('${item.inq}')" class="flex-1 py-1.5 px-2 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-lg text-xs shadow-2xs transition flex items-center justify-center gap-1" title="Open in Tour Itinerary Builder">
                         <i class="fas fa-route"></i> <span>Itinerary</span>
                     </button>
+                    <button onclick="downloadInqQuotationExcel('${item.inq}')" class="py-1.5 px-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-xs shadow-2xs transition flex items-center justify-center gap-1" title="Download dynamic Costing Excel (.xlsx)">
+                        <i class="fas fa-file-excel"></i> <span>Excel</span>
+                    </button>
                     <button onclick="deleteInqQuotation('${item.inq}')" class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition" title="Delete quotation">
                         <i class="fas fa-trash-alt text-xs"></i>
                     </button>
@@ -6212,6 +6227,116 @@
         };
         reader.readAsText(file);
         event.target.value = '';
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // DYNAMIC TOUR COSTING EXCEL GENERATOR INTEGRATION
+    // ══════════════════════════════════════════════════════════════
+    async function downloadCurrentCostingExcel() {
+        calculate();
+        const rawPax = Number(document.getElementById('num_people_hotel')?.value) || Number(document.getElementById('num_people_transfer')?.value) || 2;
+        const paxText = String(rawPax).padStart(2, '0') + 'Pax';
+        const inq = (document.getElementById('saveQuotationInqInput')?.value || document.getElementById('exportItineraryInq')?.value || ('INQ-' + Math.floor(10000 + Math.random() * 90000))).trim();
+        
+        let defaultTitle = '';
+        if (typeof activeLoadedPresetKey !== 'undefined' && activeLoadedPresetKey && typeof costingPresets !== 'undefined' && costingPresets[activeLoadedPresetKey] && costingPresets[activeLoadedPresetKey].title) {
+            defaultTitle = costingPresets[activeLoadedPresetKey].title.trim();
+        } else if (availableCities.length > 0) {
+            defaultTitle = availableCities.map(c => (c.numberOfNights || 1) + 'N ' + c.name).join(' ');
+        } else {
+            defaultTitle = 'Thailand Tour Package';
+        }
+
+        const title = (document.getElementById('saveQuotationTitleInput')?.value || document.getElementById('exportItineraryTitle')?.value || defaultTitle).trim();
+        const roe = parseFloat(document.getElementById('lkr_rate')?.value) || 10.8;
+        const markupVal = parseFloat(document.getElementById('markup')?.value) || 18;
+
+        const p3Text = document.getElementById('adult_final_lkr_3star')?.innerText || '';
+        const pMixText = document.getElementById('adult_final_lkr_mix')?.innerText || '';
+        const p4Text = document.getElementById('adult_final_lkr_4star')?.innerText || '';
+
+        const payload = {
+            title: title,
+            pax: rawPax,
+            paxText: paxText,
+            inq: inq,
+            monthDate: new Date().toLocaleString('en-US', { month: 'short' }) + '-' + new Date().getFullYear(),
+            roe: roe,
+            markup3: markupVal || 18,
+            markupMix: 20,
+            markup4: 25,
+            buffer: 1000,
+            cities: availableCities.filter(c => c.selected),
+            tours: availableTours.filter(t => t.selected),
+            transfers: availableTransfers.filter(t => t.selected),
+            rates: {
+                p3: cleanLkrNumber(p3Text),
+                pMix: cleanLkrNumber(pMixText),
+                p4: cleanLkrNumber(p4Text)
+            }
+        };
+
+        if (window.SlwExcelGenerator) {
+            showNotification('📊 Generating dynamic Costing Excel (.xlsx)...', false);
+            try {
+                await window.SlwExcelGenerator.downloadCostingExcel(payload);
+                showNotification('✅ Costing Excel (.xlsx) successfully downloaded!', false);
+            } catch(err) {
+                console.error('Excel export error:', err);
+                showNotification('⚠️ Excel export error: ' + err.message, true);
+            }
+        } else {
+            showNotification('⚠️ Excel Generator module is loading, please try again.', true);
+        }
+    }
+
+    async function downloadInqQuotationExcel(inqKey) {
+        if (!inqKey) return;
+        try {
+            let docData = null;
+            const localRaw = localStorage.getItem(SLW_INQ_DOC_PREFIX + inqKey);
+            if (localRaw) docData = JSON.parse(localRaw);
+            if (!docData && typeof db !== 'undefined' && db) {
+                const snap = await db.collection('slw_quotations').doc(inqKey).get();
+                if (snap.exists) docData = snap.data();
+            }
+            if (!docData) {
+                alert('Quotation document not found for ' + inqKey);
+                return;
+            }
+
+            const costing = docData.costing || {};
+            const cities = costing.availableCities || [];
+            const tours = costing.availableTours || [];
+            const transfers = costing.availableTransfers || [];
+            const rates = docData.rates || {};
+
+            const payload = {
+                title: docData.title || inqKey,
+                pax: docData.pax || 2,
+                paxText: docData.paxText || '02Pax',
+                inq: docData.inq || inqKey,
+                monthDate: docData.date || (new Date().toLocaleString('en-US', { month: 'short' }) + '-' + new Date().getFullYear()),
+                roe: 10.8,
+                markup3: 18,
+                markupMix: 20,
+                markup4: 25,
+                buffer: 1000,
+                cities: cities.filter(c => c.selected !== false),
+                tours: tours.filter(t => t.selected !== false),
+                transfers: transfers.filter(t => t.selected !== false),
+                rates: rates
+            };
+
+            if (window.SlwExcelGenerator) {
+                showNotification('📊 Generating Excel for ' + inqKey + '...', false);
+                await window.SlwExcelGenerator.downloadCostingExcel(payload);
+                showNotification('✅ Excel for ' + inqKey + ' downloaded!', false);
+            }
+        } catch(err) {
+            console.error('Error downloading INQ Excel:', err);
+            showNotification('⚠️ Error generating Excel: ' + err.message, true);
+        }
     }
 
     window.onload = async () => {

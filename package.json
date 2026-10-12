@@ -3,6 +3,7 @@
     "@capacitor/android": "^6.2.1",
     "@capacitor/cli": "^6.2.1",
     "@capacitor/core": "^6.2.1",
+    "exceljs": "^4.4.0",
     "jsdom": "^29.1.1",
     "pdf-parse": "^2.4.5",
     "vue": "^3.5.41"
