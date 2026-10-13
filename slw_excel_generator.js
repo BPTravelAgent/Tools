@@ -43,6 +43,25 @@
         right: { style: 'thin', color: { argb: COLORS.BORDER_GRAY } }
     };
 
+    const BORDER_HAIR = {
+        top: { style: 'hair', color: { argb: 'FF000000' } },
+        left: { style: 'hair', color: { argb: 'FF000000' } },
+        bottom: { style: 'hair', color: { argb: 'FF000000' } },
+        right: { style: 'hair', color: { argb: 'FF000000' } }
+    };
+
+    const FONT_INC_BLUE = {
+        name: 'Arial',
+        size: 10,
+        bold: true,
+        color: { argb: 'FF4285F4' }
+    };
+
+    const FONT_INC_BLACK = {
+        name: 'Arial',
+        size: 10
+    };
+
     /**
      * Remove HTML tags and entities, return clean plain text
      */
@@ -792,7 +811,45 @@
             }
         }
 
-        const lastActivityRow = currentRow - 1;
+        // ── TABLE HEADER ROW ABOVE SUBTOTALS ──
+        // Check if the previous row already contains 'Tour End!' or is an empty activity slot
+        let tableHeaderRow;
+        const prevRow = ws.getRow(currentRow - 1);
+        const prevText = normalizeText(prevRow.getCell(3).value || '');
+        const prevHasCost = Boolean(prevRow.getCell(6).value || prevRow.getCell(7).value || prevRow.getCell(8).value);
+
+        if (prevText.includes('tour end') || (!prevHasCost && prevRow.getCell(3).value)) {
+            // Place column headers on this existing row
+            tableHeaderRow = prevRow;
+        } else {
+            // Add a clean 'Tour End!' row right before the subtotal
+            tableHeaderRow = ws.getRow(currentRow++);
+            tableHeaderRow.getCell(3).value = 'Tour End!';
+            tableHeaderRow.getCell(3).font = { name: 'Arial', size: 10 };
+            tableHeaderRow.getCell(3).border = BORDER_THIN;
+        }
+
+        tableHeaderRow.getCell(6).value = '   Tour ';
+        tableHeaderRow.getCell(6).font = { name: 'Calibri', size: 11 };
+        tableHeaderRow.getCell(6).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.HEADER_GREEN } };
+        tableHeaderRow.getCell(6).alignment = { horizontal: 'center' };
+        tableHeaderRow.getCell(6).border = BORDER_HAIR;
+
+        tableHeaderRow.getCell(7).value = ' Transfer ';
+        tableHeaderRow.getCell(7).font = { name: 'Calibri', size: 11 };
+        tableHeaderRow.getCell(7).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.HEADER_GREEN } };
+        tableHeaderRow.getCell(7).alignment = { horizontal: 'center' };
+        tableHeaderRow.getCell(7).border = BORDER_HAIR;
+
+        hotelCols.forEach(hCol => {
+            tableHeaderRow.getCell(hCol.col).value = hCol.title;
+            tableHeaderRow.getCell(hCol.col).font = { name: 'Calibri', size: 11 };
+            tableHeaderRow.getCell(hCol.col).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: hCol.headerColor } };
+            tableHeaderRow.getCell(hCol.col).alignment = { horizontal: 'center' };
+            tableHeaderRow.getCell(hCol.col).border = BORDER_HAIR;
+        });
+
+        const lastActivityRow = tableHeaderRow.number - 1;
 
         // ── LIVE FORMULAS & CALCULATION SECTION ──
         // 1. Subtotals Row
@@ -839,6 +896,16 @@
         rStar.getCell(6).font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
         rStar.getCell(6).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.TOUR_END_GREEN } };
         rStar.getCell(6).alignment = { horizontal: 'center' };
+        rStar.getCell(6).border = BORDER_HAIR;
+
+        rStar.getCell(7).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.TOUR_END_GREEN } };
+        rStar.getCell(7).border = BORDER_HAIR;
+
+        hotelCols.forEach(hCol => {
+            const starFill = (hCol.key === 'h3') ? COLORS.TOUR_END_GREEN : COLORS.HEADER_MAUVE;
+            rStar.getCell(hCol.col).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: starFill } };
+            rStar.getCell(hCol.col).border = BORDER_HAIR;
+        });
 
         // 3. Net Package Cost Row
         const netRowIdx = currentRow;
@@ -880,6 +947,23 @@
             tours[2] ? stripHtml(tours[2].name) : 'Sightseeing Activities'
         ];
 
+        function isTourOrMealInclusion(text) {
+            if (!text) return false;
+            const norm = normalizeText(text);
+            if (norm.startsWith('meal') || (norm.includes('breakfast') && (norm.includes('lunch') || norm.includes('dinner')))) {
+                return true;
+            }
+            if (norm.includes('hotel accom') || norm.includes('airport hotel airport') || norm.includes('private transfer') ||
+                norm.includes('air conditioned vehicles') || norm.includes('all admisson fees')) {
+                return false;
+            }
+            return true;
+        }
+
+        function getInclusionFont(text) {
+            return isTourOrMealInclusion(text) ? FONT_INC_BLUE : FONT_INC_BLACK;
+        }
+
         function getNormalInc(idx, fallback) {
             return normalInclusions[idx] || fallback;
         }
@@ -887,13 +971,13 @@
         // Inc 1: City Stay
         const rInc1 = ws.getRow(currentRow++);
         rInc1.getCell(3).value = getNormalInc(0, defaultNormalInclusions[0]);
-        rInc1.getCell(3).font = { name: 'Arial', size: 10 };
+        rInc1.getCell(3).font = getInclusionFont(rInc1.getCell(3).value);
 
         // Inc 2: Transfers & Markup Row
         const markupRowIdx = currentRow;
         const rInc2 = ws.getRow(markupRowIdx);
         rInc2.getCell(3).value = getNormalInc(1, defaultNormalInclusions[1]);
-        rInc2.getCell(3).font = { name: 'Arial', size: 10 };
+        rInc2.getCell(3).font = getInclusionFont(rInc2.getCell(3).value);
 
         rInc2.getCell(7).value = `${hotelCols[0].markup}%`;
         rInc2.getCell(7).font = { name: 'Calibri', size: 11, bold: true };
@@ -913,7 +997,7 @@
         const profitRowIdx = currentRow;
         const rInc3 = ws.getRow(profitRowIdx);
         rInc3.getCell(3).value = getNormalInc(2, defaultNormalInclusions[2]);
-        rInc3.getCell(3).font = { name: 'Arial', size: 10 };
+        rInc3.getCell(3).font = getInclusionFont(rInc3.getCell(3).value);
 
         rInc3.getCell(7).value = 'Different';
         rInc3.getCell(7).font = { name: 'Arial', size: 10, bold: true };
@@ -932,13 +1016,13 @@
         // Inc 4: Admissions
         const rInc4 = ws.getRow(currentRow++);
         rInc4.getCell(3).value = getNormalInc(3, defaultNormalInclusions[3]);
-        rInc4.getCell(3).font = { name: 'Arial', size: 10 };
+        rInc4.getCell(3).font = getInclusionFont(rInc4.getCell(3).value);
 
         // Inc 5: THB Label Row
         const thbRowIdx = currentRow;
         const rInc5 = ws.getRow(thbRowIdx);
         rInc5.getCell(3).value = getNormalInc(4, defaultNormalInclusions[4]);
-        rInc5.getCell(3).font = { name: 'Arial', size: 10, bold: true };
+        rInc5.getCell(3).font = getInclusionFont(rInc5.getCell(3).value);
 
         rInc5.getCell(7).value = 'THB';
         rInc5.getCell(7).font = { name: 'Calibri', size: 11, bold: true };
@@ -957,13 +1041,13 @@
         // Inc 6: Tour 2 (if any)
         const rInc6 = ws.getRow(currentRow++);
         rInc6.getCell(3).value = getNormalInc(5, defaultNormalInclusions[5]);
-        rInc6.getCell(3).font = { name: 'Arial', size: 10 };
+        rInc6.getCell(3).font = getInclusionFont(rInc6.getCell(3).value);
 
         // Inc 7: LKR Currency Row
         const lkrRowIdx = currentRow;
         const rInc7 = ws.getRow(lkrRowIdx);
         rInc7.getCell(3).value = getNormalInc(6, defaultNormalInclusions[6]);
-        rInc7.getCell(3).font = { name: 'Arial', size: 10, bold: true };
+        rInc7.getCell(3).font = getInclusionFont(rInc7.getCell(3).value);
 
         rInc7.getCell(7).value = 'LKR';
         rInc7.getCell(7).font = { name: 'Calibri', size: 11, bold: true };
@@ -985,14 +1069,14 @@
         let dinnerCount = tours.filter(t => (t.name || '').toLowerCase().includes('dinner') || (t.name || '').toLowerCase().includes('cruise')).length;
         const defaultMealSummary = `Meals (${String(breakfastCount).padStart(2, '0')} Breakfast / ${String(lunchCount).padStart(2, '0')} Lunch / ${String(dinnerCount).padStart(2, '0')} Dinner)`;
         rInc8.getCell(3).value = customMealItem || defaultMealSummary;
-        rInc8.getCell(3).font = { name: 'Arial', size: 10 };
+        rInc8.getCell(3).font = FONT_INC_BLUE;
 
         // Extra inclusions if any (beyond index 6, excluding meals)
         if (normalInclusions.length > 7) {
             for (let incIdx = 7; incIdx < normalInclusions.length; incIdx++) {
                 const rExtraInc = ws.getRow(currentRow++);
                 rExtraInc.getCell(3).value = normalInclusions[incIdx];
-                rExtraInc.getCell(3).font = { name: 'Arial', size: 10 };
+                rExtraInc.getCell(3).font = getInclusionFont(rExtraInc.getCell(3).value);
             }
         }
 
@@ -1058,10 +1142,46 @@
         // Resolves options/hotels from payload.options or cities
         const builderOptions = payload.options && payload.options[0] ? payload.options[0].hotels : null;
 
+        function extractNumericVal(val) {
+            if (val === null || val === undefined) return 0;
+            if (typeof val === 'number') return isNaN(val) ? 0 : val;
+            if (typeof val === 'object' && val.result !== undefined) {
+                return Number(val.result) || 0;
+            }
+            if (typeof val === 'string') {
+                const trimmed = val.trim();
+                if (/^[0-9]+(\.[0-9]+)?$/.test(trimmed)) {
+                    return Number(trimmed);
+                }
+            }
+            return 0;
+        }
+
+        let tourSum = 0;
+        let trSum = 0;
+        for (let r = 2; r <= lastActivityRow; r++) {
+            tourSum += extractNumericVal(ws.getRow(r).getCell(6).value);
+            trSum += extractNumericVal(ws.getRow(r).getCell(7).value);
+        }
+        const trPerPax = trSum / rawPax;
+
+        hotelCols.forEach(hCol => {
+            let hotelSum = 0;
+            for (let r = 2; r <= lastActivityRow; r++) {
+                hotelSum += extractNumericVal(ws.getRow(r).getCell(hCol.col).value);
+            }
+            const hotelPerPax = hotelSum / 2;
+            const netPax = tourSum + trPerPax + hotelPerPax;
+            const thb = netPax * (100 + hCol.markup) / 100;
+            const lkr = thb * roe;
+            const roundedLkr = Math.ceil(lkr / 100) * 100;
+            const bufferPrice = roundedLkr + buffer;
+            hCol.calculatedBufferPrice = bufferPrice;
+        });
+
         hotelCols.forEach(hCol => {
             // Find option hotels from builder if available
             let optHotelNames = [];
-            let optPriceText = null;
 
             if (builderOptions) {
                 const matchedOpt = builderOptions.find(o => {
@@ -1071,9 +1191,8 @@
                     if (hCol.key === 'h4') return rNorm.includes('4') && !rNorm.includes('mix');
                     return false;
                 });
-                if (matchedOpt) {
-                    if (Array.isArray(matchedOpt.names)) optHotelNames = matchedOpt.names;
-                    optPriceText = matchedOpt.price || (matchedOpt.prices && matchedOpt.prices[0] ? matchedOpt.prices[0].amount : null);
+                if (matchedOpt && Array.isArray(matchedOpt.names)) {
+                    optHotelNames = matchedOpt.names;
                 }
             }
 
@@ -1100,15 +1219,10 @@
                 rOptHotel.getCell(3).font = { name: 'Arial', size: 10 };
             });
 
-            // Print Price Card Row
+            // Print Price Card Row (Calculated buffer price directly from table)
             const rPriceCard = ws.getRow(currentRow++);
-            const rawRate = payload.rates ? payload.rates[hCol.priceKey] : null;
-            let displayPrice = rawRate ? (String(rawRate).startsWith('LKR') ? rawRate : `LKR ${rawRate}`) : optPriceText;
-            if (!displayPrice) {
-                displayPrice = `LKR Per Person (Minimum ${paxStr})`;
-            } else if (!displayPrice.toLowerCase().includes('minimum') && !displayPrice.toLowerCase().includes('per person')) {
-                displayPrice = `${displayPrice} Per Person (Minimum ${paxStr})`;
-            }
+            const cardPriceVal = hCol.calculatedBufferPrice || 0;
+            const displayPrice = `LKR ${cardPriceVal.toLocaleString('en-US')} Per Person (Minimum ${paxStr})`;
 
             rPriceCard.getCell(3).value = displayPrice;
             rPriceCard.getCell(3).font = { name: 'Calibri', size: 11, bold: true };
