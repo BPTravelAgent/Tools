@@ -2392,6 +2392,32 @@ window.slwDownloadCostingExcelFromBuilder = async function() {
             hasMix = false;
         }
 
+        // 7b. Determine Child Pricing Presence & Labels
+        let hasChildPrices = false;
+        let childExtraLabel = 'Per Child (With Extra Bed)';
+        let childShareLabel = 'Per Child (Sharing Bed)';
+
+        const checkOptions = liveData.options || (docData && docData.itinerary && docData.itinerary.options) || [];
+        if (Array.isArray(checkOptions)) {
+            checkOptions.forEach(opt => {
+                (opt.hotels || []).forEach(h => {
+                    (h.prices || []).forEach(p => {
+                        const l = (p.label || '').trim();
+                        const lNorm = l.toLowerCase();
+                        const a = String(p.amount || '');
+                        if ((lNorm.includes('child') || lNorm.includes('extra bed') || lNorm.includes('sharing')) && a && a !== 'LKR 0' && a !== '0') {
+                            hasChildPrices = true;
+                        }
+                        if (lNorm.includes('extra bed') && l.length > 5) childExtraLabel = l;
+                        if (lNorm.includes('sharing') && l.length > 5) childShareLabel = l;
+                    });
+                });
+            });
+        }
+        if (!hasChildPrices && costing && costing.hasChildPrices) {
+            hasChildPrices = true;
+        }
+
         // 8. Build Complete Payload with Live Finalized Days
         const payload = {
             title: liveData.title || (docData && docData.title) || window.__slwActiveInqTitle || 'Tour Package',
@@ -2405,6 +2431,9 @@ window.slwDownloadCostingExcelFromBuilder = async function() {
             markup4: (costing && costing.markup4) || 25,
             buffer: (costing && costing.buffer !== undefined) ? costing.buffer : 1000,
             hasMix: hasMix,
+            hasChildPrices: hasChildPrices,
+            childExtraLabel: childExtraLabel,
+            childShareLabel: childShareLabel,
             cities: cities,
             tours: tours,
             transfers: transfers,

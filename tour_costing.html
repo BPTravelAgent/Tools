@@ -6308,6 +6308,30 @@
         const pMixText = isMixActive ? (document.getElementById('adult_final_lkr_mix')?.innerText || '') : '';
         const p4Text = document.getElementById('adult_final_lkr_4star')?.innerText || '';
 
+        const p3ChildExtraEl = document.getElementById('child_final_lkr_3star');
+        const p3ChildShareEl = document.getElementById('child_sharing_final_lkr_3star');
+        const p4ChildExtraEl = document.getElementById('child_final_lkr_4star');
+        const p4ChildShareEl = document.getElementById('child_sharing_final_lkr_4star');
+        const pMixChildExtraEl = document.getElementById('child_final_lkr_mix');
+        const pMixChildShareEl = document.getElementById('child_sharing_final_lkr_mix');
+
+        const cExtra3 = cleanLkrNumber(p3ChildExtraEl?.innerText);
+        const cShare3 = cleanLkrNumber(p3ChildShareEl?.innerText);
+        const cExtra4 = cleanLkrNumber(p4ChildExtraEl?.innerText);
+        const cShare4 = cleanLkrNumber(p4ChildShareEl?.innerText);
+        const cExtraMix = isMixActive ? cleanLkrNumber(pMixChildExtraEl?.innerText) : null;
+        const cShareMix = isMixActive ? cleanLkrNumber(pMixChildShareEl?.innerText) : null;
+
+        const hasChildPrices = Boolean(
+            (cExtra3 && cExtra3 !== '0') ||
+            (cShare3 && cShare3 !== '0') ||
+            (cExtra4 && cExtra4 !== '0') ||
+            (cShare4 && cShare4 !== '0')
+        );
+
+        const childExtraLabel = document.getElementById('exportChildExtraBedLabel')?.value.trim() || 'Per Child (With Extra Bed)';
+        const childShareLabel = document.getElementById('exportChildSharingBedLabel')?.value.trim() || 'Per Child (Sharing Bed)';
+
         const payload = {
             title: title,
             pax: rawPax,
@@ -6320,13 +6344,22 @@
             markup4: 25,
             buffer: 1000,
             hasMix: isMixActive,
+            hasChildPrices: hasChildPrices,
+            childExtraLabel: childExtraLabel,
+            childShareLabel: childShareLabel,
             cities: availableCities.filter(c => c.selected),
             tours: availableTours.filter(t => t.selected),
             transfers: availableTransfers.filter(t => t.selected),
             rates: {
                 p3: cleanLkrNumber(p3Text),
                 pMix: isMixActive ? cleanLkrNumber(pMixText) : null,
-                p4: cleanLkrNumber(p4Text)
+                p4: cleanLkrNumber(p4Text),
+                childExtra3: cExtra3,
+                childShare3: cShare3,
+                childExtraMix: cExtraMix,
+                childShareMix: cShareMix,
+                childExtra4: cExtra4,
+                childShare4: cShare4
             }
         };
 
@@ -6363,8 +6396,17 @@
             const cities = costing.availableCities || [];
             const tours = costing.availableTours || [];
             const transfers = costing.availableTransfers || [];
-            const rates = docData.rates || {};
+            const rates = docData.rates || costing.rates || {};
             const isMixActive = costing.hasMix ?? (rates && rates.pMix && cleanLkrNumber(rates.pMix) !== '0' && cleanLkrNumber(rates.pMix) !== '');
+            const hasChild = Boolean(
+                costing.hasChildPrices ||
+                (rates && (rates.childExtra3 || rates.childShare3 || rates.childExtra4 || rates.childShare4 || rates.childExtra || rates.childShare)) ||
+                (docData.itinerary && Array.isArray(docData.itinerary.options) && docData.itinerary.options.some(opt =>
+                    Array.isArray(opt.hotels) && opt.hotels.some(h =>
+                        Array.isArray(h.prices) && h.prices.some(p => (p.label || '').toLowerCase().includes('child'))
+                    )
+                ))
+            );
 
             const payload = {
                 title: docData.title || inqKey,
@@ -6378,6 +6420,9 @@
                 markup4: 25,
                 buffer: 1000,
                 hasMix: isMixActive,
+                hasChildPrices: hasChild,
+                childExtraLabel: docData.childExtraLabel || costing.childExtraLabel || 'Per Child (With Extra Bed)',
+                childShareLabel: docData.childShareLabel || costing.childShareLabel || 'Per Child (Sharing Bed)',
                 cities: cities.filter(c => c.selected !== false),
                 tours: tours.filter(t => t.selected !== false),
                 transfers: transfers.filter(t => t.selected !== false),
@@ -6388,7 +6433,13 @@
                 rates: {
                     p3: cleanLkrNumber(rates.p3),
                     pMix: isMixActive ? cleanLkrNumber(rates.pMix) : null,
-                    p4: cleanLkrNumber(rates.p4)
+                    p4: cleanLkrNumber(rates.p4),
+                    childExtra3: cleanLkrNumber(rates.childExtra3 || rates.p3ChildExtra),
+                    childShare3: cleanLkrNumber(rates.childShare3 || rates.p3ChildShare),
+                    childExtraMix: cleanLkrNumber(rates.childExtraMix || rates.pMixChildExtra),
+                    childShareMix: cleanLkrNumber(rates.childShareMix || rates.pMixChildShare),
+                    childExtra4: cleanLkrNumber(rates.childExtra4 || rates.p4ChildExtra),
+                    childShare4: cleanLkrNumber(rates.childShare4 || rates.p4ChildShare)
                 }
             };
 

@@ -32,6 +32,8 @@
         THB_GREEN: 'FF92D050',        // THB Currency Label #92D050
         ROUNDED_LIGHT_GREEN: 'FFD9EAD3', // Buffer +1000 Cell #D9EAD3
         CARD_YELLOW: 'FFFFE599',      // Option 2 & Option 3 Price Cards #FFE599
+        CHILD_EXTRA_CARD: 'FFB6D7A8', // Child Extra Bed Card #B6D7A8
+        CHILD_SHARE_CARD: 'FFD9EAD3', // Child Sharing Bed Card #D9EAD3
         WHITE: 'FFFFFFFF',
         BORDER_GRAY: 'FFD9D9D9'
     };
@@ -244,7 +246,7 @@
         const markup3 = Number(payload.markup3) || 18;
         const markupMix = Number(payload.markupMix) || 20;
         const markup4 = Number(payload.markup4) || 25;
-        const buffer = Number(payload.buffer) !== undefined ? Number(payload.buffer) : 1000;
+        const buffer = (!isNaN(Number(payload.buffer)) && payload.buffer !== null && payload.buffer !== undefined) ? Number(payload.buffer) : 1000;
 
         // Cities, Tours, Transfers & Days
         const cities = payload.cities || [];
@@ -274,6 +276,68 @@
             const isMultiCityMix = cities.length > 1 && uniquePrefs.size > 1;
             hasMix = Boolean(hasValidMixPrice && (isSplitStay || isMultiCityMix));
         }
+
+        // 2b. Determine Child Pricing Presence
+        const hasChildPrices = Boolean(
+            payload.hasChildPrices ||
+            payload.includeChildPrices ||
+            (payload.rates && (payload.rates.childExtra3 || payload.rates.childShare3 || payload.rates.childExtra4 || payload.rates.childShare4 || payload.rates.childExtra || payload.rates.childShare)) ||
+            (Array.isArray(payload.options) && payload.options.some(opt => 
+                Array.isArray(opt.hotels) && opt.hotels.some(h => 
+                    Array.isArray(h.prices) && h.prices.some(p => {
+                        const l = (p.label || '').toLowerCase();
+                        const a = String(p.amount || '');
+                        return (l.includes('child') || l.includes('extra bed') || l.includes('sharing')) && a && a !== 'LKR 0' && a !== '0';
+                    })
+                )
+            )) ||
+            (payload.childPrices && Object.keys(payload.childPrices).length > 0)
+        );
+
+        let childExtraLabel = (payload.childExtraLabel || 'Per Child (With Extra Bed)').trim();
+        let childShareLabel = (payload.childShareLabel || 'Per Child (Sharing Bed)').trim();
+
+        if (Array.isArray(payload.options)) {
+            payload.options.forEach(opt => {
+                (opt.hotels || []).forEach(h => {
+                    (h.prices || []).forEach(p => {
+                        const l = (p.label || '').trim();
+                        const lNorm = l.toLowerCase();
+                        if (lNorm.includes('extra bed') && l.length > 5) childExtraLabel = l;
+                        if (lNorm.includes('sharing') && l.length > 5) childShareLabel = l;
+                    });
+                });
+            });
+        }
+
+        // Calculate Child Meals per option from cities
+        let totalMealCost3 = 0;
+        let totalMealCostMix = 0;
+        let totalMealCost4 = 0;
+        cities.forEach(c => {
+            const n = Number(c.numberOfNights) || 1;
+            const m3 = Number(c.hotel3Meal) || 350;
+            const m4 = Number(c.hotel4Meal) || 450;
+            const m5 = Number(c.hotel5Meal) || 650;
+            if (c.isSplit) {
+                const n3 = Number(c.hotel3Nights) || 0;
+                const n4 = Number(c.hotel4Nights) || 0;
+                const n5 = Number(c.hotel5Nights) || 0;
+                totalMealCost3 += (m3 * n3 + m4 * n4 + m5 * n5);
+                totalMealCost4 += (m4 * (n3 + n4 + n5));
+                totalMealCostMix += (m3 * n3 + m4 * n4 + m5 * n5);
+            } else {
+                totalMealCost3 += (m3 * n);
+                totalMealCost4 += (m4 * n);
+                let mMix = m3;
+                if (c.mixPref === '4') mMix = m4;
+                else if (c.mixPref === '5') mMix = m5;
+                totalMealCostMix += (mMix * n);
+            }
+        });
+        if (totalMealCost3 === 0 && hasChildPrices) totalMealCost3 = 1750;
+        if (totalMealCostMix === 0 && hasChildPrices) totalMealCostMix = 1950;
+        if (totalMealCost4 === 0 && hasChildPrices) totalMealCost4 = 2250;
 
         // 3. Define Hotel Column Configuration
         // Col H is 3* Hotel.
@@ -345,13 +409,30 @@
         ws.getColumn(7).width = 12;   // G (Transfer)
         ws.getColumn(8).width = 14;   // H (3* Hotel)
         ws.getColumn(9).width = 14;   // I (Mix or 4* Hotel)
-        if (hasMix) {
-            ws.getColumn(10).width = 14;  // J (4* Hotel)
-            ws.getColumn(11).width = 10;
-            ws.getColumn(12).width = 12;
+        if (hasChildPrices) {
+            ws.getColumn(10).width = hasMix ? 14 : 10;
+            ws.getColumn(11).width = 14;   // K (Child 3* meals)
+            ws.getColumn(12).width = 16.5; // L (Child Mix / 4* meals / Extra Bed marker)
+            ws.getColumn(13).width = 14;   // M (Child 4* meals / Extra Bed Diff)
+            ws.getColumn(14).width = 12;   // N (Extra Bed 3*)
+            ws.getColumn(15).width = 12;   // O (Extra Bed Mix)
+            ws.getColumn(16).width = 12;   // P (Extra Bed 4*)
+            ws.getColumn(17).width = 8;    // Q (Spacer)
+            ws.getColumn(18).width = 14;   // R (Sharing Bed marker)
+            ws.getColumn(19).width = 10;   // S (Sharing Bed Diff)
+            ws.getColumn(20).width = 12;   // T (Sharing Bed 3*)
+            ws.getColumn(21).width = 12;   // U (Sharing Bed Mix)
+            ws.getColumn(22).width = 12;   // V (Sharing Bed 4*)
+            ws.getColumn(23).width = 8;
         } else {
-            ws.getColumn(10).width = 10;
-            ws.getColumn(11).width = 12;
+            if (hasMix) {
+                ws.getColumn(10).width = 14;  // J (4* Hotel)
+                ws.getColumn(11).width = 10;
+                ws.getColumn(12).width = 12;
+            } else {
+                ws.getColumn(10).width = 10;
+                ws.getColumn(11).width = 12;
+            }
         }
 
         // ── ROW 2: Tour Name Header ──
@@ -435,6 +516,28 @@
                     hdrRow.getCell(hCol.col).alignment = { horizontal: 'center' };
                     hdrRow.getCell(hCol.col).border = BORDER_THIN;
                 });
+
+                if (isLastDay && hasChildPrices) {
+                    hdrRow.getCell(11).value = 'Child 3* meals';
+                    hdrRow.getCell(11).font = { name: 'Calibri', size: 11 };
+                    hdrRow.getCell(11).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.HEADER_GREEN } };
+                    hdrRow.getCell(11).alignment = { horizontal: 'center' };
+                    hdrRow.getCell(11).border = BORDER_THIN;
+
+                    hdrRow.getCell(12).value = 'Child 4* meals';
+                    hdrRow.getCell(12).font = { name: 'Calibri', size: 11 };
+                    hdrRow.getCell(12).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.HEADER_MAUVE } };
+                    hdrRow.getCell(12).alignment = { horizontal: 'center' };
+                    hdrRow.getCell(12).border = BORDER_THIN;
+
+                    if (hasMix) {
+                        hdrRow.getCell(13).value = 'Child 4* meals';
+                        hdrRow.getCell(13).font = { name: 'Calibri', size: 11 };
+                        hdrRow.getCell(13).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.HEADER_MAUVE } };
+                        hdrRow.getCell(13).alignment = { horizontal: 'center' };
+                        hdrRow.getCell(13).border = BORDER_THIN;
+                    }
+                }
                 currentRow++;
 
                 // 2. City & Hotel Rates for this Night (if stay day)
@@ -473,6 +576,39 @@
                         mealPlaced = true;
                     }
                     row.getCell(4).border = BORDER_THIN;
+
+                    // Child meal amounts placement on the last day
+                    if (isLastDay && hasChildPrices) {
+                        const nightsCount = Math.max(1, (days ? days.length - 1 : cities.reduce((s, c) => s + (Number(c.numberOfNights) || 1), 0)));
+                        if (actIdx === 0 || cleanAct.toLowerCase().includes('breakfast')) {
+                            row.getCell(11).value = { formula: `350*${nightsCount}` };
+                            row.getCell(11).font = { name: 'Arial', size: 10 };
+                            row.getCell(11).alignment = { horizontal: 'right' };
+                            row.getCell(11).border = BORDER_THIN;
+
+                            if (hasMix) {
+                                row.getCell(12).value = { formula: `450*2` };
+                                row.getCell(12).font = { name: 'Arial', size: 10 };
+                                row.getCell(12).alignment = { horizontal: 'right' };
+                                row.getCell(12).border = BORDER_THIN;
+
+                                row.getCell(13).value = { formula: `450*${nightsCount}` };
+                                row.getCell(13).font = { name: 'Arial', size: 10 };
+                                row.getCell(13).alignment = { horizontal: 'right' };
+                                row.getCell(13).border = BORDER_THIN;
+                            } else {
+                                row.getCell(12).value = { formula: `450*${nightsCount}` };
+                                row.getCell(12).font = { name: 'Arial', size: 10 };
+                                row.getCell(12).alignment = { horizontal: 'right' };
+                                row.getCell(12).border = BORDER_THIN;
+                            }
+                        } else if (hasMix && (actIdx === 2 || cleanAct.toLowerCase().includes('transfer') || actIdx === rawActs.length - 1)) {
+                            row.getCell(12).value = { formula: `350*${Math.max(1, nightsCount - 2)}` };
+                            row.getCell(12).font = { name: 'Arial', size: 10 };
+                            row.getCell(12).alignment = { horizontal: 'right' };
+                            row.getCell(12).border = BORDER_THIN;
+                        }
+                    }
 
                     // Match Tours
                     const matchedTour = matchAndConsumeTour(actText, remainingTours);
@@ -614,6 +750,28 @@
                     hdrRow.getCell(hCol.col).alignment = { horizontal: 'center' };
                     hdrRow.getCell(hCol.col).border = BORDER_THIN;
                 });
+
+                if (isLastDay && hasChildPrices) {
+                    hdrRow.getCell(11).value = 'Child 3* meals';
+                    hdrRow.getCell(11).font = { name: 'Calibri', size: 11 };
+                    hdrRow.getCell(11).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.HEADER_GREEN } };
+                    hdrRow.getCell(11).alignment = { horizontal: 'center' };
+                    hdrRow.getCell(11).border = BORDER_THIN;
+
+                    hdrRow.getCell(12).value = 'Child 4* meals';
+                    hdrRow.getCell(12).font = { name: 'Calibri', size: 11 };
+                    hdrRow.getCell(12).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.HEADER_MAUVE } };
+                    hdrRow.getCell(12).alignment = { horizontal: 'center' };
+                    hdrRow.getCell(12).border = BORDER_THIN;
+
+                    if (hasMix) {
+                        hdrRow.getCell(13).value = 'Child 4* meals';
+                        hdrRow.getCell(13).font = { name: 'Calibri', size: 11 };
+                        hdrRow.getCell(13).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.HEADER_MAUVE } };
+                        hdrRow.getCell(13).alignment = { horizontal: 'center' };
+                        hdrRow.getCell(13).border = BORDER_THIN;
+                    }
+                }
                 currentRow++;
 
                 const curCity = cities[currentCityIdx] || {
@@ -698,6 +856,31 @@
                     rowBfast.getCell(4).alignment = { horizontal: 'center' };
                     rowBfast.getCell(4).border = BORDER_THIN;
 
+                    if (hasChildPrices) {
+                        const nightsCount = Math.max(1, totalDays - 1);
+                        rowBfast.getCell(11).value = { formula: `350*${nightsCount}` };
+                        rowBfast.getCell(11).font = { name: 'Arial', size: 10 };
+                        rowBfast.getCell(11).alignment = { horizontal: 'right' };
+                        rowBfast.getCell(11).border = BORDER_THIN;
+
+                        if (hasMix) {
+                            rowBfast.getCell(12).value = { formula: `450*2` };
+                            rowBfast.getCell(12).font = { name: 'Arial', size: 10 };
+                            rowBfast.getCell(12).alignment = { horizontal: 'right' };
+                            rowBfast.getCell(12).border = BORDER_THIN;
+
+                            rowBfast.getCell(13).value = { formula: `450*${nightsCount}` };
+                            rowBfast.getCell(13).font = { name: 'Arial', size: 10 };
+                            rowBfast.getCell(13).alignment = { horizontal: 'right' };
+                            rowBfast.getCell(13).border = BORDER_THIN;
+                        } else {
+                            rowBfast.getCell(12).value = { formula: `450*${nightsCount}` };
+                            rowBfast.getCell(12).font = { name: 'Arial', size: 10 };
+                            rowBfast.getCell(12).alignment = { horizontal: 'right' };
+                            rowBfast.getCell(12).border = BORDER_THIN;
+                        }
+                    }
+
                     const rowCheckout = ws.getRow(currentRow++);
                     rowCheckout.getCell(3).value = '12.00pm Check out from Hotel';
                     rowCheckout.getCell(3).font = { name: 'Arial', size: 10 };
@@ -716,6 +899,14 @@
                     rowDep.getCell(7).font = { name: 'Arial', size: 10 };
                     rowDep.getCell(7).alignment = { horizontal: 'right' };
                     rowDep.getCell(7).border = BORDER_THIN;
+
+                    if (hasMix && hasChildPrices) {
+                        const nightsCount = Math.max(1, totalDays - 1);
+                        rowDep.getCell(12).value = { formula: `350*${Math.max(1, nightsCount - 2)}` };
+                        rowDep.getCell(12).font = { name: 'Arial', size: 10 };
+                        rowDep.getCell(12).alignment = { horizontal: 'right' };
+                        rowDep.getCell(12).border = BORDER_THIN;
+                    }
 
                 } else {
                     const rowBfast = ws.getRow(currentRow++);
@@ -857,6 +1048,28 @@
             tableHeaderRow.getCell(hCol.col).border = BORDER_HAIR;
         });
 
+        if (hasChildPrices) {
+            tableHeaderRow.getCell(11).value = 'Child';
+            tableHeaderRow.getCell(11).font = { name: 'Calibri', size: 11 };
+            tableHeaderRow.getCell(11).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.HEADER_GREEN } };
+            tableHeaderRow.getCell(11).alignment = { horizontal: 'center' };
+            tableHeaderRow.getCell(11).border = BORDER_HAIR;
+
+            tableHeaderRow.getCell(12).value = 'Child';
+            tableHeaderRow.getCell(12).font = { name: 'Calibri', size: 11 };
+            tableHeaderRow.getCell(12).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.HEADER_MAUVE } };
+            tableHeaderRow.getCell(12).alignment = { horizontal: 'center' };
+            tableHeaderRow.getCell(12).border = BORDER_HAIR;
+
+            if (hasMix) {
+                tableHeaderRow.getCell(13).value = 'Child';
+                tableHeaderRow.getCell(13).font = { name: 'Calibri', size: 11 };
+                tableHeaderRow.getCell(13).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.HEADER_MAUVE } };
+                tableHeaderRow.getCell(13).alignment = { horizontal: 'center' };
+                tableHeaderRow.getCell(13).border = BORDER_HAIR;
+            }
+        }
+
         const lastActivityRow = tableHeaderRow.number - 1;
 
         // ── LIVE FORMULAS & CALCULATION SECTION ──
@@ -872,6 +1085,22 @@
             rSub.getCell(hCol.col).font = { name: 'Arial', size: 10, bold: true };
             rSub.getCell(hCol.col).border = BORDER_THIN;
         });
+
+        if (hasChildPrices) {
+            rSub.getCell(11).value = { formula: `SUM(K2:K${lastActivityRow})` };
+            rSub.getCell(11).font = { name: 'Arial', size: 10, bold: true };
+            rSub.getCell(11).border = BORDER_THIN;
+
+            rSub.getCell(12).value = { formula: `SUM(L2:L${lastActivityRow})` };
+            rSub.getCell(12).font = { name: 'Arial', size: 10, bold: true };
+            rSub.getCell(12).border = BORDER_THIN;
+
+            if (hasMix) {
+                rSub.getCell(13).value = { formula: `SUM(M2:M${lastActivityRow})` };
+                rSub.getCell(13).font = { name: 'Arial', size: 10, bold: true };
+                rSub.getCell(13).border = BORDER_THIN;
+            }
+        }
         currentRow++;
 
         // 2. Per Pax Row
@@ -915,6 +1144,50 @@
             rStar.getCell(hCol.col).border = BORDER_HAIR;
         });
 
+        if (hasChildPrices) {
+            rStar.getCell(11).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.WHITE } };
+            rStar.getCell(11).border = BORDER_HAIR;
+
+            rStar.getCell(12).value = 'Extra Bed ';
+            rStar.getCell(12).font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
+            rStar.getCell(12).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.TOUR_END_GREEN } };
+            rStar.getCell(12).alignment = { horizontal: 'center' };
+            rStar.getCell(12).border = BORDER_HAIR;
+
+            rStar.getCell(13).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.TOUR_END_GREEN } };
+            rStar.getCell(13).border = BORDER_HAIR;
+
+            rStar.getCell(14).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.TOUR_END_GREEN } };
+            rStar.getCell(14).border = BORDER_HAIR;
+
+            rStar.getCell(15).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.HEADER_MAUVE } };
+            rStar.getCell(15).border = BORDER_HAIR;
+
+            rStar.getCell(16).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.HEADER_MAUVE } };
+            rStar.getCell(16).border = BORDER_HAIR;
+
+            rStar.getCell(17).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.WHITE } };
+            rStar.getCell(17).border = BORDER_HAIR;
+
+            rStar.getCell(18).value = 'Sharing Bed';
+            rStar.getCell(18).font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
+            rStar.getCell(18).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.TOUR_END_GREEN } };
+            rStar.getCell(18).alignment = { horizontal: 'center' };
+            rStar.getCell(18).border = BORDER_HAIR;
+
+            rStar.getCell(19).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.TOUR_END_GREEN } };
+            rStar.getCell(19).border = BORDER_HAIR;
+
+            rStar.getCell(20).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.TOUR_END_GREEN } };
+            rStar.getCell(20).border = BORDER_HAIR;
+
+            rStar.getCell(21).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.HEADER_MAUVE } };
+            rStar.getCell(21).border = BORDER_HAIR;
+
+            rStar.getCell(22).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.HEADER_MAUVE } };
+            rStar.getCell(22).border = BORDER_HAIR;
+        }
+
         // 3. Net Package Cost Row
         const netRowIdx = currentRow;
         const rNet = ws.getRow(netRowIdx);
@@ -927,6 +1200,38 @@
             rNet.getCell(hCol.col).font = { name: 'Arial', size: 10, bold: true };
             rNet.getCell(hCol.col).border = BORDER_THIN;
         });
+
+        if (hasChildPrices) {
+            rNet.getCell(11).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.WHITE } };
+
+            // Extra Bed Net: Tour (F) + Hotel Per Pax (H, I, J)
+            rNet.getCell(14).value = { formula: `SUM(F${perPaxRowIdx}+H${perPaxRowIdx})` };
+            rNet.getCell(14).font = { name: 'Arial', size: 10, bold: true };
+            rNet.getCell(14).border = BORDER_THIN;
+
+            rNet.getCell(15).value = { formula: `SUM(F${perPaxRowIdx}+${hasMix ? 'I' : 'H'}${perPaxRowIdx})` };
+            rNet.getCell(15).font = { name: 'Arial', size: 10, bold: true };
+            rNet.getCell(15).border = BORDER_THIN;
+
+            rNet.getCell(16).value = { formula: `SUM(F${perPaxRowIdx}+${hasMix ? 'J' : 'I'}${perPaxRowIdx})` };
+            rNet.getCell(16).font = { name: 'Arial', size: 10, bold: true };
+            rNet.getCell(16).border = BORDER_THIN;
+
+            rNet.getCell(17).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.WHITE } };
+
+            // Sharing Bed Net: Tour (F) + Child Meal Subtotal (K, L, M)
+            rNet.getCell(20).value = { formula: `SUM(F${perPaxRowIdx}+K${subtotalRowIdx})` };
+            rNet.getCell(20).font = { name: 'Arial', size: 10, bold: true };
+            rNet.getCell(20).border = BORDER_THIN;
+
+            rNet.getCell(21).value = { formula: `SUM(F${perPaxRowIdx}+L${subtotalRowIdx})` };
+            rNet.getCell(21).font = { name: 'Arial', size: 10, bold: true };
+            rNet.getCell(21).border = BORDER_THIN;
+
+            rNet.getCell(22).value = { formula: `SUM(F${perPaxRowIdx}+${hasMix ? 'M' : 'L'}${subtotalRowIdx})` };
+            rNet.getCell(22).font = { name: 'Arial', size: 10, bold: true };
+            rNet.getCell(22).border = BORDER_THIN;
+        }
         currentRow++;
 
         // 4. Inclusions Breakdown Lines
@@ -999,6 +1304,58 @@
             rInc2.getCell(hCol.col).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.MARKUP_ORANGE } };
             rInc2.getCell(hCol.col).border = BORDER_THIN;
         });
+
+        if (hasChildPrices) {
+            rInc2.getCell(11).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.WHITE } };
+
+            // Extra Bed Markup
+            rInc2.getCell(13).value = `${hotelCols[0].markup}%`;
+            rInc2.getCell(13).font = { name: 'Calibri', size: 11, bold: true };
+            rInc2.getCell(13).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.MARKUP_ORANGE } };
+            rInc2.getCell(13).alignment = { horizontal: 'center' };
+            rInc2.getCell(13).border = BORDER_THIN;
+
+            rInc2.getCell(14).value = { formula: `SUM(N${netRowIdx}*${(100 + hotelCols[0].markup)}/100)` };
+            rInc2.getCell(14).font = { name: 'Calibri', size: 11, bold: true };
+            rInc2.getCell(14).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.MARKUP_ORANGE } };
+            rInc2.getCell(14).border = BORDER_THIN;
+
+            const m2Val = hotelCols[1] ? hotelCols[1].markup : markupMix;
+            rInc2.getCell(15).value = { formula: `SUM(O${netRowIdx}*${(100 + m2Val)}/100)` };
+            rInc2.getCell(15).font = { name: 'Calibri', size: 11, bold: true };
+            rInc2.getCell(15).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.MARKUP_ORANGE } };
+            rInc2.getCell(15).border = BORDER_THIN;
+
+            const m3Val = hotelCols[2] ? hotelCols[2].markup : (hotelCols[1] ? hotelCols[1].markup : markup4);
+            rInc2.getCell(16).value = { formula: `SUM(P${netRowIdx}*${(100 + m3Val)}/100)` };
+            rInc2.getCell(16).font = { name: 'Calibri', size: 11, bold: true };
+            rInc2.getCell(16).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.MARKUP_ORANGE } };
+            rInc2.getCell(16).border = BORDER_THIN;
+
+            rInc2.getCell(17).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.WHITE } };
+
+            // Sharing Bed Markup
+            rInc2.getCell(19).value = `${hotelCols[0].markup}%`;
+            rInc2.getCell(19).font = { name: 'Calibri', size: 11, bold: true };
+            rInc2.getCell(19).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.MARKUP_ORANGE } };
+            rInc2.getCell(19).alignment = { horizontal: 'center' };
+            rInc2.getCell(19).border = BORDER_THIN;
+
+            rInc2.getCell(20).value = { formula: `SUM(T${netRowIdx}*${(100 + hotelCols[0].markup)}/100)` };
+            rInc2.getCell(20).font = { name: 'Calibri', size: 11, bold: true };
+            rInc2.getCell(20).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.MARKUP_ORANGE } };
+            rInc2.getCell(20).border = BORDER_THIN;
+
+            rInc2.getCell(21).value = { formula: `SUM(U${netRowIdx}*${(100 + m2Val)}/100)` };
+            rInc2.getCell(21).font = { name: 'Calibri', size: 11, bold: true };
+            rInc2.getCell(21).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.MARKUP_ORANGE } };
+            rInc2.getCell(21).border = BORDER_THIN;
+
+            rInc2.getCell(22).value = { formula: `SUM(V${netRowIdx}*${(100 + m3Val)}/100)` };
+            rInc2.getCell(22).font = { name: 'Calibri', size: 11, bold: true };
+            rInc2.getCell(22).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.MARKUP_ORANGE } };
+            rInc2.getCell(22).border = BORDER_THIN;
+        }
         currentRow++;
 
         // Inc 3: Different / Profit Margin
@@ -1019,6 +1376,40 @@
             rInc3.getCell(hCol.col).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.DIFF_CREAM } };
             rInc3.getCell(hCol.col).border = BORDER_THIN;
         });
+
+        if (hasChildPrices) {
+            rInc3.getCell(11).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.WHITE } };
+
+            rInc3.getCell(13).value = 'Different';
+            rInc3.getCell(13).font = { name: 'Arial', size: 10, bold: true };
+            rInc3.getCell(13).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.DIFF_CREAM } };
+            rInc3.getCell(13).alignment = { horizontal: 'center' };
+            rInc3.getCell(13).border = BORDER_THIN;
+
+            [14, 15, 16].forEach(cNum => {
+                const letCode = String.fromCharCode(64 + cNum);
+                rInc3.getCell(cNum).value = { formula: `${letCode}${markupRowIdx}-${letCode}${netRowIdx}` };
+                rInc3.getCell(cNum).font = { name: 'Arial', size: 10 };
+                rInc3.getCell(cNum).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.DIFF_CREAM } };
+                rInc3.getCell(cNum).border = BORDER_THIN;
+            });
+
+            rInc3.getCell(17).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.WHITE } };
+
+            rInc3.getCell(19).value = 'Different';
+            rInc3.getCell(19).font = { name: 'Arial', size: 10, bold: true };
+            rInc3.getCell(19).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.DIFF_CREAM } };
+            rInc3.getCell(19).alignment = { horizontal: 'center' };
+            rInc3.getCell(19).border = BORDER_THIN;
+
+            [20, 21, 22].forEach(cNum => {
+                const letCode = String.fromCharCode(64 + cNum);
+                rInc3.getCell(cNum).value = { formula: `${letCode}${markupRowIdx}-${letCode}${netRowIdx}` };
+                rInc3.getCell(cNum).font = { name: 'Arial', size: 10 };
+                rInc3.getCell(cNum).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.DIFF_CREAM } };
+                rInc3.getCell(cNum).border = BORDER_THIN;
+            });
+        }
         currentRow++;
 
         // Inc 4: Admissions
@@ -1044,6 +1435,40 @@
             rInc5.getCell(hCol.col).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.THB_GREEN } };
             rInc5.getCell(hCol.col).border = BORDER_THIN;
         });
+
+        if (hasChildPrices) {
+            rInc5.getCell(11).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.WHITE } };
+
+            rInc5.getCell(13).value = 'THB';
+            rInc5.getCell(13).font = { name: 'Calibri', size: 11, bold: true };
+            rInc5.getCell(13).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.THB_GREEN } };
+            rInc5.getCell(13).alignment = { horizontal: 'center' };
+            rInc5.getCell(13).border = BORDER_THIN;
+
+            [14, 15, 16].forEach(cNum => {
+                const letCode = String.fromCharCode(64 + cNum);
+                rInc5.getCell(cNum).value = { formula: `${letCode}${markupRowIdx}` };
+                rInc5.getCell(cNum).font = { name: 'Calibri', size: 11, bold: true };
+                rInc5.getCell(cNum).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.THB_GREEN } };
+                rInc5.getCell(cNum).border = BORDER_THIN;
+            });
+
+            rInc5.getCell(17).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.WHITE } };
+
+            rInc5.getCell(19).value = 'THB';
+            rInc5.getCell(19).font = { name: 'Calibri', size: 11, bold: true };
+            rInc5.getCell(19).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.THB_GREEN } };
+            rInc5.getCell(19).alignment = { horizontal: 'center' };
+            rInc5.getCell(19).border = BORDER_THIN;
+
+            [20, 21, 22].forEach(cNum => {
+                const letCode = String.fromCharCode(64 + cNum);
+                rInc5.getCell(cNum).value = { formula: `${letCode}${markupRowIdx}` };
+                rInc5.getCell(cNum).font = { name: 'Calibri', size: 11, bold: true };
+                rInc5.getCell(cNum).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.THB_GREEN } };
+                rInc5.getCell(cNum).border = BORDER_THIN;
+            });
+        }
         currentRow++;
 
         // Inc 6: Tour 2 (if any)
@@ -1068,6 +1493,38 @@
             rInc7.getCell(hCol.col).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.HIGHLIGHT_YELLOW } };
             rInc7.getCell(hCol.col).border = BORDER_THIN;
         });
+
+        if (hasChildPrices) {
+            rInc7.getCell(11).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.WHITE } };
+
+            rInc7.getCell(13).value = 'LKR';
+            rInc7.getCell(13).font = { name: 'Calibri', size: 11, bold: true };
+            rInc7.getCell(13).alignment = { horizontal: 'center' };
+            rInc7.getCell(13).border = BORDER_THIN;
+
+            [14, 15, 16].forEach(cNum => {
+                const letCode = String.fromCharCode(64 + cNum);
+                rInc7.getCell(cNum).value = { formula: `SUM(${letCode}${thbRowIdx}*${roe})` };
+                rInc7.getCell(cNum).font = { name: 'Arial', size: 10, bold: true };
+                rInc7.getCell(cNum).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.HIGHLIGHT_YELLOW } };
+                rInc7.getCell(cNum).border = BORDER_THIN;
+            });
+
+            rInc7.getCell(17).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.WHITE } };
+
+            rInc7.getCell(19).value = 'LKR';
+            rInc7.getCell(19).font = { name: 'Calibri', size: 11, bold: true };
+            rInc7.getCell(19).alignment = { horizontal: 'center' };
+            rInc7.getCell(19).border = BORDER_THIN;
+
+            [20, 21, 22].forEach(cNum => {
+                const letCode = String.fromCharCode(64 + cNum);
+                rInc7.getCell(cNum).value = { formula: `SUM(${letCode}${thbRowIdx}*${roe})` };
+                rInc7.getCell(cNum).font = { name: 'Arial', size: 10, bold: true };
+                rInc7.getCell(cNum).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.HIGHLIGHT_YELLOW } };
+                rInc7.getCell(cNum).border = BORDER_THIN;
+            });
+        }
         currentRow++;
 
         // Inc 8: Meals Summary (Rendered EXACTLY ONCE here!)
@@ -1103,6 +1560,36 @@
             rTot.getCell(hCol.col).font = { name: 'Arial', size: 10, bold: true };
             rTot.getCell(hCol.col).border = BORDER_THIN;
         });
+
+        if (hasChildPrices) {
+            rTot.getCell(11).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.WHITE } };
+
+            rTot.getCell(13).value = 'Total';
+            rTot.getCell(13).font = { name: 'Arial', size: 10, bold: true };
+            rTot.getCell(13).alignment = { horizontal: 'center' };
+            rTot.getCell(13).border = BORDER_THIN;
+
+            [14, 15, 16].forEach(cNum => {
+                const letCode = String.fromCharCode(64 + cNum);
+                rTot.getCell(cNum).value = { formula: `SUM(${letCode}${lkrRowIdx})` };
+                rTot.getCell(cNum).font = { name: 'Arial', size: 10, bold: true };
+                rTot.getCell(cNum).border = BORDER_THIN;
+            });
+
+            rTot.getCell(17).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.WHITE } };
+
+            rTot.getCell(19).value = 'Total';
+            rTot.getCell(19).font = { name: 'Arial', size: 10, bold: true };
+            rTot.getCell(19).alignment = { horizontal: 'center' };
+            rTot.getCell(19).border = BORDER_THIN;
+
+            [20, 21, 22].forEach(cNum => {
+                const letCode = String.fromCharCode(64 + cNum);
+                rTot.getCell(cNum).value = { formula: `SUM(${letCode}${lkrRowIdx})` };
+                rTot.getCell(cNum).font = { name: 'Arial', size: 10, bold: true };
+                rTot.getCell(cNum).border = BORDER_THIN;
+            });
+        }
         currentRow++;
 
         // ROUNDUP Row
@@ -1113,6 +1600,26 @@
             rRound.getCell(hCol.col).font = { name: 'Arial', size: 10 };
             rRound.getCell(hCol.col).border = BORDER_THIN;
         });
+
+        if (hasChildPrices) {
+            rRound.getCell(11).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.WHITE } };
+
+            [14, 15, 16].forEach(cNum => {
+                const letCode = String.fromCharCode(64 + cNum);
+                rRound.getCell(cNum).value = { formula: `ROUNDUP(${letCode}${totRowIdx}, -2)` };
+                rRound.getCell(cNum).font = { name: 'Arial', size: 10 };
+                rRound.getCell(cNum).border = BORDER_THIN;
+            });
+
+            rRound.getCell(17).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.WHITE } };
+
+            [20, 21, 22].forEach(cNum => {
+                const letCode = String.fromCharCode(64 + cNum);
+                rRound.getCell(cNum).value = { formula: `ROUNDUP(${letCode}${totRowIdx}, -2)` };
+                rRound.getCell(cNum).font = { name: 'Arial', size: 10 };
+                rRound.getCell(cNum).border = BORDER_THIN;
+            });
+        }
         currentRow++;
 
         // Final Buffer (+1000) Row
@@ -1124,6 +1631,28 @@
             rBuffer.getCell(hCol.col).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.ROUNDED_LIGHT_GREEN } };
             rBuffer.getCell(hCol.col).border = BORDER_THIN;
         });
+
+        if (hasChildPrices) {
+            rBuffer.getCell(11).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.WHITE } };
+
+            [14, 15, 16].forEach(cNum => {
+                const letCode = String.fromCharCode(64 + cNum);
+                rBuffer.getCell(cNum).value = { formula: `${letCode}${roundRowIdx}+${buffer}` };
+                rBuffer.getCell(cNum).font = { name: 'Arial', size: 10, bold: true };
+                rBuffer.getCell(cNum).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.ROUNDED_LIGHT_GREEN } };
+                rBuffer.getCell(cNum).border = BORDER_THIN;
+            });
+
+            rBuffer.getCell(17).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.WHITE } };
+
+            [20, 21, 22].forEach(cNum => {
+                const letCode = String.fromCharCode(64 + cNum);
+                rBuffer.getCell(cNum).value = { formula: `${letCode}${roundRowIdx}+${buffer}` };
+                rBuffer.getCell(cNum).font = { name: 'Arial', size: 10, bold: true };
+                rBuffer.getCell(cNum).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.ROUNDED_LIGHT_GREEN } };
+                rBuffer.getCell(cNum).border = BORDER_THIN;
+            });
+        }
         currentRow++;
 
         // 5. Exclusions Section
@@ -1157,9 +1686,9 @@
                 return Number(val.result) || 0;
             }
             if (typeof val === 'string') {
-                const trimmed = val.trim();
-                if (/^[0-9]+(\.[0-9]+)?$/.test(trimmed)) {
-                    return Number(trimmed);
+                const cleaned = val.replace(/[^0-9.]/g, '');
+                if (cleaned) {
+                    return Number(cleaned) || 0;
                 }
             }
             return 0;
@@ -1185,14 +1714,35 @@
             const roundedLkr = Math.ceil(lkr / 100) * 100;
             const bufferPrice = roundedLkr + buffer;
             hCol.calculatedBufferPrice = bufferPrice;
+
+            if (hasChildPrices) {
+                // Child Extra Bed calculation: Tour + Hotel / 2 (no transfer)
+                const extraNet = tourSum + hotelPerPax;
+                const extraThb = extraNet * (100 + hCol.markup) / 100;
+                const extraLkr = extraThb * roe;
+                const extraRounded = Math.ceil(extraLkr / 100) * 100;
+                hCol.calculatedChildExtraPrice = extraRounded + buffer;
+
+                // Child Sharing Bed calculation: Tour + Child Meals (no hotel, no transfer)
+                let mealCostForCol = totalMealCost3;
+                if (hCol.key === 'hMix') mealCostForCol = totalMealCostMix;
+                else if (hCol.key === 'h4') mealCostForCol = totalMealCost4;
+
+                const shareNet = tourSum + mealCostForCol;
+                const shareThb = shareNet * (100 + hCol.markup) / 100;
+                const shareLkr = shareThb * roe;
+                const shareRounded = Math.ceil(shareLkr / 100) * 100;
+                hCol.calculatedChildSharePrice = shareRounded + buffer;
+            }
         });
 
         hotelCols.forEach(hCol => {
             // Find option hotels from builder if available
             let optHotelNames = [];
+            let matchedOpt = null;
 
             if (builderOptions) {
-                const matchedOpt = builderOptions.find(o => {
+                matchedOpt = builderOptions.find(o => {
                     const rNorm = normalizeText(o.rating);
                     if (hCol.key === 'h3') return rNorm.includes('3');
                     if (hCol.key === 'hMix') return rNorm.includes('mix');
@@ -1221,21 +1771,86 @@
             }
 
             // Print Hotel Option Lines
-            optHotelNames.forEach(hLine => {
+            optHotelNames.forEach((hLine, hIdx) => {
                 const rOptHotel = ws.getRow(currentRow++);
                 rOptHotel.getCell(3).value = hLine.startsWith('With ') ? hLine : `With ${hCol.cardLabel} ${hLine}`;
                 rOptHotel.getCell(3).font = { name: 'Arial', size: 10 };
+                rOptHotel.getCell(3).border = hIdx === 0
+                    ? { left: { style: 'thin', color: { argb: 'FF000000' } }, top: { style: 'thin', color: { argb: 'FF000000' } } }
+                    : { left: { style: 'thin', color: { argb: 'FF000000' } } };
             });
 
             // Print Price Card Row (Calculated buffer price directly from table)
             const rPriceCard = ws.getRow(currentRow++);
-            const cardPriceVal = hCol.calculatedBufferPrice || 0;
+            let cardPriceVal = hCol.calculatedBufferPrice || 0;
+            const ratesObj = payload.rates || {};
+            if (hCol.key === 'h3' && ratesObj.p3) cardPriceVal = extractNumericVal(ratesObj.p3);
+            else if (hCol.key === 'hMix' && ratesObj.pMix) cardPriceVal = extractNumericVal(ratesObj.pMix);
+            else if (hCol.key === 'h4' && ratesObj.p4) cardPriceVal = extractNumericVal(ratesObj.p4);
+
+            if (matchedOpt && Array.isArray(matchedOpt.prices)) {
+                matchedOpt.prices.forEach(p => {
+                    const lblNorm = normalizeText(p.label);
+                    const pAmt = extractNumericVal(p.amount);
+                    if (pAmt > 0 && (lblNorm.includes('person') || lblNorm.includes('adult') || lblNorm.includes('minimum'))) {
+                        cardPriceVal = pAmt;
+                    }
+                });
+            }
+
             const displayPrice = `LKR ${cardPriceVal.toLocaleString('en-US')} Per Person (Minimum ${paxStr})`;
 
             rPriceCard.getCell(3).value = displayPrice;
             rPriceCard.getCell(3).font = { name: 'Calibri', size: 11, bold: true };
             rPriceCard.getCell(3).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: hCol.cardColor } };
-            currentRow += 2; // Spacing between cards
+            rPriceCard.getCell(3).border = { left: { style: 'thin', color: { argb: 'FF000000' } }, bottom: { style: 'thin', color: { argb: 'FF000000' } } };
+
+            if (hasChildPrices) {
+                let extraPriceVal = hCol.calculatedChildExtraPrice;
+                let sharePriceVal = hCol.calculatedChildSharePrice;
+
+                // Check payload.rates overrides
+                if (hCol.key === 'h3') {
+                    if (ratesObj.childExtra3) extraPriceVal = extractNumericVal(ratesObj.childExtra3);
+                    if (ratesObj.childShare3) sharePriceVal = extractNumericVal(ratesObj.childShare3);
+                } else if (hCol.key === 'hMix') {
+                    if (ratesObj.childExtraMix) extraPriceVal = extractNumericVal(ratesObj.childExtraMix);
+                    if (ratesObj.childShareMix) sharePriceVal = extractNumericVal(ratesObj.childShareMix);
+                } else if (hCol.key === 'h4') {
+                    if (ratesObj.childExtra4) extraPriceVal = extractNumericVal(ratesObj.childExtra4);
+                    if (ratesObj.childShare4) sharePriceVal = extractNumericVal(ratesObj.childShare4);
+                }
+
+                // Check matched builder option prices if available
+                if (matchedOpt && Array.isArray(matchedOpt.prices)) {
+                    matchedOpt.prices.forEach(p => {
+                        const lblNorm = normalizeText(p.label);
+                        const pAmt = extractNumericVal(p.amount);
+                        if (pAmt > 0) {
+                            if (lblNorm.includes('extra bed') || lblNorm.includes('extra')) extraPriceVal = pAmt;
+                            else if (lblNorm.includes('sharing')) sharePriceVal = pAmt;
+                        }
+                    });
+                }
+
+                // Child Extra Bed Card
+                const rExtraCard = ws.getRow(currentRow++);
+                const extraDisplay = `LKR ${extraPriceVal.toLocaleString('en-US')} ${childExtraLabel}`;
+                rExtraCard.getCell(3).value = extraDisplay;
+                rExtraCard.getCell(3).font = { name: 'Calibri', size: 11, bold: true };
+                rExtraCard.getCell(3).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.CHILD_EXTRA_CARD } };
+                rExtraCard.getCell(3).border = { left: { style: 'thin', color: { argb: 'FF000000' } } };
+
+                // Child Sharing Bed Card
+                const rShareCard = ws.getRow(currentRow++);
+                const shareDisplay = `LKR ${sharePriceVal.toLocaleString('en-US')} ${childShareLabel}`;
+                rShareCard.getCell(3).value = shareDisplay;
+                rShareCard.getCell(3).font = { name: 'Calibri', size: 11, bold: true };
+                rShareCard.getCell(3).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.CHILD_SHARE_CARD } };
+                rShareCard.getCell(3).border = { left: { style: 'thin', color: { argb: 'FF000000' } } };
+            }
+
+            currentRow++; // 1 empty row spacing between cards (matches sample excel)
         });
 
         return wb;
