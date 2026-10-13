@@ -254,17 +254,25 @@
 
         // 2. Determine Mix Package Presence
         let hasMix = false;
-        if (payload.hasMix !== undefined && payload.hasMix !== null) {
-            hasMix = Boolean(payload.hasMix);
+        if (typeof payload.hasMix === 'boolean') {
+            hasMix = payload.hasMix;
+        } else if (payload.options && Array.isArray(payload.options) && payload.options.length > 0) {
+            // Primary source of truth: does the itinerary offer a mix hotel option?
+            hasMix = payload.options.some(opt => 
+                opt.hotels && opt.hotels.some(h => {
+                    const r = (h.rating || '').toLowerCase();
+                    const n = Array.isArray(h.names) ? h.names.join(' ').toLowerCase() : String(h.names || '').toLowerCase();
+                    return r.includes('mix') || n.includes('mix hotel');
+                })
+            );
         } else {
-            // Auto detect from rates and options
+            // Secondary fallback: only if valid pMix rate AND actual split stay or multi-city mix
             const pMixVal = payload.rates?.pMix;
             const hasValidMixPrice = pMixVal && String(pMixVal).replace(/[^0-9]/g, '') !== '' && String(pMixVal).replace(/[^0-9]/g, '') !== '0';
-            const hasMixInOptions = payload.options && payload.options.some(opt => 
-                opt.hotels && opt.hotels.some(h => (h.rating || '').toLowerCase().includes('mix'))
-            );
-            const hasMixCityPref = cities.some(c => c.isSplit || (c.mixPref && c.mixPref !== 'none' && c.mixPref !== '3' && c.mixPref !== '4'));
-            hasMix = Boolean(hasValidMixPrice && (hasMixInOptions || hasMixCityPref));
+            const isSplitStay = cities.some(c => c.isSplit);
+            const uniquePrefs = new Set(cities.map(c => c.mixPref).filter(p => p && p !== 'none'));
+            const isMultiCityMix = cities.length > 1 && uniquePrefs.size > 1;
+            hasMix = Boolean(hasValidMixPrice && (isSplitStay || isMultiCityMix));
         }
 
         // 3. Define Hotel Column Configuration

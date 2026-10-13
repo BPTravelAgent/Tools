@@ -2376,17 +2376,20 @@ window.slwDownloadCostingExcelFromBuilder = async function() {
             });
         }
 
-        // 7. Determine hasMix
+        // 7. Determine hasMix strictly from active options
         let hasMix = false;
-        if (costing && costing.hasMix !== undefined && costing.hasMix !== null) {
-            hasMix = Boolean(costing.hasMix);
-        } else {
-            const hasMixPrice = rates.pMix && String(rates.pMix).replace(/[^0-9]/g, '') !== '' && String(rates.pMix).replace(/[^0-9]/g, '') !== '0';
-            const hasMixOption = liveData.options && liveData.options.some(opt => 
-                opt.hotels && opt.hotels.some(h => (h.rating || '').toLowerCase().includes('mix'))
+        if (liveData.options && Array.isArray(liveData.options) && liveData.options.length > 0) {
+            hasMix = liveData.options.some(opt => 
+                opt.hotels && opt.hotels.some(h => {
+                    const r = (h.rating || '').toLowerCase();
+                    const n = Array.isArray(h.names) ? h.names.join(' ').toLowerCase() : String(h.names || '').toLowerCase();
+                    return r.includes('mix') || n.includes('mix hotel');
+                })
             );
-            const hasMixCity = cities.some(c => c.isSplit || (c.mixPref && c.mixPref !== 'none' && c.mixPref !== '3' && c.mixPref !== '4'));
-            hasMix = Boolean(hasMixPrice && (hasMixOption || hasMixCity));
+        } else if (costing && typeof costing.hasMix === 'boolean') {
+            hasMix = costing.hasMix;
+        } else {
+            hasMix = false;
         }
 
         // 8. Build Complete Payload with Live Finalized Days
@@ -2744,7 +2747,7 @@ window.slwApplyCostingPrices = function(targetOptionIndex = 0) {
                         applyPricesToHotel(h3, costingData.prices3Star);
                     }
 
-                    if (costingData.pricesMix) {
+                    if (costingData.hasMix && costingData.pricesMix) {
                         if (!hMix) {
                             const mixTitle = costingData.pricesMix.title || "Mix Hotel Option";
                             hMix = { rating: mixTitle, names: ["Mix Hotel Accommodation"], price: "", prices: [] };

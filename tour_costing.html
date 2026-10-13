@@ -4443,8 +4443,12 @@
         const isValid3 = selectedCities.length > 0 && selectedCities.every(c => c.hotel3Name);
         const isValid4 = selectedCities.length > 0 && selectedCities.every(c => c.hotel4Name);
         const isValid5 = selectedCities.length > 0 && selectedCities.every(c => c.hotel5Name);
+        const isActuallyMix = selectedCities.some(c => c.isSplit) || (
+            selectedCities.length > 1 && 
+            new Set(selectedCities.map(c => c.mixPref).filter(p => p && p !== 'none')).size > 1
+        );
         const hasNoneMixPref = selectedCities.some(c => !c.isSplit && c.mixPref === "none");
-        const isValidMix = selectedCities.length > 0 && !hasNoneMixPref && selectedCities.every(c => {
+        const isValidMix = isActuallyMix && !hasNoneMixPref && selectedCities.every(c => {
             if (c.isSplit) return true;
             if (c.mixPref === "3") return !!c.hotel3Name;
             if (c.mixPref === "4") return !!c.hotel4Name;
@@ -5763,6 +5767,7 @@
                 summary: fullSummary,
                 rates: rates,
                 costing: {
+                    hasMix: Boolean(document.getElementById('result_card_mix')?.style.display !== 'none'),
                     availableCities: JSON.parse(JSON.stringify(availableCities)),
                     availableTours: JSON.parse(JSON.stringify(availableTours)),
                     availableTransfers: JSON.parse(JSON.stringify(availableTransfers)),
