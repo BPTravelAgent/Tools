@@ -204,11 +204,12 @@
      * @returns {Promise<ExcelJS.Workbook>}
      */
     async function createCostingWorkbook(payload) {
-        if (!ExcelJS) {
+        const LibExcel = (typeof ExcelJS !== 'undefined' && ExcelJS) || (typeof window !== 'undefined' && window.ExcelJS) || (typeof globalThis !== 'undefined' && globalThis.ExcelJS);
+        if (!LibExcel) {
             throw new Error('ExcelJS is not available in the current context.');
         }
 
-        const wb = new ExcelJS.Workbook();
+        const wb = new LibExcel.Workbook();
         wb.creator = 'Sun Leisure World - Tour Costing System';
         wb.lastModifiedBy = 'Sun Leisure World';
         wb.created = new Date();

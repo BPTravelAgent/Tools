@@ -2189,6 +2189,7 @@ window.slwDownloadCostingExcelFromBuilder = async function() {
         const inqKeyRaw = liveData.inq || window.__slwActiveInq || localStorage.getItem('SLW_ACTIVE_INQ') || '';
         const inqKeyNorm = slwNormalizeInqKey(inqKeyRaw);
         const inqDigits = String(inqKeyRaw).replace(/[^0-9]/g, '');
+        const inqKey = inqKeyNorm || inqKeyRaw;
 
         // 3. Search and resolve Quotation Document and Costing Data
         let costing = null;
