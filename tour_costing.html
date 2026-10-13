@@ -3991,7 +3991,35 @@
     function launchInItineraryBuilder() {
         const payload = buildItineraryJsonPayload();
         saveLatestCostingPrices(payload);
+
+        const mixCard = document.getElementById('result_card_mix');
+        const isMixActive = mixCard && mixCard.style.display !== 'none';
+        const p3Text = document.getElementById('adult_final_lkr_3star')?.innerText || '';
+        const pMixText = isMixActive ? (document.getElementById('adult_final_lkr_mix')?.innerText || '') : '';
+        const p4Text = document.getElementById('adult_final_lkr_4star')?.innerText || '';
+        const roe = parseFloat(document.getElementById('lkr_rate')?.value) || 10.8;
+        const markupVal = parseFloat(document.getElementById('markup')?.value) || 18;
+
+        const costingData = {
+            availableCities: JSON.parse(JSON.stringify(availableCities.filter(c => c.selected))),
+            availableTours: JSON.parse(JSON.stringify(availableTours.filter(t => t.selected))),
+            availableTransfers: JSON.parse(JSON.stringify(availableTransfers.filter(t => t.selected))),
+            hasMix: isMixActive,
+            roe: roe,
+            markup3: markupVal,
+            markupMix: 20,
+            markup4: 25,
+            buffer: 1000,
+            rates: {
+                p3: cleanLkrNumber(p3Text),
+                pMix: isMixActive ? cleanLkrNumber(pMixText) : null,
+                p4: cleanLkrNumber(p4Text)
+            }
+        };
+        payload.costing = costingData;
+
         try {
+            localStorage.setItem('SLW_PENDING_COSTING_DATA', JSON.stringify(costingData));
             if (payload.inq) {
                 localStorage.setItem('SLW_ACTIVE_INQ', payload.inq);
                 localStorage.setItem('SLW_ACTIVE_INQ_CLIENT', payload.clientName || '');
@@ -6251,8 +6279,10 @@
         const roe = parseFloat(document.getElementById('lkr_rate')?.value) || 10.8;
         const markupVal = parseFloat(document.getElementById('markup')?.value) || 18;
 
+        const mixCard = document.getElementById('result_card_mix');
+        const isMixActive = mixCard && mixCard.style.display !== 'none';
         const p3Text = document.getElementById('adult_final_lkr_3star')?.innerText || '';
-        const pMixText = document.getElementById('adult_final_lkr_mix')?.innerText || '';
+        const pMixText = isMixActive ? (document.getElementById('adult_final_lkr_mix')?.innerText || '') : '';
         const p4Text = document.getElementById('adult_final_lkr_4star')?.innerText || '';
 
         const payload = {
@@ -6266,12 +6296,13 @@
             markupMix: 20,
             markup4: 25,
             buffer: 1000,
+            hasMix: isMixActive,
             cities: availableCities.filter(c => c.selected),
             tours: availableTours.filter(t => t.selected),
             transfers: availableTransfers.filter(t => t.selected),
             rates: {
                 p3: cleanLkrNumber(p3Text),
-                pMix: cleanLkrNumber(pMixText),
+                pMix: isMixActive ? cleanLkrNumber(pMixText) : null,
                 p4: cleanLkrNumber(p4Text)
             }
         };
@@ -6310,6 +6341,7 @@
             const tours = costing.availableTours || [];
             const transfers = costing.availableTransfers || [];
             const rates = docData.rates || {};
+            const isMixActive = costing.hasMix ?? (rates && rates.pMix && cleanLkrNumber(rates.pMix) !== '0' && cleanLkrNumber(rates.pMix) !== '');
 
             const payload = {
                 title: docData.title || inqKey,
@@ -6322,10 +6354,19 @@
                 markupMix: 20,
                 markup4: 25,
                 buffer: 1000,
+                hasMix: isMixActive,
                 cities: cities.filter(c => c.selected !== false),
                 tours: tours.filter(t => t.selected !== false),
                 transfers: transfers.filter(t => t.selected !== false),
-                rates: rates
+                days: docData.itinerary && docData.itinerary.days ? docData.itinerary.days : null,
+                options: docData.itinerary && docData.itinerary.options ? docData.itinerary.options : null,
+                inclusions: docData.itinerary && docData.itinerary.inclusions ? docData.itinerary.inclusions : null,
+                exclusions: docData.itinerary && docData.itinerary.exclusions ? docData.itinerary.exclusions : null,
+                rates: {
+                    p3: cleanLkrNumber(rates.p3),
+                    pMix: isMixActive ? cleanLkrNumber(rates.pMix) : null,
+                    p4: cleanLkrNumber(rates.p4)
+                }
             };
 
             if (window.SlwExcelGenerator) {
