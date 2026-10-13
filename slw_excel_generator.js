@@ -44,10 +44,30 @@
     };
 
     /**
+     * Remove HTML tags and entities, return clean plain text
+     */
+    function stripHtml(input) {
+        if (!input) return '';
+        let str = String(input);
+        // HTML entities decoding
+        str = str.replace(/&nbsp;/gi, ' ')
+                 .replace(/&amp;/gi, '&')
+                 .replace(/&quot;/gi, '"')
+                 .replace(/&#39;/gi, "'")
+                 .replace(/&lt;/gi, '<')
+                 .replace(/&gt;/gi, '>')
+                 .replace(/&[a-z0-9#]+;/gi, ' ');
+        // Strip tags
+        str = str.replace(/<\/?[a-z0-9]+(?:\s+[^>]*?)?>/gi, '');
+        // Collapse spaces
+        return str.replace(/[ \t\r\n]+/g, ' ').trim();
+    }
+
+    /**
      * Helper to clean string for comparison
      */
     function normalizeText(txt) {
-        return (txt || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+        return stripHtml(txt).toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
     }
 
     /**
@@ -56,6 +76,7 @@
     function matchAndConsumeTour(actText, tourList) {
         if (!actText || !tourList || tourList.length === 0) return null;
         const norm = normalizeText(actText);
+        if (!norm) return null;
         
         // 1. Direct or substring match
         for (let i = 0; i < tourList.length; i++) {
@@ -67,15 +88,60 @@
             }
         }
 
-        // 2. Keyword overlap match
+        // 2. High-confidence specific landmarks/keywords
+        const landmarkSignatures = [
+            { keywords: ['chao', 'phraya'], target: ['chao', 'phraya'] },
+            { keywords: ['safari', 'world'], target: ['safari'] },
+            { keywords: ['dream', 'world'], target: ['dream', 'world'] },
+            { keywords: ['coral', 'island'], target: ['coral', 'island'] },
+            { keywords: ['nong', 'nooch'], target: ['nong', 'nooch'] },
+            { keywords: ['city', 'tour'], target: ['city', 'tour'] },
+            { keywords: ['alcazar'], target: ['alcazar'] },
+            { keywords: ['colosseum'], target: ['colosseum'] },
+            { keywords: ['floating', 'market'], target: ['floating', 'market'] },
+            { keywords: ['ayutthaya'], target: ['ayutthaya'] },
+            { keywords: ['kanchanaburi'], target: ['kanchanaburi'] },
+            { keywords: ['sea', 'life'], target: ['sea', 'life'] },
+            { keywords: ['madame', 'tussauds'], target: ['madame', 'tussauds'] },
+            { keywords: ['simon', 'cabaret'], target: ['simon', 'cabaret'] },
+            { keywords: ['phi', 'phi'], target: ['phi', 'phi'] },
+            { keywords: ['james', 'bond'], target: ['james', 'bond'] }
+        ];
+
+        for (const sig of landmarkSignatures) {
+            const actMatches = sig.keywords.every(k => norm.includes(k));
+            if (actMatches) {
+                const tourIdx = tourList.findIndex(t => {
+                    const tn = normalizeText(t.name);
+                    return sig.target.every(k => tn.includes(k));
+                });
+                if (tourIdx !== -1) {
+                    return tourList.splice(tourIdx, 1)[0];
+                }
+            }
+        }
+
+        // 3. Keyword overlap match (scored)
+        let bestIdx = -1;
+        let maxScore = 0;
+        const stopWords = ['tour', 'with', 'lunch', 'dinner', 'pvt', 'join', 'basis', 'full', 'day', 'half', 'speedboat', 'ticket', 'entry', 'transfer', 'the', 'and', 'for'];
+        
         for (let i = 0; i < tourList.length; i++) {
             const t = tourList[i];
             const tNorm = normalizeText(t.name);
-            const stopWords = ['tour', 'with', 'lunch', 'dinner', 'pvt', 'join', 'basis', 'full', 'day', 'half', 'speedboat', 'ticket', 'entry', 'transfer'];
             const tKeywords = tNorm.split(' ').filter(w => w.length >= 4 && !stopWords.includes(w));
-            if (tKeywords.length > 0 && tKeywords.every(w => norm.includes(w))) {
-                return tourList.splice(i, 1)[0];
+            if (tKeywords.length === 0) continue;
+            
+            const matchCount = tKeywords.filter(w => norm.includes(w)).length;
+            const score = matchCount / tKeywords.length;
+            if (score >= 0.5 && matchCount >= 2 && score > maxScore) {
+                maxScore = score;
+                bestIdx = i;
             }
+        }
+
+        if (bestIdx !== -1) {
+            return tourList.splice(bestIdx, 1)[0];
         }
 
         return null;
@@ -87,6 +153,7 @@
     function matchAndConsumeTransfer(actText, transferList) {
         if (!actText || !transferList || transferList.length === 0) return null;
         const norm = normalizeText(actText);
+        if (!norm) return null;
 
         // 1. Direct or substring match
         for (let i = 0; i < transferList.length; i++) {
@@ -98,27 +165,32 @@
             }
         }
 
-        // 2. Semantic keywords: arrival / departure / intercity
-        if (norm.includes('arrival') || norm.includes('airport to')) {
+        // 2. Semantic keywords: arrival
+        const isArrival = norm.includes('arrival') || (norm.includes('airport') && (norm.includes('transfer to hotel') || norm.includes('to hotel')) && !norm.includes('departure') && !norm.includes('check out'));
+        if (isArrival) {
             const arrIdx = transferList.findIndex(t => {
                 const tn = normalizeText(t.name);
-                return tn.includes('arrival') || tn.includes('airport to');
+                return tn.includes('arrival') || tn.includes('airport to') || (!tn.includes('departure') && tn.includes('airport'));
             });
             if (arrIdx !== -1) return transferList.splice(arrIdx, 1)[0];
         }
 
-        if (norm.includes('departure') || norm.includes('to airport')) {
+        // 3. Semantic keywords: departure
+        const isDeparture = norm.includes('departure') || norm.includes('check out and transfer') || (norm.includes('hotel to airport') || norm.includes('to airport'));
+        if (isDeparture) {
             const depIdx = transferList.findIndex(t => {
                 const tn = normalizeText(t.name);
-                return tn.includes('departure') || tn.includes('to airport');
+                return tn.includes('departure') || tn.includes('to airport') || (!tn.includes('arrival') && tn.includes('airport'));
             });
             if (depIdx !== -1) return transferList.splice(depIdx, 1)[0];
         }
 
-        if (norm.includes('hotel to') && norm.includes('hotel')) {
+        // 4. Semantic keywords: intercity
+        const isIntercity = (norm.includes('hotel to') && norm.includes('hotel')) || (norm.includes('transfer') && (norm.includes('pattaya to bangkok') || norm.includes('bangkok to pattaya') || norm.includes('phuket to krabi')));
+        if (isIntercity) {
             const interIdx = transferList.findIndex(t => {
                 const tn = normalizeText(t.name);
-                return tn.includes('hotel to') || tn.includes('pvt transfer');
+                return tn.includes('hotel to') || tn.includes('pvt transfer') || (!tn.includes('arrival') && !tn.includes('departure'));
             });
             if (interIdx !== -1) return transferList.splice(interIdx, 1)[0];
         }
@@ -299,7 +371,8 @@
                 const dayNum = dayIdx + 1;
                 const isFirstDay = (dayIdx === 0);
                 const isLastDay = (dayIdx === totalDaysCount - 1);
-                const dayStr = dayObj.title ? (dayObj.title.endsWith('-') ? dayObj.title : (dayObj.title + '-')) : `Day-${String(dayNum).padStart(2, '0')}-`;
+                const cleanDayTitle = stripHtml(dayObj.title);
+                const dayStr = cleanDayTitle ? (cleanDayTitle.endsWith('-') ? cleanDayTitle : (cleanDayTitle + '-')) : `Day-${String(dayNum).padStart(2, '0')}-`;
                 const dayMealCode = dayObj.meal || (isFirstDay ? '(--/--/--)' : (isLastDay ? '(B/--/--)' : '(B/L/--)'));
 
                 // 1. Day Header Row
@@ -357,8 +430,9 @@
                 let hotelRatePlaced = false;
 
                 rawActs.forEach((actText, actIdx) => {
+                    const cleanAct = stripHtml(actText);
                     const row = ws.getRow(currentRow++);
-                    row.getCell(3).value = actText;
+                    row.getCell(3).value = cleanAct;
                     row.getCell(3).font = { name: 'Arial', size: 10 };
                     row.getCell(3).border = BORDER_THIN;
 
@@ -425,6 +499,47 @@
                         fRow.getCell(hCol.col).font = { name: 'Arial', size: 10 };
                         fRow.getCell(hCol.col).alignment = { horizontal: 'right' };
                     });
+                }
+
+                // Safety transfer fallback for Day 1 (Arrival) and Last Day (Departure)
+                if (isFirstDay && remainingTransfers.length > 0) {
+                    let hasTrVal = false;
+                    for (let aIdx = 0; aIdx < rawActs.length; aIdx++) {
+                        if (ws.getRow(currentRow - rawActs.length + aIdx).getCell(7).value) {
+                            hasTrVal = true;
+                            break;
+                        }
+                    }
+                    if (!hasTrVal) {
+                        const arrIdx = remainingTransfers.findIndex(t => normalizeText(t.name).includes('arrival') || normalizeText(t.name).includes('airport'));
+                        if (arrIdx !== -1) {
+                            const arrTr = remainingTransfers.splice(arrIdx, 1)[0];
+                            const targetRow = ws.getRow(currentRow - rawActs.length);
+                            targetRow.getCell(7).value = Number(arrTr.price) || 0;
+                            targetRow.getCell(7).font = { name: 'Arial', size: 10 };
+                            targetRow.getCell(7).alignment = { horizontal: 'right' };
+                        }
+                    }
+                }
+
+                if (isLastDay && remainingTransfers.length > 0) {
+                    let hasTrVal = false;
+                    for (let aIdx = 0; aIdx < rawActs.length; aIdx++) {
+                        if (ws.getRow(currentRow - rawActs.length + aIdx).getCell(7).value) {
+                            hasTrVal = true;
+                            break;
+                        }
+                    }
+                    if (!hasTrVal) {
+                        const depIdx = remainingTransfers.findIndex(t => normalizeText(t.name).includes('departure') || normalizeText(t.name).includes('airport'));
+                        if (depIdx !== -1) {
+                            const depTr = remainingTransfers.splice(depIdx, 1)[0];
+                            const targetRow = ws.getRow(currentRow - 1);
+                            targetRow.getCell(7).value = Number(depTr.price) || 0;
+                            targetRow.getCell(7).font = { name: 'Arial', size: 10 };
+                            targetRow.getCell(7).alignment = { horizontal: 'right' };
+                        }
+                    }
                 }
             });
 
@@ -739,26 +854,44 @@
         currentRow++;
 
         // 4. Inclusions Breakdown Lines
-        const inclusionsList = Array.isArray(payload.inclusions) && payload.inclusions.length > 0 
-            ? payload.inclusions 
-            : [
-                cities.length > 0 ? cities.map(c => `${c.numberOfNights}N ${c.name}`).join(' ') + ' Hotel Accomodation with Breakfast' : `${tourTitle} Hotel Accomodation with Breakfast`,
-                'Airport - Hotel - Airport Transfer Pvt Basis ',
-                'Tour by air-conditioned vehicles',
-                'All admisson fees & Transfers as mentioned in the above program',
-                tours[0] ? tours[0].name : 'Sightseeing Tours as mentioned',
-                tours[1] ? tours[1].name : 'Attraction Tickets & Guide Assistance'
-            ];
+        const cleanInclusions = (Array.isArray(payload.inclusions) ? payload.inclusions : [])
+            .map(i => stripHtml(i))
+            .filter(Boolean);
+
+        // Separate normal inclusions from meal summary items
+        const normalInclusions = cleanInclusions.filter(i => {
+            const lower = i.toLowerCase();
+            return !lower.startsWith('meal') && !lower.includes('breakfast /') && !lower.includes('breakfast/');
+        });
+        const customMealItem = cleanInclusions.find(i => {
+            const lower = i.toLowerCase();
+            return lower.startsWith('meal') || lower.includes('breakfast /') || lower.includes('breakfast/');
+        });
+
+        // Default fallbacks if normalInclusions has few items
+        const defaultNormalInclusions = [
+            cities.length > 0 ? cities.map(c => `${c.numberOfNights}N ${c.name}`).join(' ') + ' Hotel Accomodation with Breakfast' : `${stripHtml(tourTitle)} Hotel Accomodation with Breakfast`,
+            'Airport - Hotel - Airport Transfer Pvt Basis ',
+            'Tour by air-conditioned vehicles',
+            'All admisson fees & Transfers as mentioned in the above program',
+            tours[0] ? stripHtml(tours[0].name) : 'Sightseeing Tours as mentioned',
+            tours[1] ? stripHtml(tours[1].name) : 'Attraction Tickets & Guide Assistance',
+            tours[2] ? stripHtml(tours[2].name) : 'Sightseeing Activities'
+        ];
+
+        function getNormalInc(idx, fallback) {
+            return normalInclusions[idx] || fallback;
+        }
 
         // Inc 1: City Stay
         const rInc1 = ws.getRow(currentRow++);
-        rInc1.getCell(3).value = inclusionsList[0] || (cities.length > 0 ? cities.map(c => `${c.numberOfNights}N ${c.name}`).join(' ') + ' Hotel Accomodation with Breakfast' : 'Hotel Accomodation with Breakfast');
+        rInc1.getCell(3).value = getNormalInc(0, defaultNormalInclusions[0]);
         rInc1.getCell(3).font = { name: 'Arial', size: 10 };
 
         // Inc 2: Transfers & Markup Row
         const markupRowIdx = currentRow;
         const rInc2 = ws.getRow(markupRowIdx);
-        rInc2.getCell(3).value = inclusionsList[1] || 'Airport - Hotel - Airport Transfer Pvt Basis ';
+        rInc2.getCell(3).value = getNormalInc(1, defaultNormalInclusions[1]);
         rInc2.getCell(3).font = { name: 'Arial', size: 10 };
 
         rInc2.getCell(7).value = `${hotelCols[0].markup}%`;
@@ -778,7 +911,7 @@
         // Inc 3: Different / Profit Margin
         const profitRowIdx = currentRow;
         const rInc3 = ws.getRow(profitRowIdx);
-        rInc3.getCell(3).value = inclusionsList[2] || 'Tour by air-conditioned vehicles';
+        rInc3.getCell(3).value = getNormalInc(2, defaultNormalInclusions[2]);
         rInc3.getCell(3).font = { name: 'Arial', size: 10 };
 
         rInc3.getCell(7).value = 'Different';
@@ -797,13 +930,13 @@
 
         // Inc 4: Admissions
         const rInc4 = ws.getRow(currentRow++);
-        rInc4.getCell(3).value = inclusionsList[3] || 'All admisson fees & Transfers as mentioned in the above program';
+        rInc4.getCell(3).value = getNormalInc(3, defaultNormalInclusions[3]);
         rInc4.getCell(3).font = { name: 'Arial', size: 10 };
 
         // Inc 5: THB Label Row
         const thbRowIdx = currentRow;
         const rInc5 = ws.getRow(thbRowIdx);
-        rInc5.getCell(3).value = inclusionsList[4] || (tours[0] ? tours[0].name : 'Sightseeing Tours as mentioned');
+        rInc5.getCell(3).value = getNormalInc(4, defaultNormalInclusions[4]);
         rInc5.getCell(3).font = { name: 'Arial', size: 10, bold: true };
 
         rInc5.getCell(7).value = 'THB';
@@ -822,13 +955,13 @@
 
         // Inc 6: Tour 2 (if any)
         const rInc6 = ws.getRow(currentRow++);
-        rInc6.getCell(3).value = inclusionsList[5] || (tours[1] ? tours[1].name : 'Attraction Tickets & Guide Assistance');
+        rInc6.getCell(3).value = getNormalInc(5, defaultNormalInclusions[5]);
         rInc6.getCell(3).font = { name: 'Arial', size: 10 };
 
         // Inc 7: LKR Currency Row
         const lkrRowIdx = currentRow;
         const rInc7 = ws.getRow(lkrRowIdx);
-        rInc7.getCell(3).value = inclusionsList[6] || (tours[2] ? tours[2].name : 'Sightseeing Activities');
+        rInc7.getCell(3).value = getNormalInc(6, defaultNormalInclusions[6]);
         rInc7.getCell(3).font = { name: 'Arial', size: 10, bold: true };
 
         rInc7.getCell(7).value = 'LKR';
@@ -844,23 +977,21 @@
         });
         currentRow++;
 
-        // Inc 8: Meals Summary
+        // Inc 8: Meals Summary (Rendered EXACTLY ONCE here!)
         const rInc8 = ws.getRow(currentRow++);
         let breakfastCount = Math.max(0, (days ? days.length : totalNights + 1) - 1);
         let lunchCount = tours.filter(t => (t.name || '').toLowerCase().includes('lunch')).length;
         let dinnerCount = tours.filter(t => (t.name || '').toLowerCase().includes('dinner') || (t.name || '').toLowerCase().includes('cruise')).length;
-        const mealSummaryText = inclusionsList.find(i => (i || '').toLowerCase().startsWith('meal')) || `Meals (${String(breakfastCount).padStart(2, '0')} Breakfast / ${String(lunchCount).padStart(2, '0')} Lunch / ${String(dinnerCount).padStart(2, '0')} Dinner)`;
-        rInc8.getCell(3).value = mealSummaryText;
+        const defaultMealSummary = `Meals (${String(breakfastCount).padStart(2, '0')} Breakfast / ${String(lunchCount).padStart(2, '0')} Lunch / ${String(dinnerCount).padStart(2, '0')} Dinner)`;
+        rInc8.getCell(3).value = customMealItem || defaultMealSummary;
         rInc8.getCell(3).font = { name: 'Arial', size: 10 };
 
-        // Extra inclusions if any
-        if (inclusionsList.length > 7) {
-            for (let incIdx = 7; incIdx < inclusionsList.length; incIdx++) {
-                if (inclusionsList[incIdx] && !inclusionsList[incIdx].toLowerCase().startsWith('meal')) {
-                    const rExtraInc = ws.getRow(currentRow++);
-                    rExtraInc.getCell(3).value = inclusionsList[incIdx];
-                    rExtraInc.getCell(3).font = { name: 'Arial', size: 10 };
-                }
+        // Extra inclusions if any (beyond index 6, excluding meals)
+        if (normalInclusions.length > 7) {
+            for (let incIdx = 7; incIdx < normalInclusions.length; incIdx++) {
+                const rExtraInc = ws.getRow(currentRow++);
+                rExtraInc.getCell(3).value = normalInclusions[incIdx];
+                rExtraInc.getCell(3).font = { name: 'Arial', size: 10 };
             }
         }
 

@@ -2175,20 +2175,72 @@ window.slwDownloadCostingExcelFromBuilder = async function() {
         // 1. Get Live Itinerary Data from React component
         const liveData = (typeof window.__slwGetReactItineraryData === 'function' ? window.__slwGetReactItineraryData() : null) || window.__slwCurrentItineraryData || {};
 
-        // 2. Resolve Inquiry Key
-        const inqKey = liveData.inq || window.__slwActiveInq || localStorage.getItem('SLW_ACTIVE_INQ');
+        // Helper: normalize inquiry key (remove spaces around hyphens, deduplicate hyphens)
+        function slwNormalizeInqKey(k) {
+            if (!k) return '';
+            let s = String(k).trim();
+            s = s.replace(/\s*-\s*/g, '-');
+            s = s.replace(/\s+/g, '-');
+            s = s.replace(/-+/g, '-');
+            return s;
+        }
 
-        // 3. Gather Costing Data from all possible sources
+        // 2. Resolve Inquiry Key from all possible sources
+        const inqKeyRaw = liveData.inq || window.__slwActiveInq || localStorage.getItem('SLW_ACTIVE_INQ') || '';
+        const inqKeyNorm = slwNormalizeInqKey(inqKeyRaw);
+        const inqDigits = String(inqKeyRaw).replace(/[^0-9]/g, '');
+
+        // 3. Search and resolve Quotation Document and Costing Data
         let costing = null;
         let docData = null;
 
-        // Try doc from localStorage / Cloud
-        if (inqKey) {
+        // Candidate keys to check in localStorage directly
+        const keyCandidates = [
+            inqKeyRaw,
+            inqKeyNorm,
+            inqKeyRaw.replace(/\s+/g, '-'),
+            'INQ-' + inqDigits,
+            'INQ -' + inqDigits,
+            inqDigits
+        ].filter(Boolean);
+
+        for (let cand of keyCandidates) {
             try {
-                const rawDoc = localStorage.getItem('SLW_INQ_DOC_' + inqKey);
-                if (rawDoc) {
-                    docData = JSON.parse(rawDoc);
-                    if (docData && docData.costing) costing = docData.costing;
+                const raw = localStorage.getItem('SLW_INQ_DOC_' + cand);
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    if (parsed && (parsed.costing || parsed.availableCities || parsed.rates)) {
+                        docData = parsed;
+                        costing = parsed.costing || parsed;
+                        break;
+                    }
+                }
+            } catch(e) {}
+        }
+
+        // Scan all SLW_INQ_DOC_* keys in localStorage
+        if (!costing) {
+            try {
+                for (let i = 0; i < localStorage.length; i++) {
+                    const lk = localStorage.key(i);
+                    if (lk && lk.startsWith('SLW_INQ_DOC_')) {
+                        const subKey = lk.substring('SLW_INQ_DOC_'.length);
+                        const subDigits = subKey.replace(/[^0-9]/g, '');
+                        const subClean = subKey.replace(/[^A-Za-z0-9]/g, '').toLowerCase();
+                        const rawClean = inqKeyRaw.replace(/[^A-Za-z0-9]/g, '').toLowerCase();
+
+                        const matchDigits = inqDigits && inqDigits.length >= 4 && subDigits === inqDigits;
+                        const matchClean = rawClean && (subClean === rawClean || subClean.includes(rawClean) || rawClean.includes(subClean));
+
+                        if (matchDigits || matchClean) {
+                            const parsed = JSON.parse(localStorage.getItem(lk));
+                            if (parsed && (parsed.costing || parsed.availableCities || parsed.rates)) {
+                                docData = parsed;
+                                costing = parsed.costing || parsed;
+                                break;
+                            }
+                        }
+                    }
                 }
             } catch(e) {}
         }
@@ -2196,9 +2248,9 @@ window.slwDownloadCostingExcelFromBuilder = async function() {
         // Try pending costing data from Tour Costing Launcher
         if (!costing) {
             try {
-                const rawPendingCosting = localStorage.getItem('SLW_PENDING_COSTING_DATA');
-                if (rawPendingCosting) {
-                    costing = JSON.parse(rawPendingCosting);
+                const rawPending = localStorage.getItem('SLW_PENDING_COSTING_DATA');
+                if (rawPending) {
+                    costing = JSON.parse(rawPending);
                 }
             } catch(e) {}
         }
@@ -2209,7 +2261,50 @@ window.slwDownloadCostingExcelFromBuilder = async function() {
                 const rawPendingItin = localStorage.getItem('SLW_PENDING_COSTING_ITINERARY');
                 if (rawPendingItin) {
                     const pItin = JSON.parse(rawPendingItin);
-                    if (pItin && pItin.costing) costing = pItin.costing;
+                    if (pItin && pItin.costing) {
+                        costing = pItin.costing;
+                        if (!docData) docData = pItin;
+                    }
+                }
+            } catch(e) {}
+        }
+
+        // Try latest saved costing prices summary
+        if (!costing) {
+            try {
+                const rawPrices = localStorage.getItem('SLW_LATEST_COSTING_PRICES');
+                if (rawPrices) {
+                    const pPrices = JSON.parse(rawPrices);
+                    if (pPrices && pPrices.costing) {
+                        costing = pPrices.costing;
+                    }
+                }
+            } catch(e) {}
+        }
+
+        // Fallback: look for ANY most recent SLW_INQ_DOC_ in localStorage
+        if (!costing) {
+            try {
+                let latestT = 0;
+                let latestDoc = null;
+                for (let i = 0; i < localStorage.length; i++) {
+                    const lk = localStorage.key(i);
+                    if (lk && lk.startsWith('SLW_INQ_DOC_')) {
+                        try {
+                            const d = JSON.parse(localStorage.getItem(lk));
+                            if (d && (d.costing || d.availableCities)) {
+                                const t = d.updatedAt ? new Date(d.updatedAt).getTime() : 1;
+                                if (t > latestT) {
+                                    latestT = t;
+                                    latestDoc = d;
+                                }
+                            }
+                        } catch(e) {}
+                    }
+                }
+                if (latestDoc) {
+                    docData = latestDoc;
+                    costing = latestDoc.costing || latestDoc;
                 }
             } catch(e) {}
         }
@@ -2220,21 +2315,34 @@ window.slwDownloadCostingExcelFromBuilder = async function() {
             cities = costing.availableCities.filter(c => c.selected !== false);
         } else if (costing && costing.cities && costing.cities.length > 0) {
             cities = costing.cities.filter(c => c.selected !== false);
+        } else if (docData && docData.cities && Array.isArray(docData.cities)) {
+            cities = docData.cities;
         } else if (liveData.hotels && liveData.hotels.length > 0) {
             cities = liveData.hotels.map(h => ({
                 name: h.city || h.name || 'City',
                 numberOfNights: parseInt(h.nights) || 1,
                 hotel3Name: h.options && h.options[0] ? h.options[0].name : 'Hotel 3*',
                 hotel4Name: h.options && h.options[1] ? h.options[1].name : 'Hotel 4*',
-                hotel3Price: 1400,
-                hotel4Price: 1800,
+                hotel3Price: 1500,
+                hotel4Price: 2000,
                 selected: true
             }));
         }
 
         // 5. Resolve Tours & Transfers
-        const tours = (costing && (costing.availableTours || costing.tours)) ? (costing.availableTours || costing.tours).filter(t => t.selected !== false) : [];
-        const transfers = (costing && (costing.availableTransfers || costing.transfers)) ? (costing.availableTransfers || costing.transfers).filter(t => t.selected !== false) : [];
+        let tours = [];
+        if (costing && (costing.availableTours || costing.tours)) {
+            tours = (costing.availableTours || costing.tours).filter(t => t.selected !== false);
+        } else if (docData && (docData.availableTours || docData.tours)) {
+            tours = (docData.availableTours || docData.tours).filter(t => t.selected !== false);
+        }
+
+        let transfers = [];
+        if (costing && (costing.availableTransfers || costing.transfers)) {
+            transfers = (costing.availableTransfers || costing.transfers).filter(t => t.selected !== false);
+        } else if (docData && (docData.availableTransfers || docData.transfers)) {
+            transfers = (docData.availableTransfers || docData.transfers).filter(t => t.selected !== false);
+        }
 
         // 6. Resolve Rates
         let rates = {};

@@ -5704,7 +5704,15 @@
         }
 
         // Standardize INQ key (keep clean alphanumeric + hyphens)
-        const inqKey = inqRaw.replace(/\s+/g, '-');
+        function slwNormalizeInqKey(k) {
+            if (!k) return '';
+            let s = String(k).trim();
+            s = s.replace(/\s*-\s*/g, '-');
+            s = s.replace(/\s+/g, '-');
+            s = s.replace(/-+/g, '-');
+            return s;
+        }
+        const inqKey = slwNormalizeInqKey(inqRaw);
 
         // Submit button loading state
         const btn = document.getElementById('btnSaveQuotationSubmit');
@@ -5769,8 +5777,15 @@
             // Calculate byte size
             const sizeBytes = new Blob([JSON.stringify(fullDoc)]).size;
 
-            // 3. Save full doc to LocalStorage
+            // 3. Save full doc to LocalStorage (both normalized and raw for cross-app compatibility)
             localStorage.setItem(SLW_INQ_DOC_PREFIX + inqKey, JSON.stringify(fullDoc));
+            if (inqRaw && inqRaw !== inqKey) {
+                localStorage.setItem(SLW_INQ_DOC_PREFIX + inqRaw, JSON.stringify(fullDoc));
+            }
+            localStorage.setItem('SLW_ACTIVE_INQ', inqKey);
+            localStorage.setItem('SLW_ACTIVE_INQ_CLIENT', clientName || '');
+            localStorage.setItem('SLW_ACTIVE_INQ_TITLE', title || '');
+            localStorage.setItem('SLW_PENDING_COSTING_DATA', JSON.stringify(fullDoc.costing));
 
             // 4. Update Index
             const indexItem = {
@@ -5847,7 +5862,10 @@
 
         // 1. Check local storage first (0ms, 0 reads)
         try {
-            const localRaw = localStorage.getItem(SLW_INQ_DOC_PREFIX + inqKey);
+            let localRaw = localStorage.getItem(SLW_INQ_DOC_PREFIX + inqKey);
+            if (!localRaw && typeof slwNormalizeInqKey === 'function') {
+                localRaw = localStorage.getItem(SLW_INQ_DOC_PREFIX + slwNormalizeInqKey(inqKey));
+            }
             if (localRaw) {
                 docData = JSON.parse(localRaw);
             }
