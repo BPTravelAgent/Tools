@@ -1,4 +1,4 @@
-const CACHE_NAME = 'bp-tools-v5';
+const CACHE_NAME = 'bp-tools-v6';
 
 const ASSETS_TO_CACHE = [
   '.',
@@ -7,7 +7,9 @@ const ASSETS_TO_CACHE = [
   './Domarco_Itinerary.html',
   './Evago_Smart_Itinerary.html',
   './archives/Itinerary_Builder_App New.html',
-  './Dp/Image.png'
+  './Dp/Image.png',
+  './team_chat.css',
+  './team_chat.js'
 ];
 
 // Install event: cache basic assets
@@ -19,6 +21,7 @@ self.addEventListener('install', (event) => {
       });
     })
   );
+  self.skipWaiting();
 });
 
 // Activate event: clean up old caches
@@ -34,6 +37,7 @@ self.addEventListener('activate', (event) => {
       );
     })
   );
+  self.clients.claim();
 });
 
 // Fetch event: Network-first strategy
@@ -41,7 +45,6 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     fetch(event.request)
       .then((networkResponse) => {
-        // If fetch is successful, cache the new response
         if (event.request.method === 'GET') {
           const responseClone = networkResponse.clone();
           caches.open(CACHE_NAME).then((cache) => {
@@ -51,8 +54,24 @@ self.addEventListener('fetch', (event) => {
         return networkResponse;
       })
       .catch(() => {
-        // If network fails, try to return from cache
         return caches.match(event.request);
       })
+  );
+});
+
+// Notification click event: focus existing tab or open index.html
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      for (const client of clientList) {
+        if ('focus' in client) {
+          return client.focus();
+        }
+      }
+      if (clients.openWindow) {
+        return clients.openWindow('./index.html');
+      }
+    })
   );
 });

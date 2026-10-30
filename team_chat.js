@@ -104,6 +104,18 @@
         </div>
       </div>
 
+      <!-- Notification Permission Banner -->
+      <div class="bp-chat-notif-banner hidden" id="bpNotifBanner">
+        <div class="bp-notif-banner-content">
+          <i class="fas fa-bell"></i>
+          <span>Enable Chrome desktop alerts to get notified when minimized</span>
+        </div>
+        <div class="bp-notif-banner-actions">
+          <button type="button" class="bp-notif-banner-btn" id="bpBtnEnableNotif">Enable</button>
+          <button type="button" class="bp-notif-banner-close" id="bpBtnDismissNotif" title="Dismiss">&times;</button>
+        </div>
+      </div>
+
       <!-- Drag & Drop Overlay -->
       <div class="bp-chat-drop-overlay" id="bpDropOverlay">
         <i class="fas fa-cloud-arrow-up" style="font-size:32px;"></i>
@@ -183,26 +195,130 @@
     const clearBtn = document.getElementById('bpBtnClearChat');
     const closeBtn = document.getElementById('bpBtnCloseChat');
     const dropOverlay = document.getElementById('bpDropOverlay');
+    const notifBanner = document.getElementById('bpNotifBanner');
+    const enableNotifBtn = document.getElementById('bpBtnEnableNotif');
+    const dismissNotifBtn = document.getElementById('bpBtnDismissNotif');
 
-    // ── Web Audio Notification Chime (No External Audio Files) ──
+    // ── Tab Title Blinker (For background tabs & minimized windows) ──
+    let originalDocTitle = document.title;
+    let titleBlinkInterval = null;
+
+    function startTitleBlink(senderName) {
+      if (titleBlinkInterval) return;
+      let toggle = false;
+      titleBlinkInterval = setInterval(() => {
+        document.title = toggle ? `(1) 💬 New message from ${senderName}!` : originalDocTitle;
+        toggle = !toggle;
+      }, 1000);
+    }
+
+    function stopTitleBlink() {
+      if (titleBlinkInterval) {
+        clearInterval(titleBlinkInterval);
+        titleBlinkInterval = null;
+        document.title = originalDocTitle;
+      }
+    }
+
+    window.addEventListener('focus', stopTitleBlink);
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) stopTitleBlink();
+    });
+
+    // ── Dual Sound Engine (HTML5 Audio + Web Audio API fallback) ──
+    function generateChimeWavUrl() {
+      const sampleRate = 22050;
+      const duration = 0.38;
+      const numSamples = Math.floor(sampleRate * duration);
+      const buffer = new ArrayBuffer(44 + numSamples * 2);
+      const view = new DataView(buffer);
+
+      function writeStr(offset, str) {
+        for (let i = 0; i < str.length; i++) {
+          view.setUint8(offset + i, str.charCodeAt(i));
+        }
+      }
+
+      writeStr(0, 'RIFF');
+      view.setUint32(4, 36 + numSamples * 2, true);
+      writeStr(8, 'WAVE');
+      writeStr(12, 'fmt ');
+      view.setUint32(16, 16, true);
+      view.setUint16(20, 1, true); // PCM
+      view.setUint16(22, 1, true); // Mono
+      view.setUint32(24, sampleRate, true);
+      view.setUint32(28, sampleRate * 2, true);
+      view.setUint16(32, 2, true);
+      view.setUint16(34, 16, true);
+      writeStr(36, 'data');
+      view.setUint32(40, numSamples * 2, true);
+
+      for (let i = 0; i < numSamples; i++) {
+        const t = i / sampleRate;
+        const freq = t < 0.12 ? 659.25 : 880.0; // E5 -> A5
+        const env = Math.max(0, 1 - t / duration);
+        const sample = Math.sin(2 * Math.PI * freq * t) * env * 0.32;
+        view.setInt16(44 + i * 2, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
+      }
+
+      const blob = new Blob([buffer], { type: 'audio/wav' });
+      return URL.createObjectURL(blob);
+    }
+
+    let chimeAudio = null;
+    try {
+      chimeAudio = new Audio(generateChimeWavUrl());
+    } catch (e) {}
+
+    let sharedAudioCtx = null;
+    function unlockAudio() {
+      if (chimeAudio) {
+        try { chimeAudio.load(); } catch (e) {}
+      }
+      try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (AudioCtx) {
+          if (!sharedAudioCtx) sharedAudioCtx = new AudioCtx();
+          if (sharedAudioCtx.state === 'suspended') sharedAudioCtx.resume();
+        }
+      } catch (e) {}
+    }
+
+    ['click', 'keydown', 'touchstart'].forEach((ev) => {
+      window.addEventListener(ev, unlockAudio, { passive: true, once: true });
+    });
+
     function playChime() {
       if (!soundEnabled) return;
+
+      if (chimeAudio) {
+        chimeAudio.currentTime = 0;
+        const p = chimeAudio.play();
+        if (p !== undefined) {
+          p.catch(() => playWebAudioFallback());
+          return;
+        }
+      }
+      playWebAudioFallback();
+    }
+
+    function playWebAudioFallback() {
       try {
         const AudioCtx = window.AudioContext || window.webkitAudioContext;
         if (!AudioCtx) return;
-        const ctx = new AudioCtx();
-        const now = ctx.currentTime;
+        const ctx = sharedAudioCtx || new AudioCtx();
+        if (ctx.state === 'suspended') ctx.resume();
 
-        // Two-tone cheerful chime (E5 -> A5)
+        const now = ctx.currentTime;
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
 
         osc.type = 'sine';
-        osc.frequency.setValueAtTime(659.25, now); // E5
-        osc.frequency.setValueAtTime(880.00, now + 0.1); // A5
+        osc.frequency.setValueAtTime(659.25, now);
+        osc.frequency.setValueAtTime(880.0, now + 0.1);
 
         gain.gain.setValueAtTime(0, now);
-        gain.gain.linearRampToValueAtTime(0.18, now + 0.02);
+        gain.gain.linearRampToValueAtTime(0.2, now + 0.02);
         gain.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
 
         osc.connect(gain);
@@ -210,9 +326,101 @@
 
         osc.start(now);
         osc.stop(now + 0.5);
-      } catch (err) {
-        // AudioContext might be blocked until user gesture, ignore safely
+      } catch (e) {}
+    }
+
+    // ── Chrome Desktop System Notifications ──
+    function triggerDesktopNotification(senderName, messageText, avatarUrl) {
+      startTitleBlink(senderName);
+
+      if (!('Notification' in window)) return;
+      if (Notification.permission !== 'granted') return;
+
+      const title = `${senderName} • BP Team`;
+      const options = {
+        body: messageText || '📷 Sent an image attachment',
+        icon: avatarUrl || 'Dp/Image.png',
+        badge: 'Dp/Image.png',
+        tag: 'bp-team-chat-' + Date.now(),
+        renotify: true,
+        requireInteraction: false
+      };
+
+      if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+        navigator.serviceWorker.ready.then((reg) => {
+          if (reg && reg.showNotification) {
+            reg.showNotification(title, options).catch(() => {
+              showNativeNotification(title, options);
+            });
+          } else {
+            showNativeNotification(title, options);
+          }
+        }).catch(() => showNativeNotification(title, options));
+      } else {
+        showNativeNotification(title, options);
       }
+    }
+
+    function showNativeNotification(title, options) {
+      try {
+        const notif = new Notification(title, options);
+        notif.onclick = function () {
+          window.focus();
+          if (!isChatOpen) toggleChat();
+          this.close();
+        };
+      } catch (err) {
+        console.warn('Native notification failed:', err);
+      }
+    }
+
+    async function requestNotificationPermission(showWelcomeTest = true) {
+      if (!('Notification' in window)) {
+        alert('Your browser does not support desktop notifications.');
+        return;
+      }
+
+      try {
+        const permission = await Notification.requestPermission();
+        updateNotificationBanner();
+
+        if (permission === 'granted') {
+          if (showWelcomeTest) {
+            triggerDesktopNotification('BP Travel Tools', '✅ Chrome desktop alerts are now active! You will be notified even when minimized.');
+          }
+        } else if (permission === 'denied') {
+          alert('Notifications are blocked in Chrome.\n\nPlease click the tuning/lock icon next to the URL in your address bar and change Notifications to "Allow", then reload the page.');
+        }
+      } catch (err) {
+        console.error('Error requesting notification permission:', err);
+      }
+    }
+
+    function updateNotificationBanner() {
+      if (!notifBanner) return;
+      if (!('Notification' in window)) {
+        notifBanner.classList.add('hidden');
+        return;
+      }
+
+      if (Notification.permission === 'default' && localStorage.getItem('bp_notif_banner_dismissed') !== 'true') {
+        notifBanner.classList.remove('hidden');
+      } else {
+        notifBanner.classList.add('hidden');
+      }
+    }
+
+    if (enableNotifBtn) {
+      enableNotifBtn.addEventListener('click', () => {
+        requestNotificationPermission(true);
+      });
+    }
+
+    if (dismissNotifBtn) {
+      dismissNotifBtn.addEventListener('click', () => {
+        localStorage.setItem('bp_notif_banner_dismissed', 'true');
+        updateNotificationBanner();
+      });
     }
 
     // ── Smart Client-Side Image Compressor (5MB -> 40KB WebP) ──
@@ -614,6 +822,7 @@
 
         if (!isInitialLoad && snapshot.docChanges) {
           let hasNewIncoming = false;
+          let latestIncomingDoc = null;
           const currentUserId = getCurrentUser()?.id;
 
           snapshot.docChanges().forEach((change) => {
@@ -621,15 +830,24 @@
               const d = change.doc.data();
               if (d.senderId !== currentUserId) {
                 hasNewIncoming = true;
+                latestIncomingDoc = d;
               }
             }
           });
 
-          if (hasNewIncoming) {
+          if (hasNewIncoming && latestIncomingDoc) {
             playChime();
-            if (!isChatOpen) {
+
+            const isTabInBackground = document.hidden || !document.hasFocus();
+            if (isTabInBackground || !isChatOpen) {
               unreadCount++;
               updateBadge();
+
+              triggerDesktopNotification(
+                latestIncomingDoc.senderName || 'Team Member',
+                latestIncomingDoc.text || (latestIncomingDoc.image ? '📷 Sent an image attachment' : 'Sent a new message'),
+                latestIncomingDoc.senderAvatar
+              );
             }
           }
         }
@@ -660,12 +878,20 @@
         triggerBtn.classList.add('active');
         unreadCount = 0;
         updateBadge();
+        stopTitleBlink();
         lastSeenTimestamp = Date.now();
         localStorage.setItem('bp_chat_last_seen', lastSeenTimestamp.toString());
         setTimeout(() => {
           messagesEl.scrollTop = messagesEl.scrollHeight;
           inputEl.focus();
         }, 100);
+
+        updateNotificationBanner();
+
+        // If permission is still default, request permission on user's open gesture
+        if ('Notification' in window && Notification.permission === 'default') {
+          requestNotificationPermission(false);
+        }
 
         // Check if admin to show clear button
         const user = getCurrentUser();
@@ -687,13 +913,18 @@
       triggerBtn.classList.remove('active');
     });
 
-    // Sound toggle button
+    // Sound & Notification toggle button
     muteBtn.addEventListener('click', () => {
       soundEnabled = !soundEnabled;
       localStorage.setItem('bp_chat_sound', soundEnabled.toString());
       muteBtn.classList.toggle('muted', !soundEnabled);
       muteBtn.querySelector('i').className = `fas ${soundEnabled ? 'fa-bell' : 'fa-bell-slash'}`;
-      if (soundEnabled) playChime();
+      if (soundEnabled) {
+        playChime();
+        if ('Notification' in window && Notification.permission === 'default') {
+          requestNotificationPermission(true);
+        }
+      }
     });
 
     // Clear chat button (Admin only)
