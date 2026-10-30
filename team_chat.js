@@ -933,10 +933,22 @@
       clearBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
       try {
         const snap = await db.collection('bp_team_chat').get();
-        const batch = db.batch();
-        snap.docs.forEach((doc) => batch.delete(doc.ref));
-        await batch.commit();
-        alert('Chat history cleared successfully.');
+        if (snap.empty) {
+          alert('Chat history is already empty.');
+          return;
+        }
+
+        // Chunk in batches of 450 (strictly below Firestore 500 operation limit per batch)
+        const docs = snap.docs;
+        const CHUNK_SIZE = 450;
+        for (let i = 0; i < docs.length; i += CHUNK_SIZE) {
+          const chunk = docs.slice(i, i + CHUNK_SIZE);
+          const batch = db.batch();
+          chunk.forEach((doc) => batch.delete(doc.ref));
+          await batch.commit();
+        }
+
+        alert(`Chat history cleared successfully (${docs.length} message${docs.length === 1 ? '' : 's'} permanently removed).`);
       } catch (err) {
         alert('Failed to clear: ' + err.message);
       } finally {
