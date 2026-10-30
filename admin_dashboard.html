@@ -52,6 +52,60 @@
       letter-spacing: 0.5px;
     }
 
+    .brand-avatar-wrapper {
+      position: relative;
+      width: 40px;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .brand-rotating-ring {
+      position: absolute;
+      inset: -3px;
+      border-radius: 50%;
+      background: conic-gradient(
+        from 0deg,
+        transparent 0%,
+        transparent 55%,
+        rgba(84, 183, 50, 0.4) 75%,
+        #54b732 88%,
+        #ffb800 96%,
+        #ffffff 100%
+      );
+      animation: ringRotate 2.2s linear infinite;
+      filter: drop-shadow(0 0 6px rgba(84, 183, 50, 0.8));
+      z-index: 1;
+    }
+
+    .brand-avatar-circle {
+      position: relative;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      overflow: hidden;
+      background: #ffffff;
+      padding: 2px;
+      z-index: 2;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    }
+
+    .brand-avatar-circle img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center;
+      border-radius: 50%;
+      display: block;
+    }
+
+    @keyframes ringRotate {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
     .nav-brand img { height: 40px; }
     
     .btn-back {
@@ -117,7 +171,12 @@
 
   <nav class="navbar">
     <a class="nav-brand" href="index.html">
-      <img src="Image/LOGO.png" alt="BP Travel Tools">
+      <div class="brand-avatar-wrapper">
+        <div class="brand-rotating-ring"></div>
+        <div class="brand-avatar-circle">
+          <img src="Dp/Image.png" alt="Buddhika Prabod — BP Travel Tools">
+        </div>
+      </div>
       <span>BP TRAVEL TOOLS</span>
     </a>
     
