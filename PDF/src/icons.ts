@@ -239,5 +239,32 @@ export const ICONS = {
       <line x1="9" y1="20" x2="15" y2="20"/>
       <line x1="12" y1="4" x2="12" y2="20"/>
     </svg>
+  `,
+
+  alignLeft: `
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <line x1="17" y1="10" x2="3" y2="10"></line>
+      <line x1="21" y1="6" x2="3" y2="6"></line>
+      <line x1="21" y1="14" x2="3" y2="14"></line>
+      <line x1="17" y1="18" x2="3" y2="18"></line>
+    </svg>
+  `,
+
+  alignCenter: `
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <line x1="18" y1="10" x2="6" y2="10"></line>
+      <line x1="21" y1="6" x2="3" y2="6"></line>
+      <line x1="21" y1="14" x2="3" y2="14"></line>
+      <line x1="18" y1="18" x2="6" y2="18"></line>
+    </svg>
+  `,
+
+  alignRight: `
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <line x1="21" y1="10" x2="7" y2="10"></line>
+      <line x1="21" y1="6" x2="3" y2="6"></line>
+      <line x1="21" y1="14" x2="3" y2="14"></line>
+      <line x1="21" y1="18" x2="7" y2="18"></line>
+    </svg>
   `
 };

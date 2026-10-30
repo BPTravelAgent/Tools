@@ -1528,6 +1528,7 @@ export class PDFEditorUI {
     // Remove any existing inline popovers or inputs
     document.querySelectorAll('.trueedit-popover').forEach((el) => el.remove());
     document.querySelectorAll('.trueedit-inline-input').forEach((el) => el.remove());
+    document.querySelectorAll('.font-picker-dropdown').forEach((el) => el.remove());
 
     const existingChange = this.trueEditManager.getChange(item.id);
     const initialText = existingChange ? existingChange.newText : item.text;
@@ -1599,8 +1600,28 @@ export class PDFEditorUI {
     const popover = document.createElement('div');
     popover.className = 'trueedit-popover';
     popover.style.position = 'absolute';
-    popover.style.left = `${Math.max(4, parseInt(boxEl.style.left, 10) - 4)}px`;
-    popover.style.top = `${Math.max(4, parseInt(boxEl.style.top, 10) - 96)}px`;
+
+    const boxTop = parseInt(boxEl.style.top, 10) || 0;
+    const boxLeft = parseInt(boxEl.style.left, 10) || 0;
+    const boxHeight = parseInt(boxEl.style.height, 10) || 24;
+    const parentContainer = boxEl.parentElement;
+    const parentW = parentContainer ? parentContainer.clientWidth : window.innerWidth;
+
+    // Smart vertical positioning: above text, or below if close to top edge
+    let popTop = boxTop - 104;
+    if (popTop < 8) {
+      popTop = boxTop + boxHeight + 8;
+    }
+
+    // Smart horizontal positioning: prevent overflow past container/page
+    let popLeft = Math.max(8, boxLeft - 4);
+    const estimatedPopWidth = 460;
+    if (popLeft + estimatedPopWidth > parentW - 12) {
+      popLeft = Math.max(8, parentW - estimatedPopWidth - 12);
+    }
+
+    popover.style.left = `${popLeft}px`;
+    popover.style.top = `${popTop}px`;
     popover.style.zIndex = '99999';
 
     // Drag bar for popover
@@ -1616,8 +1637,10 @@ export class PDFEditorUI {
       pInitLeft = parseInt(popover.style.left, 10) || 0;
       pInitTop = parseInt(popover.style.top, 10) || 0;
       const onMove = (mv: MouseEvent) => {
-        popover.style.left = `${pInitLeft + (mv.clientX - pStartX)}px`;
-        popover.style.top = `${pInitTop + (mv.clientY - pStartY)}px`;
+        const newLeft = Math.max(4, Math.min(parentW - 140, pInitLeft + (mv.clientX - pStartX)));
+        const newTop = Math.max(4, pInitTop + (mv.clientY - pStartY));
+        popover.style.left = `${newLeft}px`;
+        popover.style.top = `${newTop}px`;
       };
       const onUp = () => {
         document.removeEventListener('mousemove', onMove);
@@ -1926,7 +1949,6 @@ export class PDFEditorUI {
     const fontPickerEl = createSearchableFontPicker({
       currentFont: detectedFont,
       compact: true,
-      dropdownPosition: 'top',
       onSelect: (selectedFont) => {
         saveCurrentRange();
         detectedFont = selectedFont;
@@ -1992,7 +2014,7 @@ export class PDFEditorUI {
     const btnAlignLeft = document.createElement('button');
     btnAlignLeft.type = 'button';
     btnAlignLeft.className = 'trueedit-btn-align' + (currentAlign === 'left' ? ' active' : '');
-    btnAlignLeft.innerText = 'Left';
+    btnAlignLeft.innerHTML = ICONS.alignLeft;
     btnAlignLeft.title = 'Align Left';
     preventFocusLoss(btnAlignLeft);
     btnAlignLeft.addEventListener('click', (e) => {
@@ -2006,7 +2028,7 @@ export class PDFEditorUI {
     const btnAlignCenter = document.createElement('button');
     btnAlignCenter.type = 'button';
     btnAlignCenter.className = 'trueedit-btn-align' + (currentAlign === 'center' ? ' active' : '');
-    btnAlignCenter.innerText = 'Center';
+    btnAlignCenter.innerHTML = ICONS.alignCenter;
     btnAlignCenter.title = 'Align Center';
     preventFocusLoss(btnAlignCenter);
     btnAlignCenter.addEventListener('click', (e) => {
@@ -2020,7 +2042,7 @@ export class PDFEditorUI {
     const btnAlignRight = document.createElement('button');
     btnAlignRight.type = 'button';
     btnAlignRight.className = 'trueedit-btn-align' + (currentAlign === 'right' ? ' active' : '');
-    btnAlignRight.innerText = 'Right';
+    btnAlignRight.innerHTML = ICONS.alignRight;
     btnAlignRight.title = 'Align Right';
     preventFocusLoss(btnAlignRight);
     btnAlignRight.addEventListener('click', (e) => {

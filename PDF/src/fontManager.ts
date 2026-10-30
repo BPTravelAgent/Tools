@@ -10,8 +10,12 @@ export interface FontEntry {
 }
 
 const DEFAULT_FONTS: FontEntry[] = [
-  // Document Fonts (Bundled TTF files)
+  // ── Primary DM Font Collection (Always Pinned at Top) ──
   { name: 'DM Sans', family: 'DM Sans', category: 'document' },
+  { name: 'DM Mono', family: 'DM Mono', category: 'document' },
+  { name: 'DM Serif Display', family: 'DM Serif Display', category: 'document' },
+
+  // Document Fonts (Bundled TTF files)
   { name: 'Libre Baskerville', family: 'Libre Baskerville', category: 'document' },
   { name: 'Liberation Sans', family: 'Liberation Sans', category: 'document' },
 
@@ -164,18 +168,35 @@ export class FontManager {
     this.notifyListeners();
   }
 
+  private isDMFont(name: string): boolean {
+    const clean = (name || '').toLowerCase().trim();
+    return clean.startsWith('dm ') || clean.startsWith('dm-') || clean === 'dm' || clean.startsWith('dmsans');
+  }
+
+  private sortWithDMPriority(list: FontEntry[]): FontEntry[] {
+    return [...list].sort((a, b) => {
+      const aDM = this.isDMFont(a.name);
+      const bDM = this.isDMFont(b.name);
+      if (aDM && !bDM) return -1;
+      if (!aDM && bDM) return 1;
+      return 0;
+    });
+  }
+
   getAllFonts(): FontEntry[] {
     const customList = Array.from(this.customFonts.values());
-    return [...customList, ...DEFAULT_FONTS];
+    const combined = [...DEFAULT_FONTS, ...customList];
+    return this.sortWithDMPriority(combined);
   }
 
   searchFonts(query: string): FontEntry[] {
     const all = this.getAllFonts();
     const cleanQ = query.trim().toLowerCase();
     if (!cleanQ) return all;
-    return all.filter(
+    const filtered = all.filter(
       (f) => f.name.toLowerCase().includes(cleanQ) || f.family.toLowerCase().includes(cleanQ)
     );
+    return this.sortWithDMPriority(filtered);
   }
 
   getFont(fontFamily: string): FontEntry | undefined {
@@ -232,6 +253,11 @@ export function createSearchableFontPicker(options: FontPickerOptions): HTMLElem
   let isOpen = false;
   let searchQuery = '';
 
+  const isDMFont = (fontName: string) => {
+    const lower = (fontName || '').toLowerCase().trim();
+    return lower.startsWith('dm ') || lower.startsWith('dm-') || lower === 'dm' || lower.startsWith('dmsans');
+  };
+
   // Trigger Button
   const btn = document.createElement('button');
   btn.type = 'button';
@@ -240,11 +266,14 @@ export function createSearchableFontPicker(options: FontPickerOptions): HTMLElem
   btn.setAttribute('aria-expanded', 'false');
 
   const updateBtnText = () => {
+    const isDM = isDMFont(currentFont);
     btn.innerHTML = `
-      <span class="font-picker-label" style="font-family: '${currentFont}', sans-serif;">${currentFont}</span>
+      <span class="font-picker-label" style="font-family: '${currentFont}', sans-serif;">
+        ${isDM ? '<span class="font-btn-dm-tag">DM</span> ' : ''}${currentFont}
+      </span>
       <span class="font-picker-chevron">${ICONS.chevronDown}</span>
     `;
-    btn.title = `Current Font: ${currentFont} (Click to change or search)`;
+    btn.title = `Font: ${currentFont} (Click to change or search)`;
   };
   updateBtnText();
 
@@ -270,10 +299,12 @@ export function createSearchableFontPicker(options: FontPickerOptions): HTMLElem
     }
   });
 
-  // Dropdown Menu Panel
+  // Dropdown Menu Panel - Portal mounted directly to body to avoid clipping by modals, overflow, or fullscreen
   const menu = document.createElement('div');
-  menu.className = `font-picker-dropdown ${options.dropdownPosition === 'top' ? 'pos-top' : 'pos-bottom'}`;
+  menu.className = 'font-picker-dropdown';
   menu.style.display = 'none';
+  menu.style.position = 'fixed';
+  document.body.appendChild(menu);
 
   // Header: Search Input & Add Font Button
   const header = document.createElement('div');
@@ -283,7 +314,7 @@ export function createSearchableFontPicker(options: FontPickerOptions): HTMLElem
   searchBox.className = 'font-picker-search-box';
   searchBox.innerHTML = `
     <span class="font-picker-search-icon">${ICONS.search}</span>
-    <input type="text" class="font-picker-search-input" placeholder="Search fonts..." />
+    <input type="text" class="font-picker-search-input" placeholder="Search fonts (DM, Sans, Serif...)" />
   `;
 
   const searchInput = searchBox.querySelector('.font-picker-search-input') as HTMLInputElement;
@@ -310,6 +341,59 @@ export function createSearchableFontPicker(options: FontPickerOptions): HTMLElem
   menu.appendChild(header);
   menu.appendChild(listContainer);
 
+  const updatePosition = () => {
+    if (!isOpen) return;
+    const btnRect = btn.getBoundingClientRect();
+    if (btnRect.width === 0 && btnRect.height === 0) {
+      closeDropdown();
+      return;
+    }
+
+    const dropdownWidth = Math.min(310, window.innerWidth - 20);
+    const dropdownHeight = 340;
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    const spaceBelow = viewportHeight - btnRect.bottom;
+    const spaceAbove = btnRect.top;
+
+    let top = 0;
+    let isTop = false;
+
+    // Viewport-aware vertical position: if space below is too small, open upwards
+    if (spaceBelow < 280 && spaceAbove > spaceBelow) {
+      top = Math.max(10, btnRect.top - dropdownHeight - 6);
+      isTop = true;
+    } else {
+      top = btnRect.bottom + 6;
+      if (top + dropdownHeight > viewportHeight - 10) {
+        top = Math.max(10, viewportHeight - dropdownHeight - 10);
+      }
+    }
+
+    // Viewport-aware horizontal position: ensure no overflow off screen
+    let left = btnRect.left;
+    if (left + dropdownWidth > viewportWidth - 12) {
+      left = Math.max(12, viewportWidth - dropdownWidth - 12);
+    }
+    if (left < 12) {
+      left = 12;
+    }
+
+    menu.style.top = `${Math.round(top)}px`;
+    menu.style.left = `${Math.round(left)}px`;
+    menu.style.width = `${dropdownWidth}px`;
+    menu.style.zIndex = '999999';
+
+    if (isTop) {
+      menu.classList.add('pos-top');
+      menu.classList.remove('pos-bottom');
+    } else {
+      menu.classList.add('pos-bottom');
+      menu.classList.remove('pos-top');
+    }
+  };
+
   const renderList = () => {
     listContainer.innerHTML = '';
     const fonts = fontManager.searchFonts(searchQuery);
@@ -329,37 +413,50 @@ export function createSearchableFontPicker(options: FontPickerOptions): HTMLElem
       return;
     }
 
-    // Group: Custom Fonts vs System/Document
-    const customFonts = fonts.filter((f) => f.isCustom);
-    const regularFonts = fonts.filter((f) => !f.isCustom);
+    // Always separate DM fonts so they appear prominently at the very top
+    const dmFonts = fonts.filter((f) => isDMFont(f.name));
+    const customFonts = fonts.filter((f) => f.isCustom && !isDMFont(f.name));
+    const regularFonts = fonts.filter((f) => !f.isCustom && !isDMFont(f.name));
 
-    const appendGroup = (title: string, groupFonts: FontEntry[]) => {
+    const appendGroup = (title: string, groupFonts: FontEntry[], isDMGroup: boolean = false) => {
       if (groupFonts.length === 0) return;
       const grpHeader = document.createElement('div');
-      grpHeader.className = 'font-picker-group-title';
-      grpHeader.innerText = title;
+      grpHeader.className = `font-picker-group-title ${isDMGroup ? 'dm-group' : ''}`;
+      grpHeader.innerHTML = isDMGroup 
+        ? `<span>★ PRIMARY DM FONT COLLECTION</span>` 
+        : `<span>${title}</span>`;
       listContainer.appendChild(grpHeader);
 
       for (const f of groupFonts) {
         const item = document.createElement('div');
         const isSelected = f.name.toLowerCase() === currentFont.toLowerCase() || f.family.toLowerCase() === currentFont.toLowerCase();
-        item.className = `font-picker-item ${isSelected ? 'selected' : ''}`;
+        item.className = `font-picker-item ${isSelected ? 'selected' : ''} ${isDMGroup ? 'dm-item' : ''}`;
 
         const leftWrap = document.createElement('div');
         leftWrap.className = 'font-picker-item-left';
 
+        const nameRow = document.createElement('div');
+        nameRow.className = 'font-picker-name-row';
+
         const nameSpan = document.createElement('span');
         nameSpan.className = 'font-picker-item-name';
         nameSpan.innerText = f.name;
+        nameRow.appendChild(nameSpan);
+
+        if (isDMGroup) {
+          const dmBadge = document.createElement('span');
+          dmBadge.className = 'font-dm-badge';
+          dmBadge.innerText = 'Primary';
+          nameRow.appendChild(dmBadge);
+        }
 
         const previewSpan = document.createElement('span');
         previewSpan.className = 'font-picker-item-preview';
-        previewSpan.innerText = 'Aa Bb Gg 123';
+        previewSpan.innerText = 'The quick brown fox jumps 123';
         previewSpan.style.fontFamily = `'${f.family}', sans-serif`;
 
-        leftWrap.appendChild(nameSpan);
+        leftWrap.appendChild(nameRow);
         leftWrap.appendChild(previewSpan);
-
         item.appendChild(leftWrap);
 
         // Delete button for custom uploaded fonts
@@ -407,21 +504,33 @@ export function createSearchableFontPicker(options: FontPickerOptions): HTMLElem
       }
     };
 
+    // 1. DM Family Always at the Top
+    if (dmFonts.length > 0) {
+      appendGroup('★ DM Font Collection', dmFonts, true);
+    }
+    // 2. Custom Uploaded Fonts
     if (customFonts.length > 0) {
       appendGroup('Custom Uploaded Fonts', customFonts);
     }
-    appendGroup('Document & Standard Fonts', regularFonts);
+    // 3. Document & Standard Fonts
+    if (regularFonts.length > 0) {
+      appendGroup('Standard & System Fonts', regularFonts);
+    }
   };
 
   const openDropdown = () => {
     isOpen = true;
     menu.style.display = 'flex';
+    updatePosition();
     btn.setAttribute('aria-expanded', 'true');
     btn.classList.add('active');
     searchQuery = '';
     searchInput.value = '';
     renderList();
-    setTimeout(() => searchInput.focus(), 30);
+    requestAnimationFrame(() => {
+      updatePosition();
+      searchInput.focus();
+    });
   };
 
   const closeDropdown = () => {
@@ -444,6 +553,7 @@ export function createSearchableFontPicker(options: FontPickerOptions): HTMLElem
   searchInput.addEventListener('input', () => {
     searchQuery = searchInput.value;
     renderList();
+    updatePosition();
   });
 
   searchInput.addEventListener('keydown', (e) => {
@@ -453,24 +563,49 @@ export function createSearchableFontPicker(options: FontPickerOptions): HTMLElem
     }
   });
 
-  // Close when clicking outside
+  // Close when clicking outside both container and menu
   const onDocClick = (e: MouseEvent) => {
-    if (!container.contains(e.target as Node)) {
+    const target = e.target as Node;
+    if (!container.contains(target) && !menu.contains(target)) {
       if (isOpen) closeDropdown();
     }
   };
-  document.addEventListener('click', onDocClick);
+  document.addEventListener('mousedown', onDocClick);
 
-  // Sync when fontManager changes (e.g. font added in another picker)
+  // Sync position on scroll or resize
+  const onWinScroll = (ev: Event) => {
+    if (!isOpen) return;
+    if (menu.contains(ev.target as Node)) return;
+    updatePosition();
+  };
+  const onWinResize = () => {
+    if (isOpen) updatePosition();
+  };
+
+  window.addEventListener('scroll', onWinScroll, true);
+  window.addEventListener('resize', onWinResize);
+
+  // Sync when fontManager changes
   fontManager.onChange(() => {
     if (isOpen) renderList();
   });
 
+  // Clean up when container is removed from DOM
+  const observer = new MutationObserver(() => {
+    if (!document.body.contains(container)) {
+      menu.remove();
+      window.removeEventListener('scroll', onWinScroll, true);
+      window.removeEventListener('resize', onWinResize);
+      document.removeEventListener('mousedown', onDocClick);
+      observer.disconnect();
+    }
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+
   container.appendChild(btn);
   container.appendChild(fileInput);
-  container.appendChild(menu);
 
-  // Attach a public updater so external code can change currentFont smoothly
+  // Attach public updater
   (container as any).setCurrentFont = (newFont: string) => {
     currentFont = newFont;
     updateBtnText();
