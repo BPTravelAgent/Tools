@@ -1,10 +1,10 @@
 {
-  "appId": "com.sunleisure.tools",
-  "appName": "Sun Leisure Tools",
+  "appId": "com.bptravelagent.tools",
+  "appName": "BP Travel Tools",
   "webDir": "www",
   "bundledWebRuntime": false,
   "server": {
-    "url": "https://sunleisureworldlk.github.io/Tools/",
+    "url": "https://bptravelagent.github.io/Tools/",
     "cleartext": true
   }
 }

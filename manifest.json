@@ -1,11 +1,11 @@
 {
-  "name": "Sun Leisure Tools",
-  "short_name": "SL Tools",
+  "name": "BP Travel Tools",
+  "short_name": "BP Tools",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#f8fafc",
   "theme_color": "#1d4ed8",
-  "description": "Sun Leisure World Travel Agent Portal",
+  "description": "BP Travel Tools — Travel Agent Portal by Buddhika Prabod",
   "icons": [
     {
       "src": "Image/LOGO.png",

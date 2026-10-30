@@ -19,3 +19,4 @@ export function getAssetUrl(relPath: string): string {
   const clean = relPath.startsWith('/') ? relPath.substring(1) : relPath;
   return `${getBaseUrl()}${clean}`;
 }
+

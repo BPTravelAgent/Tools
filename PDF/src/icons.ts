@@ -4,7 +4,7 @@ export const ICONS = {
   logo: `
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 210 36" height="32" class="brand-logo-svg">
       <path fill="#E5322D" d="M14.5 4.5C11.5 1.5 7 1.8 4.2 4.6 1.4 7.4 1.4 12 4.2 14.8l10.3 10.3 10.3-10.3c2.8-2.8 2.8-7.4 0-10.2-2.8-2.8-7.3-3.1-10.3-.1z"/>
-      <text x="36" y="24" font-family="'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="18" font-weight="900" fill="#1e7829" letter-spacing="-0.3">SLW <tspan fill="#ff9900">PDF</tspan> <tspan fill="#E5322D">PRO</tspan></text>
+      <text x="36" y="24" font-family="'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="18" font-weight="900" fill="#1e7829" letter-spacing="-0.3">BP <tspan fill="#ff9900">TRAVEL</tspan> <tspan fill="#E5322D">PDF PRO</tspan></text>
     </svg>
   `,
 
