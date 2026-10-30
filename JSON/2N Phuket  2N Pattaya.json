@@ -1,10 +1,10 @@
-{
+﻿{
   "title": "2N Phuket  2N Pattaya ",
   "pax": "02 Pax ",
   "date": "Dec/2026",
   "inq": "INQ -72320",
   "clientName": "\n",
-  "logo": "https://raw.githubusercontent.com/SunLeisureWorldLK/Tools/main/Image/LOGO.png",
+  "logo": "https://raw.githubusercontent.com/BPTravelAgent/Tools/main/Image/LOGO.png",
   "coverImage": "https://res.klook.com/image/upload/fl_lossy.progressive,q_60/Mobile/City/p2pfj38lzjf7wsd6gobn.jpg",
   "days": [
     {
@@ -238,7 +238,7 @@
       ]
     }
   ],
-  "footerImage": "https://raw.githubusercontent.com/SunLeisureWorldLK/Tools/main/Image/Contact%20Bakcground%20(1).png",
+  "footerImage": "https://raw.githubusercontent.com/BPTravelAgent/Tools/main/Image/Contact%20Bakcground%20(1).png",
   "contact": {
     "address": "No.70/16 Lucky Plaza,\nSt Anthony’s Mawatha,\nColombo - 03, Sri Lanka.",
     "tel": "077 887 7054\n077 775 3191",

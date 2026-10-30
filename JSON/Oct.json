@@ -1,4 +1,4 @@
-{
+﻿{
   "state": {
     "activeTab": "General",
     "imagePos": {
@@ -99,7 +99,7 @@
       "facebook": "https://web.facebook.com/sunleisureworldsrilanak",
       "instagram": "https://www.instagram.com/sun_leisure_world_sri_lanka_"
     },
-    "logoUrl": "https://raw.githubusercontent.com/SunLeisureWorldLK/Tools/main/Image/LOGO.png",
+    "logoUrl": "https://raw.githubusercontent.com/BPTravelAgent/Tools/main/Image/LOGO.png",
     "logoHeight": 104,
     "headerBg": "",
     "headerAlign": "center",

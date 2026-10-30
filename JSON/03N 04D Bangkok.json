@@ -1,10 +1,10 @@
-{
+﻿{
   "title": "03N 04D Bangkok",
   "pax": "02pax",
   "date": "Sep-Oct/2026",
   "inq": "INQ -00595",
   "clientName": "\n",
-  "logo": "https://raw.githubusercontent.com/SunLeisureWorldLK/Tools/main/Image/LOGO.png",
+  "logo": "https://raw.githubusercontent.com/BPTravelAgent/Tools/main/Image/LOGO.png",
   "coverImage": "https://dynamic-media-cdn.tripadvisor.com/media/photo-o/32/5b/9a/25/caption.jpg?w=1200&h=-1&s=1",
   "days": [
     {
@@ -209,7 +209,7 @@
       ]
     }
   ],
-  "footerImage": "https://raw.githubusercontent.com/SunLeisureWorldLK/Tools/main/Image/Contact%20Bakcground%20(1).png",
+  "footerImage": "https://raw.githubusercontent.com/BPTravelAgent/Tools/main/Image/Contact%20Bakcground%20(1).png",
   "contact": {
     "address": "No.70/16 Lucky Plaza,\nSt Anthony’s Mawatha,\nColombo - 03, Sri Lanka.",
     "tel": "077 887 7054\n077 775 3191",
