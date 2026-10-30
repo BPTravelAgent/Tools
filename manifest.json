@@ -8,13 +8,13 @@
   "description": "BP Travel Tools — Travel Agent Portal by Buddhika Prabod",
   "icons": [
     {
-      "src": "Image/LOGO.png",
+      "src": "Dp/Image.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "Image/LOGO.png",
+      "src": "Dp/Image.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"

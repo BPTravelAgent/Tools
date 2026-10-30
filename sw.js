@@ -1,4 +1,4 @@
-const CACHE_NAME = 'sl-tools-v4';
+const CACHE_NAME = 'bp-tools-v5';
 
 const ASSETS_TO_CACHE = [
   '.',
@@ -7,7 +7,7 @@ const ASSETS_TO_CACHE = [
   './Domarco_Itinerary.html',
   './Evago_Smart_Itinerary.html',
   './archives/Itinerary_Builder_App New.html',
-  './Image/LOGO.png'
+  './Dp/Image.png'
 ];
 
 // Install event: cache basic assets
