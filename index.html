@@ -204,6 +204,78 @@ body {
   margin-bottom: 36px;
 }
 
+.login-avatar-wrapper {
+  position: relative;
+  width: 104px;
+  height: 104px;
+  margin: 0 auto 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Glowing line / rotating neon laser border animation */
+.avatar-rotating-ring {
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0%,
+    transparent 55%,
+    rgba(84, 183, 50, 0.4) 75%,
+    #54b732 88%,
+    #ffb800 96%,
+    #ffffff 100%
+  );
+  animation: ringRotate 2.2s linear infinite;
+  filter: drop-shadow(0 0 10px rgba(84, 183, 50, 0.75));
+  z-index: 1;
+}
+
+/* Outer subtle rotating dashed accent */
+.login-avatar-wrapper::after {
+  content: '';
+  position: absolute;
+  inset: -7px;
+  border-radius: 50%;
+  border: 1px dashed rgba(255, 184, 0, 0.4);
+  animation: ringRotateReverse 12s linear infinite;
+  pointer-events: none;
+}
+
+/* Inner circular image mask */
+.avatar-circle {
+  position: relative;
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: #ffffff;
+  padding: 3px;
+  z-index: 2;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.12);
+}
+
+.avatar-circle img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  border-radius: 50%;
+  display: block;
+}
+
+@keyframes ringRotate {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes ringRotateReverse {
+  0% { transform: rotate(360deg); }
+  100% { transform: rotate(0deg); }
+}
+
 .login-logo .logo-icon {
   width: 160px;
   height: auto;
@@ -1131,9 +1203,14 @@ body {
   <div class="login-container">
     <div class="login-card">
       <div class="login-logo">
-        <div class="logo-icon"><img src="Image/LOGO.png" alt="BP Travel Tools Logo"></div>
+        <div class="login-avatar-wrapper">
+          <div class="avatar-rotating-ring"></div>
+          <div class="avatar-circle">
+            <img src="Dp/Image.png" alt="Buddhika Prabod — BP Travel Tools">
+          </div>
+        </div>
         <h1>BP TRAVEL TOOLS</h1>
-        <p>Travel Agent Portal</p>
+        <p>Travel Agent Portal • Buddhika Prabod</p>
       </div>
 
       <div id="login-error" class="login-error">
@@ -1718,7 +1795,11 @@ function showMainApp(user) {
 
   const userData = USERS[user];
   document.getElementById('display-username').textContent = userData.name;
-  document.getElementById('user-avatar').textContent = userData.name.charAt(0).toUpperCase();
+  if (user === 'admin') {
+    document.getElementById('user-avatar').innerHTML = '<img src="Dp/Image.png" style="width:100%;height:100%;object-fit:cover;border-radius:50%;display:block;" alt="Buddhika">';
+  } else {
+    document.getElementById('user-avatar').textContent = userData.name.charAt(0).toUpperCase();
+  }
 
   if (user === 'admin') {
     document.getElementById('btn-admin').style.display = 'inline-flex';
