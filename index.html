@@ -1501,6 +1501,23 @@ body {
         </div>
       </a>
 
+      <!-- NEW: PDF Editor Pro -->
+      <a class="tool-card card-red" href="PDF/dist/index.html" target="_blank" id="tool-pdf-editor" onclick="window.slwLogActivity('Opened PDF Editor & TrueEdit Pro')">
+        <div class="tool-icon" style="background: rgba(229, 50, 45, 0.15); color: #e5322d;">
+          <i class="fa-solid fa-file-pdf"></i>
+        </div>
+        <h3>PDF Editor & TrueEdit™ Pro</h3>
+        <p>Edit PDF text directly in-place, annotate, draw, insert stamps & signatures, and modify documents with private client-side export.</p>
+        <div class="tool-features">
+          <span class="feature-tag" style="background: rgba(229, 50, 45, 0.15); color: #e5322d;">TrueEdit™ Pro</span>
+          <span class="feature-tag">Annotate</span>
+          <span class="feature-tag">Private Export</span>
+        </div>
+        <div class="tool-action" style="color: #e5322d;">
+          Open PDF Editor <i class="fas fa-arrow-right"></i>
+        </div>
+      </a>
+
     </div>
   </section>
 
@@ -1601,7 +1618,7 @@ function applyToolVisibility() {
   const toolIds = [
     'tool-airasia', 'tool-quotation', 'tool-itinerary', 'tool-group-tour',
     'tool-costing', 'tool-database', 'tool-ai-assistant', 'tool-passport-scanner',
-    'tool-domarco', 'tool-evago', 'tool-visa-check'
+    'tool-domarco', 'tool-evago', 'tool-visa-check', 'tool-pdf-editor'
   ];
   toolIds.forEach(id => {
     const el = document.getElementById(id);

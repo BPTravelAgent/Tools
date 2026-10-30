@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sun Leisure World — PDF Editor & TrueEdit™ Pro</title>
+    <meta name="description" content="Free online PDF Editor for Sun Leisure World. Easily edit documents, modify text in-place with TrueEdit Pro, add shapes, annotations, signatures and stamps." />
+    <link rel="icon" type="image/png" sizes="32x32" href="../Image/LOGO.png" />
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Outfit:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+    <script>
+      // When accessed directly without Vite dev server (e.g. static hosting, GitHub Pages, or direct click)
+      // seamlessly redirect to the built production bundle in dist/
+      (function() {
+        var isViteDev = window.location.port === '5173' || window.location.port === '5174';
+        if (!isViteDev && !window.location.pathname.includes('/dist/')) {
+          window.location.replace('./dist/index.html' + window.location.search + window.location.hash);
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
