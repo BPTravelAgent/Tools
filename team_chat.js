@@ -1,21 +1,15 @@
 /**
  * ═════════════════════════════════════════════════════════════════════════
- * BP TRAVEL TOOLS — TEAM REAL-TIME CHAT & COLLABORATION ENGINE (v2.0)
- * Modern Enterprise WhatsApp-Style Real-Time Team Messenger
+ * BP TRAVEL TOOLS — TEAM REAL-TIME CHAT & COLLABORATION ENGINE (v3.0)
+ * WhatsApp-Style 1-on-1 Direct Messaging & Multi-Channel Privacy Hub
  * ═════════════════════════════════════════════════════════════════════════
- * Features:
- *  - Real-time Firestore Messaging & Live Sync
- *  - Clear for Me & Clear for Everyone (WhatsApp-style dual clearing)
- *  - Swipe / Click-to-Reply with Quote Previews & Jump-to-Message
- *  - Voice Notes (Microphone recording, WebM audio, waveform player, 1x/1.5x/2x speed)
- *  - WhatsApp Double Blue Checkmarks (Sent, Delivered, Read receipts)
- *  - WhatsApp Emoji Picker Panel (categorized tabs) & Message Quick Reactions
- *  - Live In-Chat Search with instant term highlighting
- *  - Real-time Typing Indicator ("... is typing")
- *  - Copy message text & Fullscreen Lightbox Image Viewer
- *  - Smart Canvas Image Compression (5MB -> ~40KB WebP)
- *  - Direct Clipboard Paste (Ctrl+V screenshots) & Drag-and-drop
- *  - Web Audio Chime & Chrome Desktop Notifications (with taskbar alert)
+ * Key Architecture:
+ *  - Contact List / Conversations View (1-on-1 Direct Chats + Team Room)
+ *  - End-to-end Room & Participant Privacy Scoping
+ *  - WhatsApp Quoted Replies, Voice Notes, Blue Ticks, Emoji Picker
+ *  - Per-Room Dual Clear (Clear for Me vs Delete for Everyone)
+ *  - Real-time Typing Indicators per conversation
+ *  - Unread Badges per contact and global badge on launcher
  */
 
 (function () {
@@ -37,13 +31,23 @@
 
     // State Variables
     let isChatOpen = false;
-    let unreadCount = 0;
     let currentDraftImageBase64 = null;
     let currentReplyTo = null; // { id, senderName, text, isImage, isVoice }
-    let lastSeenTimestamp = parseInt(localStorage.getItem('bp_chat_last_seen') || '0', 10);
     let messagesCache = [];
     let peerPresence = {}; // { [userId]: { lastSeenMillis: number, isOnline: boolean } }
     let currentSearchQuery = '';
+    let contactSearchQuery = '';
+
+    // Active Conversation Room State
+    // Default room is 'general'
+    let currentRoomId = 'general';
+    let currentRoomMeta = {
+      id: 'general',
+      type: 'general',
+      name: 'Team Room (General)',
+      isDirect: false,
+      peerUserKey: null
+    };
 
     // Voice Recording State
     let mediaRecorder = null;
@@ -88,7 +92,12 @@
       };
     }
 
-    // ── Build DOM Elements ──
+    // Deterministic 1-on-1 Room ID Generator
+    function getDirectRoomId(userA, userB) {
+      return 'dm_' + [userA, userB].sort().join('_');
+    }
+
+    // ── Build Floating Trigger Button ──
     const triggerBtn = document.createElement('button');
     triggerBtn.className = 'bp-chat-trigger';
     triggerBtn.title = 'Open BP Team Chat';
@@ -97,170 +106,215 @@
       <span class="bp-chat-badge" style="display:none;">0</span>
     `;
 
+    // ── Build Main Multi-Pane Chat Window ──
     const chatWindow = document.createElement('div');
     chatWindow.className = 'bp-chat-window hidden';
     chatWindow.innerHTML = `
-      <!-- Search Overlay -->
-      <div class="bp-chat-search-wrap hidden" id="bpSearchWrap">
-        <input type="text" class="bp-search-input" id="bpSearchInput" placeholder="Search in chat..." autocomplete="off">
-        <span class="bp-search-count" id="bpSearchCount"></span>
-        <button type="button" class="bp-chat-btn-icon" id="bpBtnCloseSearch" title="Close Search">
-          <i class="fas fa-times"></i>
-        </button>
-      </div>
-
-      <!-- Header -->
-      <div class="bp-chat-header">
-        <div class="bp-chat-header-info">
-          <div class="bp-chat-avatar-ring" id="bpChatHeaderAvatar">
-            <img src="Dp/Image.png" alt="BP" onerror="this.outerHTML='<span>BP</span>'">
-          </div>
-          <div class="bp-chat-title-wrap">
-            <span class="bp-chat-title">BP Team Messenger</span>
-            <span class="bp-chat-status" id="bpChatHeaderStatus">
-              <span class="bp-chat-online-dot"></span> Live Team Room
-            </span>
-          </div>
-        </div>
-        <div class="bp-chat-header-actions">
-          <button class="bp-chat-btn-icon" id="bpBtnSearchToggle" title="Search messages">
-            <i class="fas fa-search"></i>
-          </button>
-          <button class="bp-chat-btn-icon ${soundEnabled ? '' : 'muted'}" id="bpBtnMuteSound" title="Toggle Sound">
-            <i class="fas ${soundEnabled ? 'fa-bell' : 'fa-bell-slash'}"></i>
-          </button>
-          <button class="bp-chat-btn-icon" id="bpBtnClearChat" title="Clear Chat Options">
-            <i class="fas fa-broom"></i>
-          </button>
-          <button class="bp-chat-btn-icon" id="bpBtnCloseChat" title="Close Chat">
-            <i class="fas fa-xmark"></i>
-          </button>
-        </div>
-      </div>
-
-      <!-- Notification Permission Banner -->
-      <div class="bp-chat-notif-banner hidden" id="bpNotifBanner">
-        <div class="bp-notif-banner-content">
-          <i class="fas fa-bell"></i>
-          <span>Enable Chrome desktop alerts to get notified when minimized</span>
-        </div>
-        <div class="bp-notif-banner-actions">
-          <button type="button" class="bp-notif-banner-btn" id="bpBtnEnableNotif">Enable</button>
-          <button type="button" class="bp-notif-banner-close" id="bpBtnDismissNotif" title="Dismiss">&times;</button>
-        </div>
-      </div>
-
-      <!-- Drag & Drop Overlay -->
-      <div class="bp-chat-drop-overlay" id="bpDropOverlay">
-        <i class="fas fa-cloud-arrow-up" style="font-size:32px;"></i>
-        <span>Drop Image to Share with Team</span>
-      </div>
-
-      <!-- Clear Chat Modal -->
-      <div class="bp-chat-clear-modal hidden" id="bpClearModal">
-        <div class="bp-clear-card">
-          <div class="bp-clear-header">
-            <i class="fas fa-broom" style="color:#f59e0b; font-size:22px;"></i>
-            <h3>Clear Chat Options</h3>
-          </div>
-          <p>Select how you want to clear your team messenger history:</p>
-          <div class="bp-clear-actions">
-            <button class="bp-clear-btn bp-clear-me" id="bpBtnClearForMe">
-              <div class="bp-clear-btn-title"><i class="fas fa-user-slash"></i> Clear for Me</div>
-              <div class="bp-clear-btn-desc">Clears messages only on your screen. Team members keep their chat.</div>
-            </button>
-            <button class="bp-clear-btn bp-clear-all" id="bpBtnClearForEveryone">
-              <div class="bp-clear-btn-title"><i class="fas fa-trash-can"></i> Delete for Everyone</div>
-              <div class="bp-clear-btn-desc">Permanently deletes message history from Firebase for all users.</div>
-            </button>
-          </div>
-          <button class="bp-clear-cancel" id="bpBtnCancelClear">Cancel</button>
-        </div>
-      </div>
-
-      <!-- Messages Feed -->
-      <div class="bp-chat-messages" id="bpChatMessages">
-        <div style="text-align:center; padding:30px; color:#94a3b8; font-size:12px;">
-          <i class="fas fa-spinner fa-spin" style="font-size:20px; margin-bottom:8px;"></i><br>
-          Connecting to Real-time Team Hub...
-        </div>
-      </div>
-
-      <!-- WhatsApp Emoji Picker Panel -->
-      <div class="bp-emoji-picker-panel hidden" id="bpEmojiPanel">
-        <div class="bp-emoji-tabs">
-          <button type="button" class="bp-emoji-tab active" data-cat="smileys">😊</button>
-          <button type="button" class="bp-emoji-tab" data-cat="hands">👍</button>
-          <button type="button" class="bp-emoji-tab" data-cat="travel">✈️</button>
-          <button type="button" class="bp-emoji-tab" data-cat="hearts">❤️</button>
-        </div>
-        <div class="bp-emoji-grid" id="bpEmojiGrid"></div>
-      </div>
-
-      <!-- Input Area -->
-      <div class="bp-chat-input-area">
-        <!-- Reply / Quote Banner Preview -->
-        <div class="bp-chat-reply-preview hidden" id="bpReplyPreview">
-          <div class="bp-reply-preview-left">
-            <span class="bp-reply-preview-title" id="bpReplySender">Replying to User</span>
-            <span class="bp-reply-preview-text" id="bpReplyText">Snippet</span>
-          </div>
-          <button type="button" class="bp-reply-preview-close" id="bpBtnCancelReply" title="Cancel Reply">&times;</button>
-        </div>
-
-        <!-- Draft Image Attachment Preview -->
-        <div class="bp-chat-draft-preview hidden" id="bpDraftPreview">
-          <img class="bp-chat-draft-thumb" id="bpDraftThumb" src="" alt="Draft Image">
-          <div class="bp-chat-draft-info">
-            <strong>Image Attached</strong><br>
-            <span id="bpDraftSize">Compressed & Ready</span>
-          </div>
-          <button type="button" class="bp-chat-draft-remove" id="bpBtnRemoveDraft" title="Remove Image">&times;</button>
-        </div>
-
-        <!-- Input Row -->
-        <div class="bp-chat-input-row" id="bpInputRow">
-          <!-- Text Input Mode -->
-          <button type="button" class="bp-chat-action-btn" id="bpBtnToggleEmoji" title="Insert Emoji">
-            <i class="far fa-face-smile"></i>
-          </button>
-
-          <input type="file" id="bpFileInput" accept="image/*" style="display:none;">
-          <button type="button" class="bp-chat-action-btn" id="bpBtnPickFile" title="Attach Image or Screenshot">
-            <i class="fas fa-paperclip"></i>
-          </button>
-
-          <textarea class="bp-chat-textarea" id="bpChatInput" placeholder="Type a message or paste screenshot..." rows="1"></textarea>
-
-          <!-- Voice Recording Bar (hidden until mic is clicked) -->
-          <div class="bp-chat-recording-bar hidden" id="bpRecordingBar">
-            <div class="bp-rec-status">
-              <span class="bp-rec-dot"></span>
-              <span id="bpRecTimer">00:00</span>
+      <div class="bp-chat-views-wrapper" id="bpViewsWrapper">
+        
+        <!-- ══════════════════════════════════════════════════════
+             PANE 1: CONTACTS / CONVERSATIONS LIST
+             ══════════════════════════════════════════════════════ -->
+        <div class="bp-chat-pane" id="bpPaneList">
+          <div class="bp-list-header">
+            <div class="bp-list-header-user">
+              <div class="bp-chat-avatar-ring" style="width:34px;height:34px;" id="bpListHeaderAvatar">
+                <img src="Dp/Image.png" alt="My Profile">
+              </div>
+              <span class="bp-list-user-name">Team Chats</span>
             </div>
-            <div class="bp-rec-actions">
-              <button type="button" class="bp-rec-btn-cancel" id="bpBtnCancelVoice" title="Cancel Recording">
-                <i class="fas fa-trash"></i>
+            <div class="bp-list-header-actions">
+              <button class="bp-chat-btn-icon ${soundEnabled ? '' : 'muted'}" id="bpBtnMuteSoundList" title="Toggle Sound">
+                <i class="fas ${soundEnabled ? 'fa-bell' : 'fa-bell-slash'}"></i>
               </button>
-              <button type="button" class="bp-rec-btn-send" id="bpBtnSendVoice" title="Send Voice Message">
+              <button class="bp-chat-btn-icon" id="bpBtnCloseChatList" title="Close">
+                <i class="fas fa-xmark"></i>
+              </button>
+            </div>
+          </div>
+
+          <!-- Contact Search Bar -->
+          <div class="bp-list-search-bar">
+            <i class="fas fa-search" style="color:#94a3b8; font-size:12px;"></i>
+            <input type="text" class="bp-list-search-input" id="bpContactSearchInput" placeholder="Search people or rooms..." autocomplete="off">
+          </div>
+
+          <!-- Contacts Scroll Area -->
+          <div class="bp-contacts-scroll" id="bpContactsScroll">
+            <!-- Dynamically populated contacts -->
+          </div>
+        </div>
+
+        <!-- ══════════════════════════════════════════════════════
+             PANE 2: ACTIVE CONVERSATION MESSAGES & INPUT
+             ══════════════════════════════════════════════════════ -->
+        <div class="bp-chat-pane" id="bpPaneConv">
+          <!-- In-Conversation Search Overlay -->
+          <div class="bp-chat-search-wrap hidden" id="bpSearchWrap">
+            <input type="text" class="bp-search-input" id="bpSearchInput" placeholder="Search in this chat..." autocomplete="off">
+            <span class="bp-search-count" id="bpSearchCount"></span>
+            <button type="button" class="bp-chat-btn-icon" id="bpBtnCloseSearch" title="Close Search">
+              <i class="fas fa-times"></i>
+            </button>
+          </div>
+
+          <!-- Conversation Header -->
+          <div class="bp-conv-header">
+            <div class="bp-conv-header-left">
+              <button type="button" class="bp-btn-back" id="bpBtnBackToList" title="Back to Chat List">
+                <i class="fas fa-arrow-left"></i>
+              </button>
+              <div class="bp-chat-avatar-ring" style="width:34px;height:34px;" id="bpConvHeaderAvatar">
+                <img src="Dp/Image.png" alt="Active Room">
+              </div>
+              <div class="bp-conv-title-wrap">
+                <span class="bp-conv-title" id="bpConvTitle">Team Room</span>
+                <span class="bp-conv-status" id="bpConvStatus">
+                  <span class="bp-conv-online-dot"></span> Live Chat
+                </span>
+              </div>
+            </div>
+            <div class="bp-chat-header-actions">
+              <button class="bp-chat-btn-icon" id="bpBtnSearchToggle" title="Search messages">
+                <i class="fas fa-search"></i>
+              </button>
+              <button class="bp-chat-btn-icon ${soundEnabled ? '' : 'muted'}" id="bpBtnMuteSoundConv" title="Toggle Sound">
+                <i class="fas ${soundEnabled ? 'fa-bell' : 'fa-bell-slash'}"></i>
+              </button>
+              <button class="bp-chat-btn-icon" id="bpBtnClearChat" title="Clear Chat Options">
+                <i class="fas fa-broom"></i>
+              </button>
+              <button class="bp-chat-btn-icon" id="bpBtnCloseChatConv" title="Close Chat">
+                <i class="fas fa-xmark"></i>
+              </button>
+            </div>
+          </div>
+
+          <!-- Notification Permission Banner -->
+          <div class="bp-chat-notif-banner hidden" id="bpNotifBanner">
+            <div class="bp-notif-banner-content">
+              <i class="fas fa-bell"></i>
+              <span>Enable Chrome alerts to get notified when minimized</span>
+            </div>
+            <div class="bp-notif-banner-actions">
+              <button type="button" class="bp-notif-banner-btn" id="bpBtnEnableNotif">Enable</button>
+              <button type="button" class="bp-notif-banner-close" id="bpBtnDismissNotif" title="Dismiss">&times;</button>
+            </div>
+          </div>
+
+          <!-- Drag & Drop Overlay -->
+          <div class="bp-chat-drop-overlay" id="bpDropOverlay">
+            <i class="fas fa-cloud-arrow-up" style="font-size:32px;"></i>
+            <span>Drop Image to Share</span>
+          </div>
+
+          <!-- Clear Chat Modal -->
+          <div class="bp-chat-clear-modal hidden" id="bpClearModal">
+            <div class="bp-clear-card">
+              <div class="bp-clear-header">
+                <i class="fas fa-broom" style="color:#f59e0b; font-size:22px;"></i>
+                <h3>Clear Chat Options</h3>
+              </div>
+              <p id="bpClearModalDesc">Select how you want to clear this conversation:</p>
+              <div class="bp-clear-actions">
+                <button class="bp-clear-btn bp-clear-me" id="bpBtnClearForMe">
+                  <div class="bp-clear-btn-title"><i class="fas fa-user-slash"></i> Clear for Me</div>
+                  <div class="bp-clear-btn-desc">Clears messages only on your screen. The other party keeps their chat.</div>
+                </button>
+                <button class="bp-clear-btn bp-clear-all" id="bpBtnClearForEveryone">
+                  <div class="bp-clear-btn-title"><i class="fas fa-trash-can"></i> Delete for Everyone</div>
+                  <div class="bp-clear-btn-desc">Permanently deletes this conversation history from Firebase for both users.</div>
+                </button>
+              </div>
+              <button class="bp-clear-cancel" id="bpBtnCancelClear">Cancel</button>
+            </div>
+          </div>
+
+          <!-- Messages Feed -->
+          <div class="bp-chat-messages" id="bpChatMessages">
+            <div style="text-align:center; padding:30px; color:#94a3b8; font-size:12px;">
+              <i class="fas fa-spinner fa-spin" style="font-size:20px; margin-bottom:8px;"></i><br>
+              Connecting to Private Channel...
+            </div>
+          </div>
+
+          <!-- WhatsApp Emoji Picker Panel -->
+          <div class="bp-emoji-picker-panel hidden" id="bpEmojiPanel">
+            <div class="bp-emoji-tabs">
+              <button type="button" class="bp-emoji-tab active" data-cat="smileys">😊</button>
+              <button type="button" class="bp-emoji-tab" data-cat="hands">👍</button>
+              <button type="button" class="bp-emoji-tab" data-cat="travel">✈️</button>
+              <button type="button" class="bp-emoji-tab" data-cat="hearts">❤️</button>
+            </div>
+            <div class="bp-emoji-grid" id="bpEmojiGrid"></div>
+          </div>
+
+          <!-- Input Area -->
+          <div class="bp-chat-input-area">
+            <!-- Reply / Quote Banner Preview -->
+            <div class="bp-chat-reply-preview hidden" id="bpReplyPreview">
+              <div class="bp-reply-preview-left">
+                <span class="bp-reply-preview-title" id="bpReplySender">Replying to User</span>
+                <span class="bp-reply-preview-text" id="bpReplyText">Snippet</span>
+              </div>
+              <button type="button" class="bp-reply-preview-close" id="bpBtnCancelReply" title="Cancel Reply">&times;</button>
+            </div>
+
+            <!-- Draft Image Attachment Preview -->
+            <div class="bp-chat-draft-preview hidden" id="bpDraftPreview">
+              <img class="bp-chat-draft-thumb" id="bpDraftThumb" src="" alt="Draft Image">
+              <div class="bp-chat-draft-info">
+                <strong>Image Attached</strong><br>
+                <span id="bpDraftSize">Compressed & Ready</span>
+              </div>
+              <button type="button" class="bp-chat-draft-remove" id="bpBtnRemoveDraft" title="Remove Image">&times;</button>
+            </div>
+
+            <!-- Input Row -->
+            <div class="bp-chat-input-row" id="bpInputRow">
+              <button type="button" class="bp-chat-action-btn" id="bpBtnToggleEmoji" title="Insert Emoji">
+                <i class="far fa-face-smile"></i>
+              </button>
+
+              <input type="file" id="bpFileInput" accept="image/*" style="display:none;">
+              <button type="button" class="bp-chat-action-btn" id="bpBtnPickFile" title="Attach Image or Screenshot">
+                <i class="fas fa-paperclip"></i>
+              </button>
+
+              <textarea class="bp-chat-textarea" id="bpChatInput" placeholder="Type a message or paste screenshot..." rows="1"></textarea>
+
+              <!-- Voice Recording Bar -->
+              <div class="bp-chat-recording-bar hidden" id="bpRecordingBar">
+                <div class="bp-rec-status">
+                  <span class="bp-rec-dot"></span>
+                  <span id="bpRecTimer">00:00</span>
+                </div>
+                <div class="bp-rec-actions">
+                  <button type="button" class="bp-rec-btn-cancel" id="bpBtnCancelVoice" title="Cancel Recording">
+                    <i class="fas fa-trash"></i>
+                  </button>
+                  <button type="button" class="bp-rec-btn-send" id="bpBtnSendVoice" title="Send Voice Message">
+                    <i class="fas fa-paper-plane"></i>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Send & Mic Buttons -->
+              <button type="button" class="bp-chat-btn-send" id="bpBtnSendMsg" title="Send (Enter)">
                 <i class="fas fa-paper-plane"></i>
               </button>
+              <button type="button" class="bp-chat-btn-mic" id="bpBtnVoiceRecord" title="Record Voice Message">
+                <i class="fas fa-microphone"></i>
+              </button>
+            </div>
+
+            <div class="bp-chat-footer-tip">
+              <span>Tip: Paste screenshot with <b>Ctrl + V</b></span>
+              <span id="bpCharCount"></span>
             </div>
           </div>
-
-          <!-- Send Button (switches to Mic button when text is empty) -->
-          <button type="button" class="bp-chat-btn-send" id="bpBtnSendMsg" title="Send (Enter)">
-            <i class="fas fa-paper-plane"></i>
-          </button>
-          <button type="button" class="bp-chat-btn-mic" id="bpBtnVoiceRecord" title="Record Voice Message">
-            <i class="fas fa-microphone"></i>
-          </button>
         </div>
 
-        <div class="bp-chat-footer-tip">
-          <span>Tip: Paste screenshot with <b>Ctrl + V</b></span>
-          <span id="bpCharCount"></span>
-        </div>
       </div>
     `;
 
@@ -284,7 +338,16 @@
     document.body.appendChild(lightbox);
 
     // Elements references
+    const viewsWrapper = document.getElementById('bpViewsWrapper');
     const badgeEl = triggerBtn.querySelector('.bp-chat-badge');
+    const contactsScroll = document.getElementById('bpContactsScroll');
+    const contactSearchInput = document.getElementById('bpContactSearchInput');
+    const btnBackToList = document.getElementById('bpBtnBackToList');
+    const convTitle = document.getElementById('bpConvTitle');
+    const convStatus = document.getElementById('bpConvStatus');
+    const convHeaderAvatar = document.getElementById('bpConvHeaderAvatar');
+    const listHeaderAvatar = document.getElementById('bpListHeaderAvatar');
+
     const messagesEl = document.getElementById('bpChatMessages');
     const inputEl = document.getElementById('bpChatInput');
     const sendBtn = document.getElementById('bpBtnSendMsg');
@@ -294,15 +357,19 @@
     const draftPreview = document.getElementById('bpDraftPreview');
     const draftThumb = document.getElementById('bpDraftThumb');
     const removeDraftBtn = document.getElementById('bpBtnRemoveDraft');
-    const muteBtn = document.getElementById('bpBtnMuteSound');
     const clearBtn = document.getElementById('bpBtnClearChat');
-    const closeBtn = document.getElementById('bpBtnCloseChat');
     const dropOverlay = document.getElementById('bpDropOverlay');
     const notifBanner = document.getElementById('bpNotifBanner');
     const enableNotifBtn = document.getElementById('bpBtnEnableNotif');
     const dismissNotifBtn = document.getElementById('bpBtnDismissNotif');
 
-    // WhatsApp Reply Elements
+    // Mute & Close buttons on both panes
+    const muteBtnList = document.getElementById('bpBtnMuteSoundList');
+    const muteBtnConv = document.getElementById('bpBtnMuteSoundConv');
+    const closeBtnList = document.getElementById('bpBtnCloseChatList');
+    const closeBtnConv = document.getElementById('bpBtnCloseChatConv');
+
+    // Reply Elements
     const replyPreview = document.getElementById('bpReplyPreview');
     const replySender = document.getElementById('bpReplySender');
     const replyText = document.getElementById('bpReplyText');
@@ -316,11 +383,12 @@
 
     // Clear Modal Elements
     const clearModal = document.getElementById('bpClearModal');
+    const clearModalDesc = document.getElementById('bpClearModalDesc');
     const btnClearForMe = document.getElementById('bpBtnClearForMe');
     const btnClearForEveryone = document.getElementById('bpBtnClearForEveryone');
     const btnCancelClear = document.getElementById('bpBtnCancelClear');
 
-    // Search Elements
+    // Search in Conversation Elements
     const searchWrap = document.getElementById('bpSearchWrap');
     const searchInput = document.getElementById('bpSearchInput');
     const searchCount = document.getElementById('bpSearchCount');
@@ -606,15 +674,11 @@
       }
     }
 
-    if (enableNotifBtn) {
-      enableNotifBtn.addEventListener('click', () => requestNotificationPermission(true));
-    }
-    if (dismissNotifBtn) {
-      dismissNotifBtn.addEventListener('click', () => {
-        localStorage.setItem('bp_notif_banner_dismissed', 'true');
-        updateNotificationBanner();
-      });
-    }
+    if (enableNotifBtn) enableNotifBtn.addEventListener('click', () => requestNotificationPermission(true));
+    if (dismissNotifBtn) dismissNotifBtn.addEventListener('click', () => {
+      localStorage.setItem('bp_notif_banner_dismissed', 'true');
+      updateNotificationBanner();
+    });
 
     // ── Smart Client-Side Image Compressor (5MB -> 40KB WebP) ──
     async function compressImageFile(file) {
@@ -814,7 +878,6 @@
         isRecordingAudio = true;
         recordingSeconds = 0;
 
-        // Show recording UI
         inputEl.style.display = 'none';
         pickFileBtn.style.display = 'none';
         emojiToggleBtn.style.display = 'none';
@@ -832,7 +895,7 @@
         }, 1000);
       } catch (err) {
         console.error('Microphone access denied:', err);
-        alert('Could not access microphone: ' + err.message + '\nPlease enable microphone permissions in Chrome.');
+        alert('Could not access microphone: ' + err.message);
       }
     }
 
@@ -886,18 +949,24 @@
     cancelVoiceBtn.addEventListener('click', cancelVoiceRecording);
     sendVoiceBtn.addEventListener('click', finishAndSendVoiceRecording);
 
-    // ── Send Voice Message ──
+    // ── Send Voice Message (with Room Scoping) ──
     async function sendVoiceMessage(base64Audio, duration) {
       const user = getCurrentUser();
       if (!user) return;
 
       try {
+        const isDirect = currentRoomMeta.isDirect;
+        const participants = isDirect ? [user.id, currentRoomMeta.peerUserKey].sort() : ['all'];
+
         const newMsg = {
           text: '',
           image: null,
           audio: base64Audio,
           audioDuration: duration,
           replyTo: currentReplyTo,
+          roomId: currentRoomId,
+          chatType: isDirect ? 'direct' : 'general',
+          participants: participants,
           senderId: user.id,
           senderName: user.name,
           senderAvatar: user.avatar || null,
@@ -909,13 +978,14 @@
         await db.collection('bp_team_chat').add(newMsg);
         clearReply();
         playChime();
+        markActiveRoomSeen();
       } catch (err) {
         console.error('Error sending voice message:', err);
         alert('Failed to send voice note: ' + err.message);
       }
     }
 
-    // ── Send Standard Message ──
+    // ── Send Standard Message (with Room Scoping) ──
     async function sendMessage() {
       const user = getCurrentUser();
       if (!user) {
@@ -932,12 +1002,18 @@
       sendBtn.disabled = true;
 
       try {
+        const isDirect = currentRoomMeta.isDirect;
+        const participants = isDirect ? [user.id, currentRoomMeta.peerUserKey].sort() : ['all'];
+
         const newMsg = {
           text: text,
           image: imagePayload || null,
           audio: null,
           audioDuration: null,
           replyTo: replyPayload,
+          roomId: currentRoomId,
+          chatType: isDirect ? 'direct' : 'general',
+          participants: participants,
           senderId: user.id,
           senderName: user.name,
           senderAvatar: user.avatar || null,
@@ -954,6 +1030,7 @@
         clearDraftImage();
         clearReply();
         updateInputMode();
+        markActiveRoomSeen();
 
         // Broadcast stop typing
         broadcastTyping(false);
@@ -974,7 +1051,6 @@
       }
     });
 
-    // Auto-grow textarea & update send/mic button
     inputEl.addEventListener('input', () => {
       inputEl.style.height = 'auto';
       inputEl.style.height = Math.min(90, inputEl.scrollHeight) + 'px';
@@ -982,7 +1058,7 @@
       broadcastTyping(true);
     });
 
-    // ── Live Typing Indicator Engine ──
+    // ── Live Typing Indicator Engine (Scoped to Room) ──
     function broadcastTyping(isTyping) {
       const user = getCurrentUser();
       if (!user) return;
@@ -994,6 +1070,7 @@
           db.collection('bp_chat_presence').doc('typing_' + user.id).set({
             userId: user.id,
             userName: user.name,
+            roomId: currentRoomId,
             timestamp: now
           }, { merge: true }).catch(() => {});
         }
@@ -1008,7 +1085,7 @@
       }
     }
 
-    // Listen for peer typing
+    // Listen for peer typing & presence
     db.collection('bp_chat_presence').onSnapshot(snapshot => {
       const currentUserId = getCurrentUser()?.id;
       let activeTyper = null;
@@ -1017,24 +1094,36 @@
       snapshot.forEach(doc => {
         if (doc.id.startsWith('typing_')) {
           const data = doc.data();
-          if (data.userId !== currentUserId && data.timestamp > cutoff) {
+          if (data.userId !== currentUserId && data.roomId === currentRoomId && data.timestamp > cutoff) {
             activeTyper = data.userName;
           }
         } else {
-          // General presence for read receipts
           peerPresence[doc.id] = doc.data();
         }
       });
 
-      const statusEl = document.getElementById('bpChatHeaderStatus');
-      if (statusEl) {
+      if (convStatus) {
         if (activeTyper) {
-          statusEl.innerHTML = `<span class="bp-chat-typing-indicator"><span class="bp-typing-dots"><span></span><span></span><span></span></span> ${escapeHtml(activeTyper)} is typing...</span>`;
+          convStatus.innerHTML = `<span class="bp-chat-typing-indicator"><span class="bp-typing-dots"><span></span><span></span><span></span></span> ${escapeHtml(activeTyper)} is typing...</span>`;
         } else {
-          statusEl.innerHTML = `<span class="bp-chat-online-dot"></span> Live Team Room`;
+          updateConvStatusText();
         }
       }
     }, () => {});
+
+    function updateConvStatusText() {
+      if (!convStatus) return;
+      if (!currentRoomMeta.isDirect) {
+        convStatus.innerHTML = `<span class="bp-conv-online-dot"></span> Company Room`;
+      } else {
+        const peer = peerPresence[currentRoomMeta.peerUserKey];
+        if (peer && peer.lastSeenMillis && (Date.now() - peer.lastSeenMillis < 120000)) {
+          convStatus.innerHTML = `<span class="bp-conv-online-dot"></span> Online`;
+        } else {
+          convStatus.innerHTML = `<i class="fas fa-lock" style="font-size:9px;color:#94a3b8;"></i> End-to-end Private Chat`;
+        }
+      }
+    }
 
     // ── Emoji Reaction Handler ──
     window.bpReactMessage = async function (msgId, emoji) {
@@ -1069,7 +1158,7 @@
       }
     };
 
-    // ── Delete Message Options (Delete for Me vs Delete for Everyone) ──
+    // ── Delete Message Options ──
     window.bpDeleteMessageOptions = function (msgId) {
       const user = getCurrentUser();
       if (!user) return;
@@ -1102,14 +1191,14 @@
     window.bpCopyMessage = function (text) {
       navigator.clipboard.writeText(text).then(() => {
         const tip = document.createElement('div');
-        tip.style = 'position:fixed; bottom:120px; right:40px; background:#1e293b; color:white; padding:8px 16px; border-radius:20px; font-size:12px; font-weight:700; z-index:999999; box-shadow:0 6px 20px rgba(0,0,0,0.3); animation:bpFadeIn 0.2s ease;';
+        tip.style = 'position:fixed; bottom:120px; right:40px; background:#1e293b; color:white; padding:8px 16px; border-radius:20px; font-size:12px; font-weight:700; z-index:999999; box-shadow:0 6px 20px rgba(0,0,0,0.3);';
         tip.innerHTML = '<i class="fas fa-check" style="color:#10b981;"></i> Message copied!';
         document.body.appendChild(tip);
         setTimeout(() => tip.remove(), 1800);
       });
     };
 
-    // ── Voice Note Audio Player Controller ──
+    // ── Voice Note Player Controller ──
     let activeAudioObj = null;
     let activeVoiceId = null;
     let playbackSpeed = 1.0;
@@ -1131,7 +1220,6 @@
         }
       }
 
-      // Stop previous
       if (activeAudioObj) {
         activeAudioObj.pause();
         const prevBtn = document.getElementById('voice-btn-' + activeVoiceId);
@@ -1152,17 +1240,13 @@
         const s = String(Math.floor(cur % 60)).padStart(2, '0');
         if (timeLabel) timeLabel.textContent = `${m}:${s}`;
 
-        // Update waveform bars
         if (waveform) {
           const bars = waveform.querySelectorAll('.bp-wave-bar');
           const progressRatio = cur / dur;
           const playedCount = Math.floor(progressRatio * bars.length);
           bars.forEach((bar, idx) => {
-            if (idx <= playedCount) {
-              bar.classList.add('played');
-            } else {
-              bar.classList.remove('played');
-            }
+            if (idx <= playedCount) bar.classList.add('played');
+            else bar.classList.remove('played');
           });
         }
       };
@@ -1207,8 +1291,11 @@
       if (e.target === lightbox) lightbox.classList.add('hidden');
     });
 
-    // ── Clear Chat Modal Controls ──
+    // ── Clear Chat Modal Controls (Scoped to current conversation) ──
     clearBtn.addEventListener('click', () => {
+      clearModalDesc.textContent = currentRoomMeta.isDirect 
+        ? `Select how you want to clear your private chat with ${currentRoomMeta.name}:`
+        : 'Select how you want to clear the Team Room:';
       clearModal.classList.remove('hidden');
     });
 
@@ -1221,25 +1308,31 @@
       const user = getCurrentUser();
       if (!user) return;
 
-      localStorage.setItem('bp_chat_cleared_before_' + user.id, Date.now().toString());
+      localStorage.setItem('bp_chat_cleared_before_' + user.id + '_' + currentRoomId, Date.now().toString());
       clearModal.classList.add('hidden');
       renderMessages(messagesCache);
+      renderContactsList();
     });
 
-    // Option 2: Delete for Everyone (Firestore Chunk Clear)
+    // Option 2: Delete for Everyone (Firestore Chunk Clear for this room)
     btnClearForEveryone.addEventListener('click', async () => {
-      if (!confirm('Are you absolutely sure you want to permanently delete all messages for the entire team? This cannot be undone.')) return;
+      if (!confirm('Are you absolutely sure you want to permanently delete messages in this room? This cannot be undone.')) return;
 
-      btnClearForEveryone.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Deleting for Everyone...';
+      btnClearForEveryone.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Deleting...';
       try {
         const snap = await db.collection('bp_team_chat').get();
-        if (snap.empty) {
-          alert('Chat history is already empty.');
+        const docs = snap.docs.filter(d => {
+          const data = d.data();
+          const rId = data.roomId || 'general';
+          return rId === currentRoomId;
+        });
+
+        if (docs.length === 0) {
+          alert('Chat history in this room is already empty.');
           clearModal.classList.add('hidden');
           return;
         }
 
-        const docs = snap.docs;
         const CHUNK_SIZE = 450;
         for (let i = 0; i < docs.length; i += CHUNK_SIZE) {
           const chunk = docs.slice(i, i + CHUNK_SIZE);
@@ -1249,19 +1342,22 @@
         }
 
         clearModal.classList.add('hidden');
-        alert(`Chat history cleared successfully (${docs.length} messages permanently deleted).`);
+        alert(`Conversation cleared successfully (${docs.length} messages permanently removed).`);
+        renderMessages(messagesCache);
+        renderContactsList();
       } catch (err) {
         alert('Failed to clear: ' + err.message);
       } finally {
-        btnClearForEveryone.innerHTML = '<div class="bp-clear-btn-title"><i class="fas fa-trash-can"></i> Delete for Everyone</div><div class="bp-clear-btn-desc">Permanently deletes message history from Firebase for all users.</div>';
+        btnClearForEveryone.innerHTML = '<div class="bp-clear-btn-title"><i class="fas fa-trash-can"></i> Delete for Everyone</div><div class="bp-clear-btn-desc">Permanently deletes this conversation history from Firebase for both users.</div>';
       }
     });
 
     window.bpRestoreLocalHistory = function () {
       const user = getCurrentUser();
       if (!user) return;
-      localStorage.removeItem('bp_chat_cleared_before_' + user.id);
+      localStorage.removeItem('bp_chat_cleared_before_' + user.id + '_' + currentRoomId);
       renderMessages(messagesCache);
+      renderContactsList();
     };
 
     // ── Search in Chat Controls ──
@@ -1286,24 +1382,264 @@
       renderMessages(messagesCache);
     });
 
-    // ── Render Messages Feed (with WhatsApp Polish) ──
+    // ── Contact Search Input ──
+    contactSearchInput.addEventListener('input', (e) => {
+      contactSearchQuery = e.target.value.trim().toLowerCase();
+      renderContactsList();
+    });
+
+    // ── Switch Conversation Room ──
+    window.bpOpenRoom = function (roomId, roomName, isDirect, peerKey, avatarUrl) {
+      currentRoomId = roomId;
+      currentRoomMeta = {
+        id: roomId,
+        type: isDirect ? 'direct' : 'general',
+        name: roomName,
+        isDirect: isDirect,
+        peerUserKey: peerKey,
+        avatar: avatarUrl
+      };
+
+      const user = getCurrentUser();
+      if (user) {
+        localStorage.setItem('bp_active_room_' + user.id, roomId);
+      }
+
+      // Update Header
+      convTitle.textContent = roomName;
+      updateConvStatusText();
+
+      if (avatarUrl) {
+        convHeaderAvatar.innerHTML = `<img src="${avatarUrl}" alt="${escapeHtml(roomName)}">`;
+      } else if (isDirect) {
+        const init = roomName.charAt(0).toUpperCase();
+        convHeaderAvatar.innerHTML = `<span>${init}</span>`;
+      } else {
+        convHeaderAvatar.innerHTML = '<i class="fas fa-users" style="color:#1d4ed8; font-size:15px; position:relative; z-index:2;"></i>';
+      }
+
+      // Mark seen
+      markActiveRoomSeen();
+
+      // Clear search
+      currentSearchQuery = '';
+      if (searchWrap) searchWrap.classList.add('hidden');
+
+      // Slide to Conversation View
+      viewsWrapper.classList.add('show-conv');
+      renderMessages(messagesCache);
+      renderContactsList();
+
+      setTimeout(() => {
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+        inputEl.focus();
+      }, 100);
+    };
+
+    // Back button to contacts
+    btnBackToList.addEventListener('click', () => {
+      viewsWrapper.classList.remove('show-conv');
+      renderContactsList();
+    });
+
+    function markActiveRoomSeen() {
+      const user = getCurrentUser();
+      if (!user) return;
+
+      const seenKey = 'bp_seen_' + user.id + '_' + currentRoomId;
+      localStorage.setItem(seenKey, Date.now().toString());
+
+      // Update Firestore presence for this room so peer gets blue double ticks!
+      db.collection('bp_chat_presence').doc(user.id + '_' + currentRoomId).set({
+        lastSeenMillis: Date.now(),
+        userId: user.id,
+        roomId: currentRoomId
+      }, { merge: true }).catch(() => {});
+    }
+
+    // ── Privacy Filter Helper ──
+    function isMessageVisibleToMe(data, myUserId) {
+      if (!data) return false;
+      const isDirect = data.chatType === 'direct';
+      if (!isDirect) return true; // General room messages visible to all team members
+      // Direct message: MUST have myUserId in participants or senderId
+      if (data.senderId === myUserId) return true;
+      if (data.participants && data.participants.includes(myUserId)) return true;
+      return false; // Privacy: not permitted
+    }
+
+    // ── Render Contacts & Rooms List (Pane 1) ──
+    function renderContactsList() {
+      const user = getCurrentUser();
+      if (!user) return;
+
+      const allUsers = window.USERS || {};
+      const userKeys = Object.keys(allUsers).filter(k => k !== user.id);
+
+      contactsScroll.innerHTML = '';
+
+      // ── 1. Company General Room ──
+      const generalDocs = messagesCache.filter(doc => {
+        const d = doc.data();
+        const rId = d.roomId || 'general';
+        return rId === 'general' && isMessageVisibleToMe(d, user.id);
+      });
+
+      const lastGenDoc = generalDocs.length > 0 ? generalDocs[generalDocs.length - 1].data() : null;
+      let lastGenSnippet = 'Company-wide announcements & discussion';
+      let lastGenTime = '';
+      if (lastGenDoc) {
+        lastGenSnippet = lastGenDoc.text || (lastGenDoc.image ? '📷 Photo' : (lastGenDoc.audio ? '🎤 Voice note' : 'Message'));
+        const t = lastGenDoc.timestamp ? lastGenDoc.timestamp.toDate() : (lastGenDoc.createdMillis ? new Date(lastGenDoc.createdMillis) : new Date());
+        lastGenTime = t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      }
+
+      const lastGenSeen = parseInt(localStorage.getItem('bp_seen_' + user.id + '_general') || '0', 10);
+      let generalUnreadCount = 0;
+      generalDocs.forEach(doc => {
+        const d = doc.data();
+        if (d.senderId !== user.id && (d.createdMillis || 0) > lastGenSeen) {
+          generalUnreadCount++;
+        }
+      });
+
+      if (!contactSearchQuery || 'team room general'.includes(contactSearchQuery)) {
+        const genDiv = document.createElement('div');
+        genDiv.className = `bp-contact-item ${currentRoomId === 'general' ? 'active' : ''}`;
+        genDiv.onclick = () => window.bpOpenRoom('general', 'Team Room (General)', false, null, null);
+        genDiv.innerHTML = `
+          <div class="bp-contact-avatar-wrap">
+            <div class="bp-contact-avatar-circle" style="background:#e0e7ff;">
+              <i class="fas fa-users" style="color:#2563eb; font-size:16px;"></i>
+            </div>
+            <div class="bp-contact-online-badge"></div>
+          </div>
+          <div class="bp-contact-info">
+            <div class="bp-contact-top-row">
+              <span class="bp-contact-name">Team Room (General)</span>
+              <span class="bp-contact-time">${lastGenTime}</span>
+            </div>
+            <div class="bp-contact-bottom-row">
+              <span class="bp-contact-snippet ${generalUnreadCount > 0 ? 'unread-bold' : ''}">${escapeHtml(lastGenSnippet)}</span>
+              ${generalUnreadCount > 0 ? `<span class="bp-contact-unread-badge">${generalUnreadCount}</span>` : ''}
+            </div>
+          </div>
+        `;
+        contactsScroll.appendChild(genDiv);
+      }
+
+      // Section Label: Direct Messages
+      const dmLabel = document.createElement('div');
+      dmLabel.className = 'bp-contact-section-label';
+      dmLabel.textContent = 'Direct Messages (Private)';
+      contactsScroll.appendChild(dmLabel);
+
+      let totalUnreadAllRooms = generalUnreadCount;
+
+      // ── 2. Direct Messages (1-on-1 with each Team Member) ──
+      userKeys.forEach(peerKey => {
+        const peer = allUsers[peerKey] || {};
+        const peerName = peer.name || (peerKey.charAt(0).toUpperCase() + peerKey.slice(1));
+        const peerAvatar = peer.avatar || localStorage.getItem('slw_avatar_' + peerKey) || (peerKey === 'admin' ? 'Dp/Image.png' : null);
+        const roomId = getDirectRoomId(user.id, peerKey);
+
+        if (contactSearchQuery && !peerName.toLowerCase().includes(contactSearchQuery) && !peerKey.includes(contactSearchQuery)) {
+          return;
+        }
+
+        // Filter messages for this DM room
+        const dmDocs = messagesCache.filter(doc => {
+          const d = doc.data();
+          return d.roomId === roomId && isMessageVisibleToMe(d, user.id);
+        });
+
+        const lastDmDoc = dmDocs.length > 0 ? dmDocs[dmDocs.length - 1].data() : null;
+        let lastDmSnippet = 'No messages yet';
+        let lastDmTime = '';
+        if (lastDmDoc) {
+          lastDmSnippet = (lastDmDoc.senderId === user.id ? 'You: ' : '') + (lastDmDoc.text || (lastDmDoc.image ? '📷 Photo' : (lastDmDoc.audio ? '🎤 Voice note' : 'Message')));
+          const t = lastDmDoc.timestamp ? lastDmDoc.timestamp.toDate() : (lastDmDoc.createdMillis ? new Date(lastDmDoc.createdMillis) : new Date());
+          lastDmTime = t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        }
+
+        const lastDmSeen = parseInt(localStorage.getItem('bp_seen_' + user.id + '_' + roomId) || '0', 10);
+        let dmUnreadCount = 0;
+        dmDocs.forEach(doc => {
+          const d = doc.data();
+          if (d.senderId !== user.id && (d.createdMillis || 0) > lastDmSeen) {
+            dmUnreadCount++;
+          }
+        });
+
+        totalUnreadAllRooms += dmUnreadCount;
+
+        // Presence check
+        const isOnline = peerPresence[peerKey] && peerPresence[peerKey].lastSeenMillis && (Date.now() - peerPresence[peerKey].lastSeenMillis < 120000);
+
+        const contactDiv = document.createElement('div');
+        contactDiv.className = `bp-contact-item ${currentRoomId === roomId ? 'active' : ''}`;
+        contactDiv.onclick = () => window.bpOpenRoom(roomId, peerName, true, peerKey, peerAvatar);
+
+        let avatarInner = '';
+        if (peerAvatar) {
+          avatarInner = `<img src="${peerAvatar}" alt="${escapeHtml(peerName)}">`;
+        } else {
+          avatarInner = `<span>${peerName.charAt(0).toUpperCase()}</span>`;
+        }
+
+        contactDiv.innerHTML = `
+          <div class="bp-contact-avatar-wrap">
+            <div class="bp-chat-avatar-ring" style="width:38px;height:38px;">
+              ${avatarInner}
+            </div>
+            <div class="bp-contact-online-badge ${isOnline ? '' : 'offline'}"></div>
+          </div>
+          <div class="bp-contact-info">
+            <div class="bp-contact-top-row">
+              <span class="bp-contact-name">${escapeHtml(peerName)}</span>
+              <span class="bp-contact-time">${lastDmTime}</span>
+            </div>
+            <div class="bp-contact-bottom-row">
+              <span class="bp-contact-snippet ${dmUnreadCount > 0 ? 'unread-bold' : ''}">${escapeHtml(lastDmSnippet)}</span>
+              ${dmUnreadCount > 0 ? `<span class="bp-contact-unread-badge">${dmUnreadCount}</span>` : ''}
+            </div>
+          </div>
+        `;
+
+        contactsScroll.appendChild(contactDiv);
+      });
+
+      // Update global floating trigger badge
+      if (totalUnreadAllRooms > 0) {
+        badgeEl.textContent = totalUnreadAllRooms > 9 ? '9+' : totalUnreadAllRooms;
+        badgeEl.style.display = 'flex';
+      } else {
+        badgeEl.style.display = 'none';
+      }
+    }
+
+    // ── Render Messages Feed (Pane 2) ──
     function renderMessages(docs) {
       const currentUser = getCurrentUser();
       const currentUserId = currentUser ? currentUser.id : null;
-      const isAdmin = currentUser && currentUser.isAdmin;
+      if (!currentUserId) return;
 
-      const clearedBefore = parseInt(localStorage.getItem('bp_chat_cleared_before_' + (currentUserId || 'default')) || '0', 10);
-      const locallyDeletedList = JSON.parse(localStorage.getItem('bp_chat_deleted_msgs_' + (currentUserId || 'default')) || '[]');
+      const clearedBefore = parseInt(localStorage.getItem('bp_chat_cleared_before_' + currentUserId + '_' + currentRoomId) || '0', 10);
+      const locallyDeletedList = JSON.parse(localStorage.getItem('bp_chat_deleted_msgs_' + currentUserId) || '[]');
 
-      // Filter locally cleared or deleted messages
+      // Filter messages strictly for current active room and privacy
       const visibleDocs = docs.filter(doc => {
         if (locallyDeletedList.includes(doc.id)) return false;
         const d = doc.data();
+        const rId = d.roomId || 'general';
+        if (rId !== currentRoomId) return false;
+        if (!isMessageVisibleToMe(d, currentUserId)) return false;
+
         const created = d.createdMillis || (d.timestamp ? d.timestamp.toMillis() : 0);
         return created >= clearedBefore;
       });
 
-      // Search match filtering & counting
+      // Search match filtering in current room
       let matchCount = 0;
       if (currentSearchQuery) {
         visibleDocs.forEach(doc => {
@@ -1321,16 +1657,16 @@
       if (visibleDocs.length === 0) {
         let emptyMsg = `
           <div style="text-align:center; padding:40px 20px; color:#94a3b8; font-size:13px;">
-            <i class="fas fa-comments" style="font-size:34px; color:#cbd5e1; margin-bottom:12px;"></i><br>
-            <strong>Team Messenger is Ready!</strong><br>
-            Send a message, voice note, or screenshot to start collaborating.
+            <i class="fas ${currentRoomMeta.isDirect ? 'fa-user-lock' : 'fa-comments'}" style="font-size:34px; color:#cbd5e1; margin-bottom:12px;"></i><br>
+            <strong>${currentRoomMeta.isDirect ? 'Private 1-on-1 Chat' : 'Team Room'}</strong><br>
+            ${currentRoomMeta.isDirect ? 'Messages sent here are end-to-end confidential between you and ' + escapeHtml(currentRoomMeta.name) : 'Start collaborating with the team.'}
           </div>
         `;
         if (clearedBefore > 0) {
           emptyMsg = `
             <div class="bp-chat-cleared-banner">
               <span>Messages cleared on this device.</span>
-              <span class="bp-cleared-restore-link" onclick="bpRestoreLocalHistory()">Restore All History</span>
+              <span class="bp-cleared-restore-link" onclick="bpRestoreLocalHistory()">Restore History</span>
             </div>
             ${emptyMsg}
           `;
@@ -1356,13 +1692,11 @@
         const id = doc.id;
         const isMine = data.senderId === currentUserId;
 
-        // Search highlight
         const isSearchMatch = currentSearchQuery && (
           (data.text && data.text.toLowerCase().includes(currentSearchQuery)) ||
           (data.senderName && data.senderName.toLowerCase().includes(currentSearchQuery))
         );
 
-        // Date divider
         const timeObj = data.timestamp ? data.timestamp.toDate() : (data.createdMillis ? new Date(data.createdMillis) : new Date());
         const dateStr = timeObj.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
         if (dateStr !== lastDateStr) {
@@ -1387,7 +1721,7 @@
           }
         }
 
-        // WhatsApp Quoted / Reply Preview
+        // Quoted / Reply Preview
         let quotedHtml = '';
         if (data.replyTo) {
           quotedHtml = `
@@ -1406,7 +1740,6 @@
           const durSecRemain = String(Math.floor(durSec % 60)).padStart(2, '0');
           const timeFormatted = `${durMin}:${durSecRemain}`;
 
-          // Waveform bars simulation
           const barHeights = [14, 22, 10, 18, 24, 16, 20, 26, 12, 18, 22, 14, 20, 16, 12, 18];
           let barsHtml = '';
           barHeights.forEach(h => {
@@ -1440,7 +1773,7 @@
           `;
         }
 
-        // Action Toolbar on Hover (WhatsApp Style)
+        // Action Toolbar on Hover
         const actionsHtml = `
           <div class="bp-msg-actions">
             <button class="bp-btn-react" onclick="bpReactMessage('${id}', '👍')" title="Thumbs up">👍</button>
@@ -1454,35 +1787,35 @@
           </div>
         `;
 
-        // Format message text with search highlighting & linkification
+        // Format message text with search highlighting
         let formattedText = data.text ? linkifyText(escapeHtml(data.text)) : '';
         if (currentSearchQuery && formattedText) {
           const regex = new RegExp(`(${escapeRegExp(currentSearchQuery)})`, 'gi');
           formattedText = formattedText.replace(regex, '<mark class="bp-search-hit">$1</mark>');
         }
 
-        // WhatsApp Double Checkmark Status (Read Receipts)
+        // WhatsApp Double Blue Checkmarks (Read Receipts)
         let ticksHtml = '';
         if (isMine) {
           const createdMillis = data.createdMillis || 0;
           let isReadByPeer = false;
 
-          Object.keys(peerPresence).forEach(peerId => {
-            if (peerId !== currentUserId && !peerId.startsWith('typing_')) {
-              if (peerPresence[peerId].lastSeenMillis >= createdMillis) {
-                isReadByPeer = true;
-              }
+          if (currentRoomMeta.isDirect && currentRoomMeta.peerUserKey) {
+            const peerKey = currentRoomMeta.peerUserKey;
+            const presenceKey = peerKey + '_' + currentRoomId;
+            if (peerPresence[presenceKey] && peerPresence[presenceKey].lastSeenMillis >= createdMillis) {
+              isReadByPeer = true;
             }
-          });
+          }
 
           if (isReadByPeer) {
-            ticksHtml = `<span class="bp-ticks read" title="Read by team">✓✓</span>`;
+            ticksHtml = `<span class="bp-ticks read" title="Read">✓✓</span>`;
           } else {
             ticksHtml = `<span class="bp-ticks delivered" title="Delivered">✓✓</span>`;
           }
         }
 
-        // Reactions rendering
+        // Reactions
         let reactionsHtml = '';
         if (data.reactions && Object.keys(data.reactions).length > 0) {
           reactionsHtml = '<div class="bp-msg-reactions">';
@@ -1503,7 +1836,7 @@
           <div class="bp-msg-row ${isMine ? 'outgoing' : 'incoming'} ${isSearchMatch ? 'highlighted' : ''}" id="msg-row-${id}">
             ${avatarHtml}
             <div class="bp-msg-bubble-wrap">
-              ${!isMine ? `<span class="bp-msg-sender-name">${escapeHtml(data.senderName)}</span>` : ''}
+              ${!isMine && !currentRoomMeta.isDirect ? `<span class="bp-msg-sender-name">${escapeHtml(data.senderName)}</span>` : ''}
               <div class="bp-msg-bubble">
                 ${actionsHtml}
                 ${quotedHtml}
@@ -1550,70 +1883,43 @@
     let isInitialLoad = true;
     db.collection('bp_team_chat')
       .orderBy('createdMillis', 'asc')
-      .limitToLast(200)
+      .limitToLast(250)
       .onSnapshot((snapshot) => {
         messagesCache = snapshot.docs;
+        renderContactsList();
         renderMessages(messagesCache);
 
         if (!isInitialLoad && snapshot.docChanges) {
-          let hasNewIncoming = false;
-          let latestIncomingDoc = null;
           const currentUserId = getCurrentUser()?.id;
 
           snapshot.docChanges().forEach((change) => {
             if (change.type === 'added') {
               const d = change.doc.data();
-              if (d.senderId !== currentUserId) {
-                hasNewIncoming = true;
-                latestIncomingDoc = d;
+              if (d.senderId !== currentUserId && isMessageVisibleToMe(d, currentUserId)) {
+                playChime();
+
+                const isTabInBackground = document.hidden || !document.hasFocus();
+                const isThisRoomOpen = isChatOpen && viewsWrapper.classList.contains('show-conv') && (d.roomId || 'general') === currentRoomId;
+
+                if (isTabInBackground || !isThisRoomOpen) {
+                  let notifBody = d.text;
+                  if (!notifBody && d.image) notifBody = '📷 Sent a photo';
+                  if (!notifBody && d.audio) notifBody = '🎤 Sent a voice note';
+
+                  triggerDesktopNotification(
+                    d.senderName || 'Team Member',
+                    notifBody || 'Sent a new message',
+                    d.senderAvatar
+                  );
+                }
               }
             }
           });
-
-          if (hasNewIncoming && latestIncomingDoc) {
-            playChime();
-
-            const isTabInBackground = document.hidden || !document.hasFocus();
-            if (isTabInBackground || !isChatOpen) {
-              unreadCount++;
-              updateBadge();
-
-              let notifBody = latestIncomingDoc.text;
-              if (!notifBody && latestIncomingDoc.image) notifBody = '📷 Sent a photo';
-              if (!notifBody && latestIncomingDoc.audio) notifBody = '🎤 Sent a voice note';
-
-              triggerDesktopNotification(
-                latestIncomingDoc.senderName || 'Team Member',
-                notifBody || 'Sent a new message',
-                latestIncomingDoc.senderAvatar
-              );
-            }
-          }
         }
         isInitialLoad = false;
       }, (err) => {
         console.error('Firestore chat error:', err);
       });
-
-    function updateBadge() {
-      if (unreadCount > 0) {
-        badgeEl.textContent = unreadCount > 9 ? '9+' : unreadCount;
-        badgeEl.style.display = 'flex';
-      } else {
-        badgeEl.style.display = 'none';
-      }
-    }
-
-    // Update presence timestamp in Firestore for read receipts
-    function updatePresence() {
-      const user = getCurrentUser();
-      if (!user) return;
-      db.collection('bp_chat_presence').doc(user.id).set({
-        lastSeenMillis: Date.now(),
-        name: user.name,
-        isOnline: true
-      }, { merge: true }).catch(() => {});
-    }
 
     // ── Open / Close Chat Controls ──
     function toggleChat() {
@@ -1621,17 +1927,32 @@
       if (isChatOpen) {
         chatWindow.classList.remove('hidden');
         triggerBtn.classList.add('active');
-        unreadCount = 0;
-        updateBadge();
         stopTitleBlink();
-        lastSeenTimestamp = Date.now();
-        localStorage.setItem('bp_chat_last_seen', lastSeenTimestamp.toString());
-        updatePresence();
 
-        setTimeout(() => {
-          messagesEl.scrollTop = messagesEl.scrollHeight;
-          inputEl.focus();
-        }, 100);
+        // Restore active room or stay in contact list
+        const user = getCurrentUser();
+        if (user) {
+          // Update profile avatar in list header
+          if (listHeaderAvatar) {
+            if (user.avatar) {
+              listHeaderAvatar.innerHTML = `<img src="${user.avatar}" alt="${escapeHtml(user.name)}">`;
+            } else {
+              listHeaderAvatar.innerHTML = `<span>${user.name.charAt(0).toUpperCase()}</span>`;
+            }
+          }
+
+          // Default: Start in contact list view (unless active room was already direct)
+          const savedRoom = localStorage.getItem('bp_active_room_' + user.id);
+          if (savedRoom && savedRoom !== 'general' && savedRoom.startsWith('dm_')) {
+            viewsWrapper.classList.add('show-conv');
+          } else {
+            viewsWrapper.classList.remove('show-conv');
+          }
+        }
+
+        renderContactsList();
+        renderMessages(messagesCache);
+        markActiveRoomSeen();
 
         updateNotificationBanner();
         if ('Notification' in window && Notification.permission === 'default') {
@@ -1646,29 +1967,48 @@
     }
 
     triggerBtn.addEventListener('click', toggleChat);
-    closeBtn.addEventListener('click', () => {
+    closeBtnList.addEventListener('click', () => {
       isChatOpen = false;
       chatWindow.classList.add('hidden');
       triggerBtn.classList.remove('active');
-      emojiPanel.classList.add('hidden');
-      if (isRecordingAudio) cancelVoiceRecording();
+    });
+    closeBtnConv.addEventListener('click', () => {
+      isChatOpen = false;
+      chatWindow.classList.add('hidden');
+      triggerBtn.classList.remove('active');
     });
 
-    // Sound toggle
-    muteBtn.addEventListener('click', () => {
+    // Sound toggle on both headers
+    function toggleSoundState() {
       soundEnabled = !soundEnabled;
       localStorage.setItem('bp_chat_sound', soundEnabled.toString());
-      muteBtn.classList.toggle('muted', !soundEnabled);
-      muteBtn.querySelector('i').className = `fas ${soundEnabled ? 'fa-bell' : 'fa-bell-slash'}`;
+      [muteBtnList, muteBtnConv].forEach(btn => {
+        if (!btn) return;
+        btn.classList.toggle('muted', !soundEnabled);
+        btn.querySelector('i').className = `fas ${soundEnabled ? 'fa-bell' : 'fa-bell-slash'}`;
+      });
       if (soundEnabled) {
         playChime();
         if ('Notification' in window && Notification.permission === 'default') {
           requestNotificationPermission(true);
         }
       }
-    });
+    }
 
-    // Check auth visibility
+    if (muteBtnList) muteBtnList.addEventListener('click', toggleSoundState);
+    if (muteBtnConv) muteBtnConv.addEventListener('click', toggleSoundState);
+
+    // Heartbeat presence update
+    function updateMyPresence() {
+      const user = getCurrentUser();
+      if (!user) return;
+      db.collection('bp_chat_presence').doc(user.id).set({
+        lastSeenMillis: Date.now(),
+        name: user.name,
+        isOnline: true
+      }, { merge: true }).catch(() => {});
+    }
+
     function checkVisibility() {
       const user = getCurrentUser();
       if (!user) {
@@ -1676,21 +2016,12 @@
         chatWindow.classList.add('hidden');
       } else {
         triggerBtn.style.display = 'flex';
-        const headerAvatarEl = document.getElementById('bpChatHeaderAvatar');
-        if (headerAvatarEl) {
-          if (user.avatar) {
-            headerAvatarEl.innerHTML = `<img src="${user.avatar}" alt="${escapeHtml(user.name)}">`;
-          } else {
-            const init = (user.name || 'U').charAt(0).toUpperCase();
-            headerAvatarEl.innerHTML = `<span>${init}</span>`;
-          }
-        }
       }
     }
 
     window.bpRefreshChatAuth = checkVisibility;
     setInterval(checkVisibility, 2000);
-    setInterval(updatePresence, 30000); // Heartbeat presence
+    setInterval(updateMyPresence, 30000);
     checkVisibility();
   }
 

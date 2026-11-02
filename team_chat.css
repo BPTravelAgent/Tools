@@ -1,6 +1,6 @@
 /* ═════════════════════════════════════════════════════════════════════════
-   BP TRAVEL TOOLS — TEAM REAL-TIME CHAT & COLLABORATION WIDGET (v2.0)
-   Modern WhatsApp-Style Enterprise Team Messenger
+   BP TRAVEL TOOLS — TEAM REAL-TIME CHAT & COLLABORATION WIDGET (v3.0)
+   Enterprise WhatsApp-Style 1-on-1 Direct Messaging & Team Rooms
    ═════════════════════════════════════════════════════════════════════════ */
 
 :root {
@@ -59,7 +59,7 @@
   transform: rotate(90deg);
 }
 
-/* Unread Badge */
+/* Total Unread Badge on Trigger */
 .bp-chat-badge {
   position: absolute;
   top: -4px;
@@ -90,13 +90,11 @@
   position: fixed;
   bottom: 102px;
   right: 28px;
-  width: 395px;
+  width: 400px;
   max-width: calc(100vw - 32px);
-  height: 590px;
+  height: 600px;
   max-height: calc(100vh - 125px);
-  background: rgba(255, 255, 255, 0.98);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
+  background: #ffffff;
   border-radius: 20px;
   border: 1px solid rgba(226, 232, 240, 0.85);
   box-shadow: var(--chat-shadow);
@@ -124,9 +122,257 @@
   }
 }
 
-/* ── Chat Header ── */
-.bp-chat-header {
+/* Views Container: Slidable Views for Contacts vs Conversation */
+.bp-chat-views-wrapper {
+  position: relative;
+  flex: 1;
+  display: flex;
+  width: 200%;
+  height: 100%;
+  transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.bp-chat-views-wrapper.show-conv {
+  transform: translateX(-50%);
+}
+
+.bp-chat-pane {
+  width: 50%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+/* ═══════════════════════════════════════════════════
+   PANE 1: CONTACTS & ROOMS LIST VIEW
+   ═══════════════════════════════════════════════════ */
+.bp-list-header {
   padding: 12px 16px;
+  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.bp-list-header-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.bp-list-user-name {
+  font-size: 14.5px;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+}
+
+.bp-list-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bp-list-search-bar {
+  padding: 8px 14px;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bp-list-search-input {
+  flex: 1;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 18px;
+  padding: 6px 14px;
+  font-size: 12.5px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.bp-list-search-input:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}
+
+/* Contacts Scroll Area */
+.bp-contacts-scroll {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+}
+
+.bp-contacts-scroll::-webkit-scrollbar {
+  width: 5px;
+}
+.bp-contacts-scroll::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+.bp-contact-section-label {
+  padding: 8px 16px 4px 16px;
+  font-size: 10.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: #94a3b8;
+  background: #f8fafc;
+}
+
+/* Contact Item */
+.bp-contact-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #f1f5f9;
+  cursor: pointer;
+  transition: background 0.15s;
+  user-select: none;
+  position: relative;
+}
+
+.bp-contact-item:hover {
+  background: #f8fafc;
+}
+
+.bp-contact-item.active {
+  background: #eff6ff;
+  border-left: 3px solid #2563eb;
+}
+
+.bp-contact-avatar-wrap {
+  position: relative;
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.bp-contact-avatar-circle {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+}
+
+.bp-contact-avatar-circle img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.bp-contact-avatar-circle span {
+  font-weight: 800;
+  color: #1e7829;
+  font-size: 14px;
+}
+
+.bp-contact-online-badge {
+  position: absolute;
+  bottom: 0px;
+  right: 0px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #10b981;
+  border: 2px solid #ffffff;
+  z-index: 3;
+}
+
+.bp-contact-online-badge.offline {
+  background: #cbd5e1;
+}
+
+.bp-contact-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: hidden;
+}
+
+.bp-contact-top-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.bp-contact-name {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bp-contact-time {
+  font-size: 10px;
+  color: #94a3b8;
+  white-space: nowrap;
+}
+
+.bp-contact-bottom-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.bp-contact-snippet {
+  font-size: 12px;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+
+.bp-contact-snippet.unread-bold {
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.bp-contact-unread-badge {
+  background: #2563eb;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 800;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  flex-shrink: 0;
+}
+
+/* ═══════════════════════════════════════════════════
+   PANE 2: CONVERSATION VIEW (WhatsApp Polish)
+   ═══════════════════════════════════════════════════ */
+.bp-conv-header {
+  padding: 10px 14px;
   background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
   color: #ffffff;
   display: flex;
@@ -138,16 +384,68 @@
   z-index: 10;
 }
 
-.bp-chat-header-info {
+.bp-conv-header-left {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   overflow: hidden;
 }
 
+.bp-btn-back {
+  background: none;
+  border: none;
+  color: #ffffff;
+  font-size: 16px;
+  padding: 4px 6px;
+  cursor: pointer;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+
+.bp-btn-back:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.bp-conv-title-wrap {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.bp-conv-title {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bp-conv-status {
+  font-size: 10.5px;
+  color: #94a3b8;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 1px;
+  white-space: nowrap;
+}
+
+.bp-conv-online-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #10b981;
+}
+
+/* Avatar Ring Animation */
 .bp-chat-avatar-ring {
-  width: 38px;
-  height: 38px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
   position: relative;
   display: flex;
@@ -187,7 +485,7 @@
   justify-content: center;
   font-weight: 800;
   color: #1e7829;
-  font-size: 14px;
+  font-size: 13px;
   position: relative;
   z-index: 2;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
@@ -196,78 +494,6 @@
 @keyframes bpRingRotate {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
-}
-
-.bp-chat-title-wrap {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.bp-chat-title {
-  font-size: 14.5px;
-  font-weight: 700;
-  letter-spacing: 0.3px;
-  line-height: 1.2;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.bp-chat-status {
-  font-size: 11px;
-  color: #94a3b8;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 2px;
-  white-space: nowrap;
-}
-
-.bp-chat-online-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #10b981;
-  box-shadow: 0 0 6px #10b981;
-}
-
-.bp-chat-typing-indicator {
-  color: #34d399;
-  font-weight: 600;
-  font-size: 11px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  animation: bpPulse 1.5s infinite;
-}
-
-.bp-typing-dots {
-  display: inline-flex;
-  gap: 2px;
-}
-
-.bp-typing-dots span {
-  width: 4px;
-  height: 4px;
-  background: #34d399;
-  border-radius: 50%;
-  animation: bpTypingBounce 1.2s infinite ease-in-out;
-}
-
-.bp-typing-dots span:nth-child(2) { animation-delay: 0.2s; }
-.bp-typing-dots span:nth-child(3) { animation-delay: 0.4s; }
-
-@keyframes bpTypingBounce {
-  0%, 80%, 100% { transform: translateY(0); }
-  40% { transform: translateY(-4px); }
-}
-
-.bp-chat-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
 }
 
 .bp-chat-btn-icon {
@@ -294,13 +520,44 @@
   background: rgba(239, 68, 68, 0.25);
 }
 
+/* Typing Indicator Animation */
+.bp-chat-typing-indicator {
+  color: #34d399;
+  font-weight: 600;
+  font-size: 10.5px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.bp-typing-dots {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.bp-typing-dots span {
+  width: 3.5px;
+  height: 3.5px;
+  background: #34d399;
+  border-radius: 50%;
+  animation: bpTypingBounce 1.2s infinite ease-in-out;
+}
+
+.bp-typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+.bp-typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes bpTypingBounce {
+  0%, 80%, 100% { transform: translateY(0); }
+  40% { transform: translateY(-4px); }
+}
+
 /* ── In-Chat Search Bar ── */
 .bp-chat-search-wrap {
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
-  height: 56px;
+  height: 54px;
   background: #1e293b;
   display: flex;
   align-items: center;
@@ -349,7 +606,7 @@ mark.bp-search-hit {
 .bp-chat-messages {
   flex: 1;
   overflow-y: auto;
-  padding: 16px 14px;
+  padding: 14px 12px;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -366,11 +623,6 @@ mark.bp-search-hit {
 .bp-chat-messages::-webkit-scrollbar {
   width: 5px;
 }
-
-.bp-chat-messages::-webkit-scrollbar-track {
-  background: transparent;
-}
-
 .bp-chat-messages::-webkit-scrollbar-thumb {
   background: #cbd5e1;
   border-radius: 4px;
@@ -404,13 +656,13 @@ mark.bp-search-hit {
   align-self: center;
   background: rgba(255, 255, 255, 0.92);
   color: #64748b;
-  font-size: 10.5px;
+  font-size: 10px;
   font-weight: 700;
   padding: 3px 12px;
   border-radius: 12px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  margin: 6px 0;
+  margin: 4px 0;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
@@ -447,8 +699,8 @@ mark.bp-search-hit {
 }
 
 .bp-msg-avatar {
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   border-radius: 50%;
   object-fit: cover;
   flex-shrink: 0;
@@ -457,7 +709,7 @@ mark.bp-search-hit {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 800;
   color: #1e7829;
   border: 1.5px solid #54b732;
@@ -501,7 +753,7 @@ mark.bp-search-hit {
   border: 1px solid #e2e8f0;
 }
 
-/* ── WhatsApp Quoted / Reply Preview inside Bubble ── */
+/* Quoted / Reply Preview inside Bubble */
 .bp-quoted-msg {
   background: rgba(0, 0, 0, 0.06);
   border-left: 3.5px solid #2563eb;
@@ -553,7 +805,7 @@ mark.bp-search-hit {
   margin-top: 6px;
   border-radius: 10px;
   overflow: hidden;
-  max-width: 250px;
+  max-width: 240px;
   cursor: pointer;
   position: relative;
   background: #000000;
@@ -586,18 +838,18 @@ mark.bp-search-hit {
   gap: 4px;
 }
 
-/* ── WhatsApp Voice Note Player inside Bubble ── */
+/* Voice Note Player inside Bubble */
 .bp-voice-msg-player {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 4px 2px;
-  min-width: 210px;
+  min-width: 200px;
 }
 
 .bp-voice-play-btn {
-  width: 36px;
-  height: 36px;
+  width: 34px;
+  height: 34px;
   border-radius: 50%;
   border: none;
   background: #ffffff;
@@ -608,17 +860,12 @@ mark.bp-search-hit {
   cursor: pointer;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
   flex-shrink: 0;
-  transition: transform 0.15s, background 0.15s;
-  font-size: 13px;
+  transition: transform 0.15s;
+  font-size: 12px;
 }
 
 .bp-voice-play-btn:hover {
   transform: scale(1.08);
-}
-
-.bp-msg-row.outgoing .bp-voice-play-btn {
-  background: #ffffff;
-  color: #1d4ed8;
 }
 
 .bp-voice-waveform {
@@ -655,24 +902,23 @@ mark.bp-search-hit {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 2px;
+  gap: 1px;
 }
 
 .bp-voice-time {
-  font-size: 10px;
+  font-size: 9.5px;
   font-weight: 700;
   font-family: monospace;
 }
 
 .bp-voice-speed-badge {
-  font-size: 9px;
+  font-size: 8.5px;
   font-weight: 800;
   padding: 1px 5px;
   border-radius: 8px;
   background: rgba(0, 0, 0, 0.08);
   cursor: pointer;
   user-select: none;
-  transition: background 0.15s;
 }
 
 .bp-msg-row.outgoing .bp-voice-speed-badge {
@@ -680,11 +926,7 @@ mark.bp-search-hit {
   color: #ffffff;
 }
 
-.bp-voice-speed-badge:hover {
-  opacity: 0.8;
-}
-
-/* Timestamp & WhatsApp Double Checkmarks */
+/* Timestamp & Double Checkmarks */
 .bp-msg-footer {
   display: flex;
   align-items: center;
@@ -753,7 +995,7 @@ mark.bp-search-hit {
   border: none;
   color: #64748b;
   cursor: pointer;
-  font-size: 11.5px;
+  font-size: 11px;
   padding: 3px 5px;
   border-radius: 4px;
   transition: color 0.15s, background 0.15s;
@@ -788,32 +1030,6 @@ mark.bp-search-hit {
   gap: 3px;
   cursor: pointer;
   box-shadow: 0 1px 3px rgba(0,0,0,0.06);
-  transition: transform 0.12s;
-}
-
-.bp-reaction-pill:hover {
-  transform: scale(1.08);
-}
-
-/* Drag & Drop Overlay */
-.bp-chat-drop-overlay {
-  position: absolute;
-  inset: 0;
-  background: rgba(29, 78, 216, 0.92);
-  color: #ffffff;
-  display: none;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  z-index: 99999;
-  font-weight: 700;
-  font-size: 16px;
-  pointer-events: none;
-}
-
-.bp-chat-drop-overlay.active {
-  display: flex;
 }
 
 /* ── Input Area ── */
@@ -828,7 +1044,6 @@ mark.bp-search-hit {
   position: relative;
 }
 
-/* WhatsApp Reply Preview Banner above input */
 .bp-chat-reply-preview {
   display: flex;
   align-items: center;
@@ -863,7 +1078,7 @@ mark.bp-search-hit {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 300px;
+  max-width: 280px;
 }
 
 .bp-reply-preview-close {
@@ -876,11 +1091,6 @@ mark.bp-search-hit {
   line-height: 1;
 }
 
-.bp-reply-preview-close:hover {
-  color: #0f172a;
-}
-
-/* Image Attachment Draft Bar */
 .bp-chat-draft-preview {
   display: flex;
   align-items: center;
@@ -922,7 +1132,6 @@ mark.bp-search-hit {
   font-size: 10px;
 }
 
-/* Input Row */
 .bp-chat-input-row {
   display: flex;
   align-items: flex-end;
@@ -952,7 +1161,6 @@ mark.bp-search-hit {
   box-shadow: 0 0 0 2px rgba(29, 78, 216, 0.15);
 }
 
-/* WhatsApp Voice Recording Bar in place of textarea */
 .bp-chat-recording-bar {
   display: flex;
   align-items: center;
@@ -976,7 +1184,7 @@ mark.bp-search-hit {
   gap: 8px;
   color: #dc2626;
   font-weight: 700;
-  font-size: 12.5px;
+  font-size: 12px;
 }
 
 .bp-rec-dot {
@@ -1005,11 +1213,6 @@ mark.bp-search-hit {
   cursor: pointer;
   font-size: 14px;
   padding: 4px;
-  transition: color 0.15s;
-}
-
-.bp-rec-btn-cancel:hover {
-  color: #dc2626;
 }
 
 .bp-rec-btn-send {
@@ -1024,7 +1227,6 @@ mark.bp-search-hit {
   justify-content: center;
   cursor: pointer;
   font-size: 11px;
-  box-shadow: 0 2px 6px rgba(16, 185, 129, 0.4);
 }
 
 .bp-chat-action-btn {
@@ -1071,7 +1273,6 @@ mark.bp-search-hit {
 
 .bp-chat-btn-send:hover {
   transform: scale(1.06);
-  box-shadow: 0 4px 12px rgba(29, 78, 216, 0.5);
 }
 
 .bp-chat-btn-send:disabled {
@@ -1098,7 +1299,6 @@ mark.bp-search-hit {
 
 .bp-chat-btn-mic:hover {
   transform: scale(1.06);
-  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.5);
 }
 
 .bp-chat-footer-tip {
@@ -1109,7 +1309,7 @@ mark.bp-search-hit {
   padding: 0 2px;
 }
 
-/* ── WhatsApp Emoji Picker Panel ── */
+/* WhatsApp Emoji Picker Panel */
 .bp-emoji-picker-panel {
   position: absolute;
   bottom: 68px;
@@ -1152,7 +1352,6 @@ mark.bp-search-hit {
   cursor: pointer;
   font-size: 14px;
   opacity: 0.6;
-  transition: all 0.15s;
 }
 
 .bp-emoji-tab.active {
@@ -1175,7 +1374,6 @@ mark.bp-search-hit {
   text-align: center;
   padding: 4px 0;
   border-radius: 6px;
-  transition: transform 0.1s, background 0.1s;
   user-select: none;
 }
 
@@ -1184,7 +1382,7 @@ mark.bp-search-hit {
   transform: scale(1.3);
 }
 
-/* ── WhatsApp-Style Clear Chat Modal ── */
+/* Clear Chat Modal */
 .bp-chat-clear-modal {
   position: absolute;
   inset: 0;
@@ -1195,16 +1393,10 @@ mark.bp-search-hit {
   align-items: center;
   justify-content: center;
   padding: 20px;
-  animation: bpFadeIn 0.2s ease-out;
 }
 
 .bp-chat-clear-modal.hidden {
   display: none !important;
-}
-
-@keyframes bpFadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
 }
 
 .bp-clear-card {
@@ -1217,19 +1409,12 @@ mark.bp-search-hit {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  animation: bpCardPop 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-@keyframes bpCardPop {
-  from { opacity: 0; transform: scale(0.92); }
-  to { opacity: 1; transform: scale(1); }
 }
 
 .bp-clear-header {
   display: flex;
   align-items: center;
   gap: 10px;
-  text-align: left;
 }
 
 .bp-clear-header h3 {
@@ -1241,9 +1426,8 @@ mark.bp-search-hit {
 
 .bp-clear-card p {
   margin: 0;
-  font-size: 12.5px;
+  font-size: 12px;
   color: #64748b;
-  text-align: left;
   line-height: 1.4;
 }
 
@@ -1304,15 +1488,31 @@ mark.bp-search-hit {
   font-weight: 700;
   color: #475569;
   cursor: pointer;
-  font-size: 12.5px;
-  transition: background 0.15s;
+  font-size: 12px;
 }
 
-.bp-clear-cancel:hover {
-  background: #e2e8f0;
+/* Drag & Drop Overlay */
+.bp-chat-drop-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(29, 78, 216, 0.92);
+  color: #ffffff;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  z-index: 99999;
+  font-weight: 700;
+  font-size: 16px;
+  pointer-events: none;
 }
 
-/* ── Lightbox Image Modal ── */
+.bp-chat-drop-overlay.active {
+  display: flex;
+}
+
+/* Lightbox */
 .bp-chat-lightbox {
   position: fixed;
   inset: 0;
@@ -1324,16 +1524,10 @@ mark.bp-search-hit {
   align-items: center;
   justify-content: center;
   padding: 20px;
-  animation: bpLightboxFade 0.2s ease-out;
 }
 
 .bp-chat-lightbox.hidden {
   display: none !important;
-}
-
-@keyframes bpLightboxFade {
-  from { opacity: 0; }
-  to { opacity: 1; }
 }
 
 .bp-chat-lightbox img {
@@ -1362,15 +1556,10 @@ mark.bp-search-hit {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  transition: all 0.2s;
   text-decoration: none;
 }
 
-.bp-lightbox-btn:hover {
-  background: rgba(255, 255, 255, 0.3);
-}
-
-/* ── Desktop Notification Banner ── */
+/* Notification Banner */
 .bp-chat-notif-banner {
   background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
   border-bottom: 1px solid #bfdbfe;
@@ -1382,7 +1571,6 @@ mark.bp-search-hit {
   font-size: 12px;
   color: #1e40af;
   flex-shrink: 0;
-  animation: bpSlideDown 0.25s ease-out;
 }
 
 .bp-chat-notif-banner.hidden {
@@ -1395,18 +1583,6 @@ mark.bp-search-hit {
   gap: 8px;
   flex: 1;
   font-weight: 500;
-  line-height: 1.3;
-}
-
-.bp-notif-banner-content i {
-  color: #2563eb;
-  font-size: 14px;
-}
-
-.bp-notif-banner-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
 }
 
 .bp-notif-banner-btn {
@@ -1418,14 +1594,6 @@ mark.bp-search-hit {
   font-size: 11px;
   font-weight: 700;
   cursor: pointer;
-  white-space: nowrap;
-  transition: all 0.2s;
-  box-shadow: 0 2px 4px rgba(37, 99, 235, 0.25);
-}
-
-.bp-notif-banner-btn:hover {
-  background: #1d4ed8;
-  transform: scale(1.04);
 }
 
 .bp-notif-banner-close {
@@ -1434,15 +1602,6 @@ mark.bp-search-hit {
   color: #64748b;
   font-size: 16px;
   cursor: pointer;
-  padding: 0 4px;
-  line-height: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.bp-notif-banner-close:hover {
-  color: #1e293b;
 }
 
 @keyframes bpSlideDown {
