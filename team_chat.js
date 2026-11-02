@@ -254,28 +254,6 @@
             <span>Drop Image to Share</span>
           </div>
 
-          <!-- Clear Chat Modal -->
-          <div class="bp-chat-clear-modal hidden" id="bpClearModal">
-            <div class="bp-clear-card">
-              <div class="bp-clear-header">
-                <i class="fas fa-broom" style="color:#f59e0b; font-size:22px;"></i>
-                <h3>Clear Chat Options</h3>
-              </div>
-              <p id="bpClearModalDesc">Select how you want to clear this conversation:</p>
-              <div class="bp-clear-actions">
-                <button class="bp-clear-btn bp-clear-me" id="bpBtnClearForMe">
-                  <div class="bp-clear-btn-title"><i class="fas fa-user-slash"></i> Clear for Me</div>
-                  <div class="bp-clear-btn-desc">Clears messages only on your screen. The other party keeps their chat.</div>
-                </button>
-                <button class="bp-clear-btn bp-clear-all" id="bpBtnClearForEveryone">
-                  <div class="bp-clear-btn-title"><i class="fas fa-trash-can"></i> Delete for Everyone</div>
-                  <div class="bp-clear-btn-desc">Permanently deletes this conversation history from Firebase for both users.</div>
-                </button>
-              </div>
-              <button class="bp-clear-cancel" id="bpBtnCancelClear">Cancel</button>
-            </div>
-          </div>
-
           <!-- Messages Feed -->
           <div class="bp-chat-messages" id="bpChatMessages">
             <div style="text-align:center; padding:30px; color:#94a3b8; font-size:12px;">
@@ -361,6 +339,28 @@
           </div>
         </div>
 
+      </div>
+
+      <!-- Clear Chat Modal (Full Window Overlay) -->
+      <div class="bp-chat-clear-modal hidden" id="bpClearModal">
+        <div class="bp-clear-card">
+          <div class="bp-clear-header">
+            <i class="fas fa-broom" style="color:#f59e0b; font-size:22px;"></i>
+            <h3>Clear Chat Options</h3>
+          </div>
+          <p id="bpClearModalDesc">Select how you want to clear this conversation:</p>
+          <div class="bp-clear-actions">
+            <button class="bp-clear-btn bp-clear-me" id="bpBtnClearForMe">
+              <div class="bp-clear-btn-title"><i class="fas fa-user-slash"></i> Clear for Me</div>
+              <div class="bp-clear-btn-desc">Clears messages only on your screen. The other party keeps their chat.</div>
+            </button>
+            <button class="bp-clear-btn bp-clear-all" id="bpBtnClearForEveryone">
+              <div class="bp-clear-btn-title"><i class="fas fa-trash-can"></i> Delete for Everyone</div>
+              <div class="bp-clear-btn-desc">Permanently deletes this conversation history from Firebase for both users.</div>
+            </button>
+          </div>
+          <button class="bp-clear-cancel" id="bpBtnCancelClear">Cancel</button>
+        </div>
       </div>
     `;
 
@@ -1348,6 +1348,10 @@
 
     btnCancelClear.addEventListener('click', () => {
       clearModal.classList.add('hidden');
+    });
+
+    clearModal.addEventListener('click', (e) => {
+      if (e.target === clearModal) clearModal.classList.add('hidden');
     });
 
     // Option 1: Clear for Me
