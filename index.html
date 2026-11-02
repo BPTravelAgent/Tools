@@ -10,7 +10,7 @@
 <meta name="description" content="BP Travel Tools — Travel Agent Portal developed by Buddhika Prabod. Access flight checks, airfare quotations, and itinerary builder tools.">
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-<link rel="stylesheet" href="team_chat.css?v=3.0">
+<link rel="stylesheet" href="team_chat.css?v=3.1">
 <style>
 /* ═══════════════════════════════════════════
    CSS VARIABLES & RESET
@@ -2182,7 +2182,7 @@ body {
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="firebase_init.js?v=2.2"></script>
-<script src="team_chat.js?v=3.0"></script>
+<script src="team_chat.js?v=3.1"></script>
 
 <script>
 /* ═══════════════════════════════════════════
@@ -2191,8 +2191,7 @@ body {
    ═══════════════════════════════════════════ */
 const DEFAULT_USERS = {
   'admin': { password: 'admin123', name: 'Admin' },
-  'samadhi': { password: 'Sun@2027', name: 'Samadhi' },
-  'chatura': { password: 'slw2025', name: 'Chatura' }
+  'samadhi': { password: 'Sun@2027', name: 'Samadhi' }
 };
 
 // Recovery PIN
@@ -2200,6 +2199,7 @@ const RECOVERY_PIN = '96513';
 
 
 let USERS = JSON.parse(JSON.stringify(DEFAULT_USERS));
+window.USERS = USERS;
 let currentUser = null;
 
 // Read any locally cached avatars into USERS initially
@@ -2223,6 +2223,7 @@ if (typeof db !== 'undefined') {
           .catch(e => console.error("Error writing default user", e));
       });
     } else {
+      const freshUsers = {};
       snapshot.forEach(doc => {
         const data = doc.data();
         if (data.avatar) {
@@ -2231,16 +2232,16 @@ if (typeof db !== 'undefined') {
           const cached = localStorage.getItem('slw_avatar_' + doc.id);
           if (cached) data.avatar = cached;
         }
-        USERS[doc.id] = { ...(USERS[doc.id] || {}), ...data };
+        freshUsers[doc.id] = data;
       });
-      // Also preserve default users if not in snapshot
-      Object.keys(DEFAULT_USERS).forEach(u => {
-        if (!USERS[u]) {
-          USERS[u] = { ...DEFAULT_USERS[u] };
-        }
-        const cached = localStorage.getItem('slw_avatar_' + u);
-        if (cached && !USERS[u].avatar) USERS[u].avatar = cached;
-      });
+      // Ensure admin exists
+      if (!freshUsers['admin']) {
+        freshUsers['admin'] = { ...DEFAULT_USERS['admin'] };
+        const cachedAdmin = localStorage.getItem('slw_avatar_admin');
+        if (cachedAdmin) freshUsers['admin'].avatar = cachedAdmin;
+      }
+      USERS = freshUsers;
+      window.USERS = USERS;
       if (currentUser && typeof renderUserNavAvatar === 'function') {
         renderUserNavAvatar(currentUser);
       }

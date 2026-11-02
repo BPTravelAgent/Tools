@@ -7,7 +7,7 @@
   <link rel="icon" type="image/png" href="Dp/Image.png">
   <link rel="apple-touch-icon" href="Dp/Image.png">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="team_chat.css?v=3.0">
+  <link rel="stylesheet" href="team_chat.css?v=3.1">
   <style>
     .bp-chat-trigger { right: 105px !important; }
     .bp-chat-window { right: 105px !important; }
@@ -305,7 +305,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="firebase_init.js?v=2.2"></script>
-  <script src="team_chat.js?v=3.0"></script>
+  <script src="team_chat.js?v=3.1"></script>
 
   <script>
     // Security check: Only allow admin
@@ -558,6 +558,15 @@
       if(username === 'admin') return;
       if(confirm(`Are you sure you want to delete ${username}?`)) {
         db.collection('slw_credentials').doc(username).delete()
+          .then(() => {
+            localStorage.removeItem('slw_avatar_' + username);
+            delete portalUsers[username];
+            delete USERS[username];
+            if (window.USERS) delete window.USERS[username];
+            renderUserManagementTable();
+            renderStatuses();
+            alert(`User ${username} deleted successfully.`);
+          })
           .catch(e => alert('Error deleting user: ' + e));
       }
     }
@@ -578,13 +587,12 @@
             portalUsers[doc.id] = data;
             USERS[doc.id] = data;
         });
-        ['admin', 'samadhi', 'chatura'].forEach(k => {
-          if (!USERS[k]) {
-            const cached = localStorage.getItem('slw_avatar_' + k);
-            USERS[k] = { name: k.charAt(0).toUpperCase() + k.slice(1), avatar: cached || (k === 'admin' ? 'Dp/Image.png' : null) };
-            if (!portalUsers[k]) portalUsers[k] = USERS[k];
-          }
-        });
+        if (!USERS['admin']) {
+          const cached = localStorage.getItem('slw_avatar_admin');
+          USERS['admin'] = { name: 'Admin', role: 'admin', avatar: cached || 'Dp/Image.png' };
+          portalUsers['admin'] = USERS['admin'];
+        }
+        window.USERS = USERS;
         renderUserManagementTable();
         renderStatuses();
       });

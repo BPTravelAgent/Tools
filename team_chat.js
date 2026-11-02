@@ -60,29 +60,75 @@
     let typingTimeout = null;
     let lastTypingBroadcast = 0;
 
+    // ── Real-time Team Users Listener (for 1-on-1 Direct Messaging Contacts) ──
+    let teamUsers = {};
+
+    // Initial fallback from cached/existing window.USERS or localStorage
+    if (typeof window !== "undefined" && window.USERS && Object.keys(window.USERS).length > 0) {
+      teamUsers = { ...window.USERS };
+    }
+    // Also check known default users
+    ['admin', 'samadhi'].forEach(k => {
+      if (!teamUsers[k]) {
+        const cached = localStorage.getItem('slw_avatar_' + k);
+        teamUsers[k] = {
+          id: k,
+          name: k.charAt(0).toUpperCase() + k.slice(1),
+          avatar: cached || (k === 'admin' ? 'Dp/Image.png' : null)
+        };
+      }
+    });
+
+    if (typeof db !== "undefined") {
+      db.collection('slw_credentials').onSnapshot(snapshot => {
+        const freshUsers = {};
+        snapshot.forEach(doc => {
+          const d = doc.data() || {};
+          const cached = localStorage.getItem('slw_avatar_' + doc.id);
+          freshUsers[doc.id] = {
+            id: doc.id,
+            name: d.name || (doc.id.charAt(0).toUpperCase() + doc.id.slice(1)),
+            avatar: d.avatar || cached || (doc.id === 'admin' ? 'Dp/Image.png' : null),
+            role: d.role || (doc.id === 'admin' ? 'admin' : 'agent'),
+            ...d
+          };
+        });
+        // Always ensure admin exists
+        if (!freshUsers['admin']) {
+          const cachedAdmin = localStorage.getItem('slw_avatar_admin');
+          freshUsers['admin'] = { id: 'admin', name: 'Admin', role: 'admin', avatar: cachedAdmin || 'Dp/Image.png' };
+        }
+        teamUsers = freshUsers;
+        window.USERS = { ...teamUsers };
+        renderContactsList();
+
+        // If currently viewing a direct chat, update header name/avatar if changed
+        if (currentRoomMeta.isDirect && currentRoomMeta.peerUserKey && teamUsers[currentRoomMeta.peerUserKey]) {
+          const p = teamUsers[currentRoomMeta.peerUserKey];
+          convTitle.textContent = p.name;
+          if (p.avatar) {
+            convHeaderAvatar.innerHTML = `<img src="${p.avatar}" alt="${escapeHtml(p.name)}">`;
+          }
+        }
+      }, err => {
+        console.warn('team_chat: slw_credentials onSnapshot error', err);
+      });
+    }
+
     // Helper: Current User Info
     function getCurrentUser() {
       const userKey = sessionStorage.getItem('slw_user_v3') || localStorage.getItem('slw_user_v3');
       if (!userKey) return null;
 
-      let displayName = userKey.charAt(0).toUpperCase() + userKey.slice(1);
-      if (window.USERS && window.USERS[userKey] && window.USERS[userKey].name) {
-        displayName = window.USERS[userKey].name;
-      }
+      const userObj = teamUsers[userKey] || (window.USERS && window.USERS[userKey]) || {};
+      let displayName = userObj.name || (userKey.charAt(0).toUpperCase() + userKey.slice(1));
 
       let isBuddhikaAdmin = (userKey === 'admin');
       if (isBuddhikaAdmin) {
         displayName = 'Buddhika Prabod';
       }
 
-      let avatarUrl = null;
-      if (window.USERS && window.USERS[userKey] && window.USERS[userKey].avatar) {
-        avatarUrl = window.USERS[userKey].avatar;
-      } else if (localStorage.getItem('slw_avatar_' + userKey)) {
-        avatarUrl = localStorage.getItem('slw_avatar_' + userKey);
-      } else if (isBuddhikaAdmin) {
-        avatarUrl = 'Dp/Image.png';
-      }
+      let avatarUrl = userObj.avatar || localStorage.getItem('slw_avatar_' + userKey) || (isBuddhikaAdmin ? 'Dp/Image.png' : null);
 
       return {
         id: userKey,
@@ -1109,6 +1155,7 @@
           updateConvStatusText();
         }
       }
+      renderContactsList();
     }, () => {});
 
     function updateConvStatusText() {
@@ -1473,7 +1520,7 @@
       const user = getCurrentUser();
       if (!user) return;
 
-      const allUsers = window.USERS || {};
+      const allUsers = Object.keys(teamUsers).length > 0 ? teamUsers : (window.USERS || {});
       const userKeys = Object.keys(allUsers).filter(k => k !== user.id);
 
       contactsScroll.innerHTML = '';
@@ -1535,6 +1582,14 @@
       contactsScroll.appendChild(dmLabel);
 
       let totalUnreadAllRooms = generalUnreadCount;
+
+      if (userKeys.length === 0) {
+        const emptyDiv = document.createElement('div');
+        emptyDiv.className = 'bp-contact-empty-hint';
+        emptyDiv.style.cssText = 'padding: 20px 16px; text-align: center; color: #94a3b8; font-size: 13px; font-weight: 500;';
+        emptyDiv.innerHTML = '<i class="fas fa-user-clock" style="margin-bottom:6px; display:block; font-size:20px; opacity:0.6;"></i>No other team members available';
+        contactsScroll.appendChild(emptyDiv);
+      }
 
       // ── 2. Direct Messages (1-on-1 with each Team Member) ──
       userKeys.forEach(peerKey => {
@@ -1709,7 +1764,8 @@
         // Avatar for incoming
         let avatarHtml = '';
         if (!isMine) {
-          const userAvatar = (window.USERS && window.USERS[data.senderId]?.avatar) || 
+          const userAvatar = (teamUsers[data.senderId]?.avatar) ||
+                             (window.USERS && window.USERS[data.senderId]?.avatar) || 
                              localStorage.getItem('slw_avatar_' + data.senderId) || 
                              data.senderAvatar || 
                              (data.senderId === 'admin' ? 'Dp/Image.png' : null);
