@@ -53,7 +53,7 @@
     let isRecordingAudio = false;
 
     // Typing State
-    let typingBroadcastTimeout = null;
+    let typingTimeout = null;
     let lastTypingBroadcast = 0;
 
     // Helper: Current User Info
