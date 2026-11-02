@@ -1339,10 +1339,16 @@ mark.bp-search-hit {
 
 .bp-emoji-tabs {
   display: flex;
+  overflow-x: auto;
+  overflow-y: hidden;
   border-bottom: 1px solid #f1f5f9;
   background: #f8fafc;
-  padding: 4px 6px;
-  gap: 2px;
+  padding: 6px 8px;
+  gap: 4px;
+  scrollbar-width: none;
+}
+.bp-emoji-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .bp-emoji-tab {
@@ -1363,11 +1369,12 @@ mark.bp-search-hit {
 .bp-emoji-grid {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   display: grid;
-  grid-template-columns: repeat(8, 1fr);
+  grid-template-columns: repeat(auto-fill, minmax(34px, 1fr));
   gap: 4px;
   padding: 8px;
-  font-size: 20px;
+  contain: content;
 }
 
 .bp-emoji-item {
@@ -1665,8 +1672,8 @@ mark.bp-search-hit {
 }
 
 .bp-animoji-grid-item img {
-  width: 32px;
-  height: 32px;
+  width: 26px;
+  height: 26px;
   object-fit: contain;
   pointer-events: none;
 }
