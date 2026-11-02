@@ -2182,6 +2182,7 @@ body {
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="firebase_init.js?v=2.2"></script>
+<script src="auth_security.js?v=1.0"></script>
 <script src="team_chat.js?v=3.3"></script>
 
 <script>
@@ -2190,12 +2191,12 @@ body {
    Default credentials (first-time only)
    ═══════════════════════════════════════════ */
 const DEFAULT_USERS = {
-  'admin': { password: 'admin123', name: 'Admin' },
-  'samadhi': { password: 'Sun@2027', name: 'Samadhi' }
+  'admin': { password: 'sha256:0c0cf0585ea40884ecee029324e3b38148fa410d0de4647edac3c0df2dc54a4f', name: 'Admin' },
+  'samadhi': { password: 'sha256:5241d20518a2dd213ec2c1ae34ffe1d42395f7b2a0f454a4977c16d9e5d391f6', name: 'Samadhi' }
 };
 
-// Recovery PIN
-const RECOVERY_PIN = '96513';
+// Recovery PIN (Cryptographically hashed: SHA-256 for 96513)
+const RECOVERY_PIN_HASH = 'sha256:691d49562157e96d2ea04144469f81d4ef3584228ecc6b6893c71b3babaa02d5';
 
 
 let USERS = JSON.parse(JSON.stringify(DEFAULT_USERS));
@@ -2337,13 +2338,25 @@ window.addEventListener('DOMContentLoaded', () => {
   setInterval(updateClock, 1000);
 });
 
-loginForm.addEventListener('submit', (e) => {
+loginForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   const user = usernameInput.value.trim().toLowerCase();
   const pass = passwordInput.value;
 
-  if (USERS[user] && USERS[user].password === pass) {
+  const targetUser = USERS[user];
+  const isValid = targetUser && (await slwVerifyPassword(pass, targetUser.password, user));
+
+  if (isValid) {
     loginError.classList.remove('show');
+
+    // Auto-upgrade legacy plaintext password to secure SHA-256 hash in Firestore
+    if (targetUser.password && !targetUser.password.startsWith('sha256:')) {
+      const hashedPw = await slwHashPassword(pass, user);
+      targetUser.password = hashedPw;
+      if (typeof db !== 'undefined') {
+        db.collection('slw_credentials').doc(user).update({ password: hashedPw }).catch(console.error);
+      }
+    }
 
     sessionStorage.setItem('slw_user_v3', user);
     if (document.getElementById('remember-me').checked) {
@@ -2353,7 +2366,7 @@ loginForm.addEventListener('submit', (e) => {
     }
 
     showMainApp(user);
-    showToast('Welcome back, ' + USERS[user].name + '!', 'success');
+    showToast('Welcome back, ' + (targetUser.name || user) + '!', 'success');
     window.slwLogActivity('Logged In');
   } else {
     loginError.classList.add('show');
@@ -2445,7 +2458,7 @@ function closeRecovery() {
   recoveryModal.classList.remove('show');
 }
 
-function handleRecovery() {
+async function handleRecovery() {
   const user = document.getElementById('recovery-username').value.trim().toLowerCase();
   const pin = document.getElementById('recovery-pin').value.trim();
   const newPw = document.getElementById('recovery-new-password').value;
@@ -2463,7 +2476,8 @@ function handleRecovery() {
     return;
   }
 
-  if (pin !== RECOVERY_PIN) {
+  const isPinValid = await slwVerifyPassword(pin, RECOVERY_PIN_HASH, 'recovery_pin');
+  if (!isPinValid) {
     document.getElementById('recovery-error-text').textContent = 'Invalid recovery PIN';
     recoveryError.classList.add('show');
     return;
@@ -2481,16 +2495,18 @@ function handleRecovery() {
     return;
   }
 
-  // Update the password in Firestore
+  // Hash the new password before storing in Firestore
+  const hashedNewPw = await slwHashPassword(newPw, user);
+
   if (typeof db !== 'undefined') {
     db.collection('slw_credentials').doc(user).update({
-      password: newPw
+      password: hashedNewPw
     }).catch(e => {
        console.error("Error updating password in cloud", e);
     });
-  } else {
-    USERS[user].password = newPw;
   }
+  USERS[user].password = hashedNewPw;
+  window.USERS = USERS;
 
   recoveryError.classList.remove('show');
   recoveryFormSection.style.display = 'none';
@@ -2527,7 +2543,7 @@ function closeChangePw() {
   changePwModal.classList.remove('show');
 }
 
-function handleChangePassword() {
+async function handleChangePassword() {
   const currentPw = document.getElementById('change-current-password').value;
   const newPw = document.getElementById('change-new-password').value;
   const confirmPw = document.getElementById('change-confirm-password').value;
@@ -2538,7 +2554,8 @@ function handleChangePassword() {
     return;
   }
 
-  if (USERS[currentUser].password !== currentPw) {
+  const isCurrentValid = await slwVerifyPassword(currentPw, USERS[currentUser]?.password, currentUser);
+  if (!isCurrentValid) {
     document.getElementById('change-pw-error-text').textContent = 'Current password is incorrect';
     changePwError.classList.add('show');
     return;
@@ -2556,9 +2573,16 @@ function handleChangePassword() {
     return;
   }
 
-  // Update password
-  USERS[currentUser].password = newPw;
-  saveUsers();
+  // Hash new password and update in Firestore
+  const hashedNewPw = await slwHashPassword(newPw, currentUser);
+  USERS[currentUser].password = hashedNewPw;
+  window.USERS = USERS;
+
+  if (typeof db !== 'undefined') {
+    db.collection('slw_credentials').doc(currentUser).update({
+      password: hashedNewPw
+    }).catch(e => console.error("Error updating password in cloud", e));
+  }
 
   changePwError.classList.remove('show');
   changePwFormSection.style.display = 'none';

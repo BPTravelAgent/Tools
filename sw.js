@@ -1,4 +1,4 @@
-const CACHE_NAME = 'bp-tools-v14';
+const CACHE_NAME = 'bp-tools-v15';
 
 const ASSETS_TO_CACHE = [
   '.',
@@ -9,7 +9,8 @@ const ASSETS_TO_CACHE = [
   './archives/Itinerary_Builder_App New.html',
   './Dp/Image.png',
   './team_chat.css',
-  './team_chat.js'
+  './team_chat.js',
+  './auth_security.js'
 ];
 
 // Install event: cache basic assets

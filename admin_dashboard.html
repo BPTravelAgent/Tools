@@ -304,7 +304,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="firebase_init.js?v=2.2"></script>
-  <script src="team_chat.js?v=3.3"></script>
+  <script src="auth_security.js?v=1.0"></script>
+<script src="team_chat.js?v=3.3"></script>
 
   <script>
     // Security check: Only allow admin
@@ -517,7 +518,7 @@
       document.getElementById('user-modal').style.display = 'none';
     }
 
-    function saveUser() {
+    async function saveUser() {
       const origUser = document.getElementById('user-original-username').value;
       const username = document.getElementById('user-username').value.trim().toLowerCase();
       const name = document.getElementById('user-name').value.trim();
@@ -537,7 +538,9 @@
       const payload = { name, role };
       
       if (origUser) {
-        if (password) payload.password = password;
+        if (password) {
+          payload.password = await slwHashPassword(password, origUser);
+        }
         db.collection('slw_credentials').doc(origUser).update(payload)
           .then(() => closeUserModal())
           .catch(e => alert('Error updating user: ' + e));
@@ -546,7 +549,7 @@
             alert('Username already exists!');
             return;
         }
-        payload.password = password;
+        payload.password = await slwHashPassword(password, username);
         db.collection('slw_credentials').doc(username).set(payload)
           .then(() => closeUserModal())
           .catch(e => alert('Error adding user: ' + e));
