@@ -57,6 +57,8 @@
       let avatarUrl = null;
       if (window.USERS && window.USERS[userKey] && window.USERS[userKey].avatar) {
         avatarUrl = window.USERS[userKey].avatar;
+      } else if (localStorage.getItem('slw_avatar_' + userKey)) {
+        avatarUrl = localStorage.getItem('slw_avatar_' + userKey);
       } else if (isBuddhikaAdmin) {
         avatarUrl = 'Dp/Image.png';
       }
@@ -720,7 +722,7 @@
         // Avatar
         let avatarHtml = '';
         if (!isMine) {
-          const userAvatar = (window.USERS && window.USERS[data.senderId]?.avatar) || data.senderAvatar || (data.senderId === 'admin' ? 'Dp/Image.png' : null);
+          const userAvatar = (window.USERS && window.USERS[data.senderId]?.avatar) || localStorage.getItem('slw_avatar_' + data.senderId) || data.senderAvatar || (data.senderId === 'admin' ? 'Dp/Image.png' : null);
           if (userAvatar) {
             avatarHtml = `<img class="bp-msg-avatar" src="${userAvatar}" alt="${escapeHtml(data.senderName)}">`;
           } else {

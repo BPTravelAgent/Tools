@@ -7,7 +7,7 @@
   <link rel="icon" type="image/png" href="Dp/Image.png">
   <link rel="apple-touch-icon" href="Dp/Image.png">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="team_chat.css?v=1.2">
+  <link rel="stylesheet" href="team_chat.css?v=1.3">
   <style>
     .bp-chat-trigger { right: 105px !important; }
     .bp-chat-window { right: 105px !important; }
@@ -305,7 +305,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="firebase_init.js?v=2.2"></script>
-  <script src="team_chat.js?v=1.2"></script>
+  <script src="team_chat.js?v=1.3"></script>
 
   <script>
     // Security check: Only allow admin
@@ -341,10 +341,18 @@
           }
         }
         
+        const avatarUrl = (USERS[u] && USERS[u].avatar) || 
+                          localStorage.getItem('slw_avatar_' + u) || 
+                          (u === 'admin' ? 'Dp/Image.png' : null);
         const div = document.createElement('div');
         div.className = 'user-status-item';
         div.innerHTML = `
-          <div class="user-status-avatar" style="overflow:hidden; padding:0;">${(USERS[u] && USERS[u].avatar) || (u === 'admin' ? 'Dp/Image.png' : null) ? `<img src="${(USERS[u] && USERS[u].avatar) || 'Dp/Image.png'}" alt="${u}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;display:block;">` : u.charAt(0).toUpperCase()}</div>
+          <div class="brand-avatar-wrapper" style="width:42px;height:42px;">
+            <div class="brand-rotating-ring"></div>
+            <div class="brand-avatar-circle" style="width:38px;height:38px;">
+              ${avatarUrl ? `<img src="${avatarUrl}" alt="${u}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;display:block;">` : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#74d852,#54b732);color:#fff;font-size:15px;font-weight:800;border-radius:50%;">${u.charAt(0).toUpperCase()}</div>`}
+            </div>
+          </div>
           <div class="user-status-info">
             <span class="user-status-name">${USERS[u] ? USERS[u].name : u}</span>
             <span class="user-status-time">${timeText}</span>
@@ -464,10 +472,11 @@
       tbody.innerHTML = '';
       
       Object.entries(portalUsers).forEach(([username, u]) => {
+        const avatarUrl = u.avatar || localStorage.getItem('slw_avatar_' + username) || (username === 'admin' ? 'Dp/Image.png' : null);
         const tr = document.createElement('tr');
         tr.style.borderBottom = '1px solid var(--border)';
         tr.innerHTML = `
-          <td style="padding:10px; display:flex; align-items:center; gap:8px;">${(u.avatar || (username === 'admin' ? 'Dp/Image.png' : null)) ? `<img src="${u.avatar || 'Dp/Image.png'}" style="width:26px;height:26px;border-radius:50%;object-fit:cover;display:inline-block;">` : `<span style="display:inline-flex;width:26px;height:26px;border-radius:50%;background:#e2e8f0;align-items:center;justify-content:center;font-weight:700;font-size:11px;">${(u.name || username).charAt(0).toUpperCase()}</span>`} <span>${username}</span></td>
+          <td style="padding:10px; display:flex; align-items:center; gap:8px;">${avatarUrl ? `<img src="${avatarUrl}" style="width:26px;height:26px;border-radius:50%;object-fit:cover;display:inline-block;">` : `<span style="display:inline-flex;width:26px;height:26px;border-radius:50%;background:#e2e8f0;align-items:center;justify-content:center;font-weight:700;font-size:11px;">${(u.name || username).charAt(0).toUpperCase()}</span>`} <span>${username}</span></td>
           <td style="padding:10px;">${u.name || ''}</td>
           <td style="padding:10px; text-transform:capitalize;">${u.role || 'user'}</td>
           <td style="padding:10px; text-align:right;">
@@ -560,8 +569,21 @@
         USERS = {}; // clear and rebuild
         snapshot.forEach(doc => {
             const data = doc.data();
+            if (data.avatar) {
+              localStorage.setItem('slw_avatar_' + doc.id, data.avatar);
+            } else {
+              const cached = localStorage.getItem('slw_avatar_' + doc.id);
+              if (cached) data.avatar = cached;
+            }
             portalUsers[doc.id] = data;
             USERS[doc.id] = data;
+        });
+        ['admin', 'samadhi', 'chatura'].forEach(k => {
+          if (!USERS[k]) {
+            const cached = localStorage.getItem('slw_avatar_' + k);
+            USERS[k] = { name: k.charAt(0).toUpperCase() + k.slice(1), avatar: cached || (k === 'admin' ? 'Dp/Image.png' : null) };
+            if (!portalUsers[k]) portalUsers[k] = USERS[k];
+          }
         });
         renderUserManagementTable();
         renderStatuses();

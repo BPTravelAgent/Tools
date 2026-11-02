@@ -10,7 +10,7 @@
 <meta name="description" content="BP Travel Tools — Travel Agent Portal developed by Buddhika Prabod. Access flight checks, airfare quotations, and itinerary builder tools.">
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-<link rel="stylesheet" href="team_chat.css?v=1.2">
+<link rel="stylesheet" href="team_chat.css?v=1.3">
 <style>
 /* ═══════════════════════════════════════════
    CSS VARIABLES & RESET
@@ -315,6 +315,121 @@ body {
   font-size: 14px;
   margin-top: 6px;
   letter-spacing: 0.5px;
+}
+
+/* Quick Account / Avatar Picker on Login Overlay */
+.login-quick-accounts-wrapper {
+  margin: -6px 0 24px;
+  text-align: center;
+}
+
+.quick-accounts-title {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+  opacity: 0.85;
+}
+
+.login-quick-accounts {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.quick-account-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(84, 183, 50, 0.22);
+  background: rgba(255, 255, 255, 0.78);
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
+  min-width: 84px;
+}
+
+.quick-account-chip:hover {
+  transform: translateY(-2px);
+  border-color: #54b732;
+  box-shadow: 0 8px 20px rgba(84, 183, 50, 0.22);
+  background: #ffffff;
+}
+
+.quick-account-chip.active {
+  border-color: #54b732;
+  background: rgba(84, 183, 50, 0.1);
+  box-shadow: 0 0 0 2px rgba(84, 183, 50, 0.4), 0 8px 20px rgba(84, 183, 50, 0.18);
+  transform: translateY(-1px);
+}
+
+.quick-account-avatar-wrapper {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.quick-account-ring {
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0%,
+    transparent 55%,
+    rgba(84, 183, 50, 0.4) 75%,
+    #54b732 88%,
+    #ffb800 96%,
+    #ffffff 100%
+  );
+  animation: ringRotate 2.2s linear infinite;
+  filter: drop-shadow(0 0 5px rgba(84, 183, 50, 0.7));
+  z-index: 1;
+}
+
+.quick-account-circle {
+  position: relative;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: #ffffff;
+  padding: 2px;
+  z-index: 2;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.quick-account-circle img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  border-radius: 50%;
+  display: block;
+}
+
+.quick-account-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+  max-width: 90px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .form-group {
@@ -1548,6 +1663,14 @@ body {
         <p id="login-portal-subtitle">Travel Agent Portal • Buddhika Prabod</p>
       </div>
 
+      <!-- Quick Account / Profile Selector with DP & Neon Ring -->
+      <div class="login-quick-accounts-wrapper">
+        <span class="quick-accounts-title"><i class="fas fa-user-circle"></i> Quick Select User</span>
+        <div class="login-quick-accounts" id="login-quick-accounts">
+          <!-- Dynamically populated by renderLoginQuickAccounts() -->
+        </div>
+      </div>
+
       <div id="login-error" class="login-error">
         <i class="fas fa-exclamation-circle"></i> Invalid username or password
       </div>
@@ -2059,7 +2182,7 @@ body {
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="firebase_init.js?v=2.2"></script>
-<script src="team_chat.js?v=1.2"></script>
+<script src="team_chat.js?v=1.3"></script>
 
 <script>
 /* ═══════════════════════════════════════════
@@ -2079,24 +2202,53 @@ const RECOVERY_PIN = '96513';
 let USERS = JSON.parse(JSON.stringify(DEFAULT_USERS));
 let currentUser = null;
 
+// Read any locally cached avatars into USERS initially
+Object.keys(USERS).forEach(username => {
+  const cachedAvatar = localStorage.getItem('slw_avatar_' + username);
+  if (cachedAvatar) {
+    USERS[username].avatar = cachedAvatar;
+  }
+});
+
 // Real-time user sync with Firebase
 if (typeof db !== 'undefined') {
   db.collection('slw_credentials').onSnapshot(snapshot => {
     if (snapshot.empty) {
       // First time, write defaults to Firestore
       Object.keys(DEFAULT_USERS).forEach(username => {
-        db.collection('slw_credentials').doc(username).set(DEFAULT_USERS[username])
+        const defaultDoc = { ...DEFAULT_USERS[username] };
+        const cached = localStorage.getItem('slw_avatar_' + username);
+        if (cached) defaultDoc.avatar = cached;
+        db.collection('slw_credentials').doc(username).set(defaultDoc, { merge: true })
           .catch(e => console.error("Error writing default user", e));
       });
     } else {
       snapshot.forEach(doc => {
-        USERS[doc.id] = doc.data();
+        const data = doc.data();
+        if (data.avatar) {
+          localStorage.setItem('slw_avatar_' + doc.id, data.avatar);
+        } else {
+          const cached = localStorage.getItem('slw_avatar_' + doc.id);
+          if (cached) data.avatar = cached;
+        }
+        USERS[doc.id] = { ...(USERS[doc.id] || {}), ...data };
+      });
+      // Also preserve default users if not in snapshot
+      Object.keys(DEFAULT_USERS).forEach(u => {
+        if (!USERS[u]) {
+          USERS[u] = { ...DEFAULT_USERS[u] };
+        }
+        const cached = localStorage.getItem('slw_avatar_' + u);
+        if (cached && !USERS[u].avatar) USERS[u].avatar = cached;
       });
       if (currentUser && typeof renderUserNavAvatar === 'function') {
         renderUserNavAvatar(currentUser);
       }
       if (typeof updateLoginScreenAvatar === 'function') {
         updateLoginScreenAvatar();
+      }
+      if (typeof renderLoginQuickAccounts === 'function') {
+        renderLoginQuickAccounts();
       }
     }
   });
@@ -2174,6 +2326,7 @@ window.addEventListener('DOMContentLoaded', () => {
     showMainApp(savedUser);
   } else {
     updateLoginScreenAvatar();
+    renderLoginQuickAccounts();
   }
   if (usernameInput) {
     usernameInput.addEventListener('input', updateLoginScreenAvatar);
@@ -2495,7 +2648,9 @@ function renderUserNavAvatar(user) {
   const avatarCircleEl = document.getElementById('user-avatar-circle');
   if (!avatarCircleEl) return;
 
-  const userAvatar = (userData && userData.avatar) || (user === 'admin' ? 'Dp/Image.png' : null);
+  const userAvatar = (userData && userData.avatar) || 
+                     localStorage.getItem('slw_avatar_' + user) || 
+                     (user === 'admin' ? 'Dp/Image.png' : null);
 
   if (userAvatar) {
     avatarCircleEl.innerHTML = `<img src="${userAvatar}" alt="${userData.name || 'User'}">`;
@@ -2513,7 +2668,9 @@ function updateLoginScreenAvatar() {
   if (!avatarCircle) return;
 
   const userData = window.USERS && window.USERS[usernameVal];
-  const userAvatar = (userData && userData.avatar) || (usernameVal === 'admin' ? 'Dp/Image.png' : null);
+  const userAvatar = (userData && userData.avatar) || 
+                     localStorage.getItem('slw_avatar_' + usernameVal) || 
+                     (usernameVal === 'admin' ? 'Dp/Image.png' : null);
 
   if (userAvatar) {
     avatarCircle.innerHTML = `<img src="${userAvatar}" alt="${userData ? userData.name : 'BP Tools'}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;display:block;">`;
@@ -2532,6 +2689,73 @@ function updateLoginScreenAvatar() {
     if (subtitle) {
       subtitle.textContent = `Travel Agent Portal • Buddhika Prabod`;
     }
+  }
+
+  // Synchronize active highlight on quick-account chips
+  document.querySelectorAll('.quick-account-chip').forEach(el => {
+    if (el.getAttribute('data-username') === usernameVal) {
+      el.classList.add('active');
+    } else {
+      el.classList.remove('active');
+    }
+  });
+}
+
+function renderLoginQuickAccounts() {
+  const container = document.getElementById('login-quick-accounts');
+  if (!container) return;
+
+  const currentUsernameVal = (document.getElementById('username')?.value || '').trim().toLowerCase();
+  container.innerHTML = '';
+
+  const userKeys = Object.keys(window.USERS || {});
+  if (userKeys.length === 0) return;
+
+  userKeys.forEach(userKey => {
+    const user = window.USERS[userKey] || {};
+    const displayName = user.name || (userKey.charAt(0).toUpperCase() + userKey.slice(1));
+    const avatarUrl = user.avatar || localStorage.getItem('slw_avatar_' + userKey) || (userKey === 'admin' ? 'Dp/Image.png' : null);
+    const isActive = (currentUsernameVal === userKey);
+
+    const chip = document.createElement('div');
+    chip.className = `quick-account-chip ${isActive ? 'active' : ''}`;
+    chip.setAttribute('data-username', userKey);
+    chip.title = `Click to log in as ${displayName}`;
+    chip.onclick = () => selectLoginAccount(userKey);
+
+    let avatarInner = '';
+    if (avatarUrl) {
+      avatarInner = `<img src="${avatarUrl}" alt="${displayName}">`;
+    } else {
+      const initial = displayName.charAt(0).toUpperCase();
+      avatarInner = `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#74d852,#54b732);color:#fff;font-size:16px;font-weight:800;border-radius:50%;">${initial}</div>`;
+    }
+
+    chip.innerHTML = `
+      <div class="quick-account-avatar-wrapper">
+        <div class="quick-account-ring"></div>
+        <div class="quick-account-circle">
+          ${avatarInner}
+        </div>
+      </div>
+      <span class="quick-account-name">${displayName}</span>
+    `;
+
+    container.appendChild(chip);
+  });
+}
+
+function selectLoginAccount(userKey) {
+  const usernameInputEl = document.getElementById('username');
+  const passwordInputEl = document.getElementById('password');
+  if (usernameInputEl) {
+    usernameInputEl.value = userKey;
+  }
+  updateLoginScreenAvatar();
+
+  if (passwordInputEl) {
+    passwordInputEl.focus();
+    passwordInputEl.select();
   }
 }
 
@@ -2665,28 +2889,48 @@ async function handleSaveProfileAvatar() {
 
   try {
     const userRef = db.collection('slw_credentials').doc(currentUser);
+    const existing = USERS[currentUser] || DEFAULT_USERS[currentUser] || { name: currentUser };
 
     if (draftAvatarBase64 === null) {
-      await userRef.update({
-        avatar: firebase.firestore.FieldValue.delete()
-      });
+      await userRef.set({
+        name: existing.name || currentUser,
+        password: existing.password || (DEFAULT_USERS[currentUser]?.password || ''),
+        role: existing.role || (currentUser === 'admin' ? 'admin' : 'user'),
+        avatar: null
+      }, { merge: true });
       if (USERS[currentUser]) delete USERS[currentUser].avatar;
+      localStorage.removeItem('slw_avatar_' + currentUser);
       showToast('Profile picture removed successfully.', 'info');
     } else {
-      await userRef.update({
-        avatar: draftAvatarBase64
-      });
+      await userRef.set({
+        name: existing.name || currentUser,
+        password: existing.password || (DEFAULT_USERS[currentUser]?.password || ''),
+        role: existing.role || (currentUser === 'admin' ? 'admin' : 'user'),
+        avatar: draftAvatarBase64,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
       if (USERS[currentUser]) USERS[currentUser].avatar = draftAvatarBase64;
+      localStorage.setItem('slw_avatar_' + currentUser, draftAvatarBase64);
       showToast('Profile picture updated successfully!', 'success');
     }
 
     renderUserNavAvatar(currentUser);
     closeProfileModal();
 
+    if (typeof updateLoginScreenAvatar === 'function') updateLoginScreenAvatar();
+    if (typeof renderLoginQuickAccounts === 'function') renderLoginQuickAccounts();
     if (window.bpRefreshChatAuth) window.bpRefreshChatAuth();
   } catch (err) {
     console.error('Save DP error:', err);
-    alert('Failed to save profile picture: ' + err.message);
+    if (draftAvatarBase64) {
+      if (USERS[currentUser]) USERS[currentUser].avatar = draftAvatarBase64;
+      localStorage.setItem('slw_avatar_' + currentUser, draftAvatarBase64);
+      renderUserNavAvatar(currentUser);
+      closeProfileModal();
+      showToast('Profile picture saved locally (Sync pending)', 'info');
+    } else {
+      alert('Failed to save profile picture: ' + err.message);
+    }
   } finally {
     if (btnSaveProfile) {
       btnSaveProfile.disabled = false;
