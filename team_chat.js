@@ -1,23 +1,26 @@
 /**
  * ═════════════════════════════════════════════════════════════════════════
- * BP TRAVEL TOOLS — TEAM REAL-TIME CHAT & COLLABORATION ENGINE
+ * BP TRAVEL TOOLS — TEAM REAL-TIME CHAT & COLLABORATION ENGINE (v2.0)
+ * Modern Enterprise WhatsApp-Style Real-Time Team Messenger
  * ═════════════════════════════════════════════════════════════════════════
  * Features:
- *  - Real-time Firestore Messaging (onSnapshot)
- *  - Smart Canvas Image Compression (5MB -> 40KB WebP)
- *  - Direct Clipboard Paste (Ctrl+V screenshots from Snipping Tool)
- *  - Drag & Drop Image Sharing
- *  - Web Audio API notification chime (no external audio files required)
- *  - Fullscreen Lightbox Image Viewer & Download
- *  - Emoji Quick Reactions (👍, ❤️, 😂, ✈️, 🔥)
- *  - Unread Message Badge counter
- *  - Admin Clear / Retention Controls
+ *  - Real-time Firestore Messaging & Live Sync
+ *  - Clear for Me & Clear for Everyone (WhatsApp-style dual clearing)
+ *  - Swipe / Click-to-Reply with Quote Previews & Jump-to-Message
+ *  - Voice Notes (Microphone recording, WebM audio, waveform player, 1x/1.5x/2x speed)
+ *  - WhatsApp Double Blue Checkmarks (Sent, Delivered, Read receipts)
+ *  - WhatsApp Emoji Picker Panel (categorized tabs) & Message Quick Reactions
+ *  - Live In-Chat Search with instant term highlighting
+ *  - Real-time Typing Indicator ("... is typing")
+ *  - Copy message text & Fullscreen Lightbox Image Viewer
+ *  - Smart Canvas Image Compression (5MB -> ~40KB WebP)
+ *  - Direct Clipboard Paste (Ctrl+V screenshots) & Drag-and-drop
+ *  - Web Audio Chime & Chrome Desktop Notifications (with taskbar alert)
  */
 
 (function () {
   'use strict';
 
-  // Wait for Firebase Firestore to be initialized
   function initChatWhenReady() {
     if (typeof firebase === 'undefined' || !firebase.apps || !firebase.apps.length) {
       setTimeout(initChatWhenReady, 300);
@@ -32,12 +35,26 @@
     // Sound configuration
     let soundEnabled = localStorage.getItem('bp_chat_sound') !== 'false';
 
-    // State
+    // State Variables
     let isChatOpen = false;
     let unreadCount = 0;
     let currentDraftImageBase64 = null;
+    let currentReplyTo = null; // { id, senderName, text, isImage, isVoice }
     let lastSeenTimestamp = parseInt(localStorage.getItem('bp_chat_last_seen') || '0', 10);
     let messagesCache = [];
+    let peerPresence = {}; // { [userId]: { lastSeenMillis: number, isOnline: boolean } }
+    let currentSearchQuery = '';
+
+    // Voice Recording State
+    let mediaRecorder = null;
+    let audioChunks = [];
+    let recordingInterval = null;
+    let recordingSeconds = 0;
+    let isRecordingAudio = false;
+
+    // Typing State
+    let typingBroadcastTimeout = null;
+    let lastTypingBroadcast = 0;
 
     // Helper: Current User Info
     function getCurrentUser() {
@@ -83,6 +100,15 @@
     const chatWindow = document.createElement('div');
     chatWindow.className = 'bp-chat-window hidden';
     chatWindow.innerHTML = `
+      <!-- Search Overlay -->
+      <div class="bp-chat-search-wrap hidden" id="bpSearchWrap">
+        <input type="text" class="bp-search-input" id="bpSearchInput" placeholder="Search in chat..." autocomplete="off">
+        <span class="bp-search-count" id="bpSearchCount"></span>
+        <button type="button" class="bp-chat-btn-icon" id="bpBtnCloseSearch" title="Close Search">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+
       <!-- Header -->
       <div class="bp-chat-header">
         <div class="bp-chat-header-info">
@@ -91,17 +117,20 @@
           </div>
           <div class="bp-chat-title-wrap">
             <span class="bp-chat-title">BP Team Messenger</span>
-            <span class="bp-chat-status">
+            <span class="bp-chat-status" id="bpChatHeaderStatus">
               <span class="bp-chat-online-dot"></span> Live Team Room
             </span>
           </div>
         </div>
         <div class="bp-chat-header-actions">
+          <button class="bp-chat-btn-icon" id="bpBtnSearchToggle" title="Search messages">
+            <i class="fas fa-search"></i>
+          </button>
           <button class="bp-chat-btn-icon ${soundEnabled ? '' : 'muted'}" id="bpBtnMuteSound" title="Toggle Sound">
             <i class="fas ${soundEnabled ? 'fa-bell' : 'fa-bell-slash'}"></i>
           </button>
-          <button class="bp-chat-btn-icon" id="bpBtnClearChat" title="Clear Chat History (Admin Only)" style="display:none;">
-            <i class="fas fa-trash-can"></i>
+          <button class="bp-chat-btn-icon" id="bpBtnClearChat" title="Clear Chat Options">
+            <i class="fas fa-broom"></i>
           </button>
           <button class="bp-chat-btn-icon" id="bpBtnCloseChat" title="Close Chat">
             <i class="fas fa-xmark"></i>
@@ -127,6 +156,28 @@
         <span>Drop Image to Share with Team</span>
       </div>
 
+      <!-- Clear Chat Modal -->
+      <div class="bp-chat-clear-modal hidden" id="bpClearModal">
+        <div class="bp-clear-card">
+          <div class="bp-clear-header">
+            <i class="fas fa-broom" style="color:#f59e0b; font-size:22px;"></i>
+            <h3>Clear Chat Options</h3>
+          </div>
+          <p>Select how you want to clear your team messenger history:</p>
+          <div class="bp-clear-actions">
+            <button class="bp-clear-btn bp-clear-me" id="bpBtnClearForMe">
+              <div class="bp-clear-btn-title"><i class="fas fa-user-slash"></i> Clear for Me</div>
+              <div class="bp-clear-btn-desc">Clears messages only on your screen. Team members keep their chat.</div>
+            </button>
+            <button class="bp-clear-btn bp-clear-all" id="bpBtnClearForEveryone">
+              <div class="bp-clear-btn-title"><i class="fas fa-trash-can"></i> Delete for Everyone</div>
+              <div class="bp-clear-btn-desc">Permanently deletes message history from Firebase for all users.</div>
+            </button>
+          </div>
+          <button class="bp-clear-cancel" id="bpBtnCancelClear">Cancel</button>
+        </div>
+      </div>
+
       <!-- Messages Feed -->
       <div class="bp-chat-messages" id="bpChatMessages">
         <div style="text-align:center; padding:30px; color:#94a3b8; font-size:12px;">
@@ -135,8 +186,28 @@
         </div>
       </div>
 
+      <!-- WhatsApp Emoji Picker Panel -->
+      <div class="bp-emoji-picker-panel hidden" id="bpEmojiPanel">
+        <div class="bp-emoji-tabs">
+          <button type="button" class="bp-emoji-tab active" data-cat="smileys">😊</button>
+          <button type="button" class="bp-emoji-tab" data-cat="hands">👍</button>
+          <button type="button" class="bp-emoji-tab" data-cat="travel">✈️</button>
+          <button type="button" class="bp-emoji-tab" data-cat="hearts">❤️</button>
+        </div>
+        <div class="bp-emoji-grid" id="bpEmojiGrid"></div>
+      </div>
+
       <!-- Input Area -->
       <div class="bp-chat-input-area">
+        <!-- Reply / Quote Banner Preview -->
+        <div class="bp-chat-reply-preview hidden" id="bpReplyPreview">
+          <div class="bp-reply-preview-left">
+            <span class="bp-reply-preview-title" id="bpReplySender">Replying to User</span>
+            <span class="bp-reply-preview-text" id="bpReplyText">Snippet</span>
+          </div>
+          <button type="button" class="bp-reply-preview-close" id="bpBtnCancelReply" title="Cancel Reply">&times;</button>
+        </div>
+
         <!-- Draft Image Attachment Preview -->
         <div class="bp-chat-draft-preview hidden" id="bpDraftPreview">
           <img class="bp-chat-draft-thumb" id="bpDraftThumb" src="" alt="Draft Image">
@@ -147,16 +218,42 @@
           <button type="button" class="bp-chat-draft-remove" id="bpBtnRemoveDraft" title="Remove Image">&times;</button>
         </div>
 
-        <div class="bp-chat-input-row">
-          <textarea class="bp-chat-textarea" id="bpChatInput" placeholder="Type a message or press Ctrl+V to paste screenshot..." rows="1"></textarea>
-          
+        <!-- Input Row -->
+        <div class="bp-chat-input-row" id="bpInputRow">
+          <!-- Text Input Mode -->
+          <button type="button" class="bp-chat-action-btn" id="bpBtnToggleEmoji" title="Insert Emoji">
+            <i class="far fa-face-smile"></i>
+          </button>
+
           <input type="file" id="bpFileInput" accept="image/*" style="display:none;">
           <button type="button" class="bp-chat-action-btn" id="bpBtnPickFile" title="Attach Image or Screenshot">
             <i class="fas fa-paperclip"></i>
           </button>
 
+          <textarea class="bp-chat-textarea" id="bpChatInput" placeholder="Type a message or paste screenshot..." rows="1"></textarea>
+
+          <!-- Voice Recording Bar (hidden until mic is clicked) -->
+          <div class="bp-chat-recording-bar hidden" id="bpRecordingBar">
+            <div class="bp-rec-status">
+              <span class="bp-rec-dot"></span>
+              <span id="bpRecTimer">00:00</span>
+            </div>
+            <div class="bp-rec-actions">
+              <button type="button" class="bp-rec-btn-cancel" id="bpBtnCancelVoice" title="Cancel Recording">
+                <i class="fas fa-trash"></i>
+              </button>
+              <button type="button" class="bp-rec-btn-send" id="bpBtnSendVoice" title="Send Voice Message">
+                <i class="fas fa-paper-plane"></i>
+              </button>
+            </div>
+          </div>
+
+          <!-- Send Button (switches to Mic button when text is empty) -->
           <button type="button" class="bp-chat-btn-send" id="bpBtnSendMsg" title="Send (Enter)">
             <i class="fas fa-paper-plane"></i>
+          </button>
+          <button type="button" class="bp-chat-btn-mic" id="bpBtnVoiceRecord" title="Record Voice Message">
+            <i class="fas fa-microphone"></i>
           </button>
         </div>
 
@@ -186,11 +283,12 @@
     document.body.appendChild(chatWindow);
     document.body.appendChild(lightbox);
 
-    // Elements
+    // Elements references
     const badgeEl = triggerBtn.querySelector('.bp-chat-badge');
     const messagesEl = document.getElementById('bpChatMessages');
     const inputEl = document.getElementById('bpChatInput');
     const sendBtn = document.getElementById('bpBtnSendMsg');
+    const voiceBtn = document.getElementById('bpBtnVoiceRecord');
     const fileInput = document.getElementById('bpFileInput');
     const pickFileBtn = document.getElementById('bpBtnPickFile');
     const draftPreview = document.getElementById('bpDraftPreview');
@@ -204,7 +302,111 @@
     const enableNotifBtn = document.getElementById('bpBtnEnableNotif');
     const dismissNotifBtn = document.getElementById('bpBtnDismissNotif');
 
-    // ── Tab Title Blinker (For background tabs & minimized windows) ──
+    // WhatsApp Reply Elements
+    const replyPreview = document.getElementById('bpReplyPreview');
+    const replySender = document.getElementById('bpReplySender');
+    const replyText = document.getElementById('bpReplyText');
+    const cancelReplyBtn = document.getElementById('bpBtnCancelReply');
+
+    // Voice Note Elements
+    const recordingBar = document.getElementById('bpRecordingBar');
+    const recTimer = document.getElementById('bpRecTimer');
+    const cancelVoiceBtn = document.getElementById('bpBtnCancelVoice');
+    const sendVoiceBtn = document.getElementById('bpBtnSendVoice');
+
+    // Clear Modal Elements
+    const clearModal = document.getElementById('bpClearModal');
+    const btnClearForMe = document.getElementById('bpBtnClearForMe');
+    const btnClearForEveryone = document.getElementById('bpBtnClearForEveryone');
+    const btnCancelClear = document.getElementById('bpBtnCancelClear');
+
+    // Search Elements
+    const searchWrap = document.getElementById('bpSearchWrap');
+    const searchInput = document.getElementById('bpSearchInput');
+    const searchCount = document.getElementById('bpSearchCount');
+    const searchToggleBtn = document.getElementById('bpBtnSearchToggle');
+    const closeSearchBtn = document.getElementById('bpBtnCloseSearch');
+
+    // Emoji Picker Elements
+    const emojiPanel = document.getElementById('bpEmojiPanel');
+    const emojiToggleBtn = document.getElementById('bpBtnToggleEmoji');
+    const emojiGrid = document.getElementById('bpEmojiGrid');
+    const emojiTabs = emojiPanel.querySelectorAll('.bp-emoji-tab');
+
+    // ── Emoji Categories Map ──
+    const EMOJI_CATEGORIES = {
+      smileys: ['😀', '😃', '😄', '😁', '😆', '😅', '🤣', '😂', '🙂', '😉', '😊', '😇', '🥰', '😍', '🤩', '😘', '😋', '😜', '🤪', '🤫', '🤔', '🤐', '🤗', '🥳', '😎', '🤓', '🥺', '😢', '😭', '😤', '😡', '🤯', '😱', '🥱', '😴', '🤤'],
+      hands: ['👍', '👎', '👏', '🙌', '👐', '🤝', '✌️', '🤞', '👊', '✊', '🤛', '🤜', '🤚', '👋', '✍️', '🙏', '💪', '👈', '👉', '👆', '👇', '👌', '🤌', '🤏', '🤙'],
+      travel: ['✈️', '🛫', '🛬', '🛩️', '🏝️', '🏖️', '🏨', '🏰', '🗺️', '🚗', '🚕', '🚌', '🚆', '🚢', '🛥️', '☀️', '🌴', '💼', '📁', '📊', '📈', '📋', '📞', '📱', '⏰', '📅', '🎫', '🛂'],
+      hearts: ['❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💔', '💖', '💗', '💓', '💞', '💕', '✨', '⭐', '🌟', '💥', '🔥', '🚀', '🎉', '🎊', '🏆', '💯', '☕']
+    };
+
+    function renderEmojiGrid(cat = 'smileys') {
+      emojiGrid.innerHTML = '';
+      const list = EMOJI_CATEGORIES[cat] || EMOJI_CATEGORIES.smileys;
+      list.forEach(emoji => {
+        const item = document.createElement('div');
+        item.className = 'bp-emoji-item';
+        item.textContent = emoji;
+        item.onclick = () => insertEmoji(emoji);
+        emojiGrid.appendChild(item);
+      });
+    }
+
+    function insertEmoji(emoji) {
+      const start = inputEl.selectionStart || 0;
+      const end = inputEl.selectionEnd || 0;
+      const val = inputEl.value;
+      inputEl.value = val.substring(0, start) + emoji + val.substring(end);
+      inputEl.selectionStart = inputEl.selectionEnd = start + emoji.length;
+      inputEl.focus();
+      updateInputMode();
+    }
+
+    emojiTabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        emojiTabs.forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        renderEmojiGrid(tab.getAttribute('data-cat'));
+      });
+    });
+
+    emojiToggleBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const isHidden = emojiPanel.classList.contains('hidden');
+      if (isHidden) {
+        renderEmojiGrid('smileys');
+        emojiPanel.classList.remove('hidden');
+        emojiToggleBtn.classList.add('active');
+      } else {
+        emojiPanel.classList.add('hidden');
+        emojiToggleBtn.classList.remove('active');
+      }
+    });
+
+    document.addEventListener('click', (e) => {
+      if (!emojiPanel.contains(e.target) && e.target !== emojiToggleBtn && !emojiToggleBtn.contains(e.target)) {
+        emojiPanel.classList.add('hidden');
+        emojiToggleBtn.classList.remove('active');
+      }
+    });
+
+    // ── Input Mode Toggle (Send vs Mic) ──
+    function updateInputMode() {
+      const hasText = inputEl.value.trim().length > 0;
+      const hasImage = currentDraftImageBase64 !== null;
+
+      if (hasText || hasImage) {
+        sendBtn.style.display = 'flex';
+        voiceBtn.style.display = 'none';
+      } else {
+        sendBtn.style.display = 'none';
+        voiceBtn.style.display = 'flex';
+      }
+    }
+    updateInputMode();
+
+    // ── Tab Title Blinker ──
     let originalDocTitle = document.title;
     let titleBlinkInterval = null;
 
@@ -212,7 +414,7 @@
       if (titleBlinkInterval) return;
       let toggle = false;
       titleBlinkInterval = setInterval(() => {
-        document.title = toggle ? `(1) 💬 New message from ${senderName}!` : originalDocTitle;
+        document.title = toggle ? `(1) 💬 ${senderName} sent a message!` : originalDocTitle;
         toggle = !toggle;
       }, 1000);
     }
@@ -230,7 +432,7 @@
       if (!document.hidden) stopTitleBlink();
     });
 
-    // ── Dual Sound Engine (HTML5 Audio + Web Audio API fallback) ──
+    // ── Dual Sound Engine (WAV Audio + Web Audio API) ──
     function generateChimeWavUrl() {
       const sampleRate = 22050;
       const duration = 0.38;
@@ -249,8 +451,8 @@
       writeStr(8, 'WAVE');
       writeStr(12, 'fmt ');
       view.setUint32(16, 16, true);
-      view.setUint16(20, 1, true); // PCM
-      view.setUint16(22, 1, true); // Mono
+      view.setUint16(20, 1, true);
+      view.setUint16(22, 1, true);
       view.setUint32(24, sampleRate, true);
       view.setUint32(28, sampleRate * 2, true);
       view.setUint16(32, 2, true);
@@ -260,7 +462,7 @@
 
       for (let i = 0; i < numSamples; i++) {
         const t = i / sampleRate;
-        const freq = t < 0.12 ? 659.25 : 880.0; // E5 -> A5
+        const freq = t < 0.12 ? 659.25 : 880.0;
         const env = Math.max(0, 1 - t / duration);
         const sample = Math.sin(2 * Math.PI * freq * t) * env * 0.32;
         view.setInt16(44 + i * 2, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
@@ -295,7 +497,6 @@
 
     function playChime() {
       if (!soundEnabled) return;
-
       if (chimeAudio) {
         chimeAudio.currentTime = 0;
         const p = chimeAudio.play();
@@ -343,7 +544,7 @@
 
       const title = `${senderName} • BP Team`;
       const options = {
-        body: messageText || '📷 Sent an image attachment',
+        body: messageText || 'Sent a new message',
         icon: avatarUrl || 'Dp/Image.png',
         badge: 'Dp/Image.png',
         tag: 'bp-team-chat-' + Date.now(),
@@ -380,21 +581,12 @@
     }
 
     async function requestNotificationPermission(showWelcomeTest = true) {
-      if (!('Notification' in window)) {
-        alert('Your browser does not support desktop notifications.');
-        return;
-      }
-
+      if (!('Notification' in window)) return;
       try {
         const permission = await Notification.requestPermission();
         updateNotificationBanner();
-
-        if (permission === 'granted') {
-          if (showWelcomeTest) {
-            triggerDesktopNotification('BP Travel Tools', '✅ Chrome desktop alerts are now active! You will be notified even when minimized.');
-          }
-        } else if (permission === 'denied') {
-          alert('Notifications are blocked in Chrome.\n\nPlease click the tuning/lock icon next to the URL in your address bar and change Notifications to "Allow", then reload the page.');
+        if (permission === 'granted' && showWelcomeTest) {
+          triggerDesktopNotification('BP Travel Tools', '✅ Chrome desktop alerts are active! You will be notified even when minimized.');
         }
       } catch (err) {
         console.error('Error requesting notification permission:', err);
@@ -407,7 +599,6 @@
         notifBanner.classList.add('hidden');
         return;
       }
-
       if (Notification.permission === 'default' && localStorage.getItem('bp_notif_banner_dismissed') !== 'true') {
         notifBanner.classList.remove('hidden');
       } else {
@@ -416,11 +607,8 @@
     }
 
     if (enableNotifBtn) {
-      enableNotifBtn.addEventListener('click', () => {
-        requestNotificationPermission(true);
-      });
+      enableNotifBtn.addEventListener('click', () => requestNotificationPermission(true));
     }
-
     if (dismissNotifBtn) {
       dismissNotifBtn.addEventListener('click', () => {
         localStorage.setItem('bp_notif_banner_dismissed', 'true');
@@ -458,7 +646,6 @@
             const ctx = canvas.getContext('2d');
             ctx.drawImage(img, 0, 0, width, height);
 
-            // Compress to WebP (quality 0.75) with JPEG fallback
             let dataUrl = canvas.toDataURL('image/webp', 0.75);
             if (!dataUrl.startsWith('data:image/webp')) {
               dataUrl = canvas.toDataURL('image/jpeg', 0.75);
@@ -473,7 +660,6 @@
       });
     }
 
-    // Handle Image Selection/Pasting
     async function handleSelectedImage(file) {
       if (!file || !file.type.startsWith('image/')) return;
       try {
@@ -487,10 +673,11 @@
 
         const sizeKb = Math.round((compressed.length * 3) / 4 / 1024);
         document.getElementById('bpDraftSize').textContent = `Optimized: ~${sizeKb} KB`;
+        updateInputMode();
         inputEl.focus();
       } catch (err) {
         console.error('Image compression failed:', err);
-        alert('Could not process image. Please try another image format.');
+        alert('Could not process image.');
         clearDraftImage();
       }
     }
@@ -500,6 +687,7 @@
       draftThumb.src = '';
       draftPreview.classList.add('hidden');
       fileInput.value = '';
+      updateInputMode();
     }
 
     removeDraftBtn.addEventListener('click', clearDraftImage);
@@ -546,7 +734,6 @@
       }
     });
 
-    // File input picker
     pickFileBtn.addEventListener('click', () => fileInput.click());
     fileInput.addEventListener('change', (e) => {
       if (e.target.files && e.target.files[0]) {
@@ -554,7 +741,181 @@
       }
     });
 
-    // ── Send Message ──
+    // ── WhatsApp Reply Handlers ──
+    window.bpReplyToMessage = function (msgId) {
+      const doc = messagesCache.find(d => d.id === msgId);
+      if (!doc) return;
+      const data = doc.data();
+
+      let snippet = data.text || '';
+      if (!snippet && data.image) snippet = '📷 Photo';
+      if (!snippet && data.audio) snippet = '🎤 Voice Note';
+
+      currentReplyTo = {
+        id: msgId,
+        senderName: data.senderName || 'User',
+        text: snippet.substring(0, 100),
+        isImage: !!data.image,
+        isVoice: !!data.audio
+      };
+
+      replySender.textContent = `Replying to ${currentReplyTo.senderName}`;
+      replyText.textContent = currentReplyTo.text;
+      replyPreview.classList.remove('hidden');
+      inputEl.focus();
+    };
+
+    function clearReply() {
+      currentReplyTo = null;
+      replyPreview.classList.add('hidden');
+    }
+
+    cancelReplyBtn.addEventListener('click', clearReply);
+
+    window.bpScrollToMessage = function (targetMsgId) {
+      const targetRow = document.getElementById('msg-row-' + targetMsgId);
+      if (targetRow) {
+        targetRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        targetRow.classList.add('highlighted');
+        setTimeout(() => targetRow.classList.remove('highlighted'), 1800);
+      }
+    };
+
+    // ── WhatsApp Voice Note Recorder Engine ──
+    async function startVoiceRecording() {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        alert('Audio recording is not supported in this browser.');
+        return;
+      }
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+        let mimeType = 'audio/webm';
+        if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+          mimeType = 'audio/webm;codecs=opus';
+        } else if (MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')) {
+          mimeType = 'audio/ogg;codecs=opus';
+        } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+          mimeType = 'audio/mp4';
+        }
+
+        mediaRecorder = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 24000 });
+        audioChunks = [];
+
+        mediaRecorder.ondataavailable = (e) => {
+          if (e.data && e.data.size > 0) audioChunks.push(e.data);
+        };
+
+        mediaRecorder.onstop = () => {
+          stream.getTracks().forEach(track => track.stop());
+        };
+
+        mediaRecorder.start(250);
+        isRecordingAudio = true;
+        recordingSeconds = 0;
+
+        // Show recording UI
+        inputEl.style.display = 'none';
+        pickFileBtn.style.display = 'none';
+        emojiToggleBtn.style.display = 'none';
+        sendBtn.style.display = 'none';
+        voiceBtn.style.display = 'none';
+        recordingBar.classList.remove('hidden');
+
+        recTimer.textContent = '00:00';
+        recordingInterval = setInterval(() => {
+          recordingSeconds++;
+          const m = String(Math.floor(recordingSeconds / 60)).padStart(2, '0');
+          const s = String(recordingSeconds % 60).padStart(2, '0');
+          recTimer.textContent = `${m}:${s}`;
+          if (recordingSeconds >= 60) finishAndSendVoiceRecording();
+        }, 1000);
+      } catch (err) {
+        console.error('Microphone access denied:', err);
+        alert('Could not access microphone: ' + err.message + '\nPlease enable microphone permissions in Chrome.');
+      }
+    }
+
+    function cancelVoiceRecording() {
+      if (!isRecordingAudio) return;
+      clearInterval(recordingInterval);
+      isRecordingAudio = false;
+      if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
+      }
+      resetRecordingUI();
+    }
+
+    function finishAndSendVoiceRecording() {
+      if (!isRecordingAudio || !mediaRecorder) return;
+      clearInterval(recordingInterval);
+      isRecordingAudio = false;
+
+      const duration = Math.max(1, recordingSeconds);
+
+      mediaRecorder.onstop = async () => {
+        try {
+          const audioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+          resetRecordingUI();
+
+          const reader = new FileReader();
+          reader.onload = async () => {
+            const base64Audio = reader.result;
+            await sendVoiceMessage(base64Audio, duration);
+          };
+          reader.readAsDataURL(audioBlob);
+        } catch (e) {
+          console.error('Audio processing error:', e);
+          resetRecordingUI();
+        }
+      };
+
+      mediaRecorder.stop();
+    }
+
+    function resetRecordingUI() {
+      recordingBar.classList.add('hidden');
+      inputEl.style.display = 'block';
+      pickFileBtn.style.display = 'flex';
+      emojiToggleBtn.style.display = 'flex';
+      updateInputMode();
+      inputEl.focus();
+    }
+
+    voiceBtn.addEventListener('click', startVoiceRecording);
+    cancelVoiceBtn.addEventListener('click', cancelVoiceRecording);
+    sendVoiceBtn.addEventListener('click', finishAndSendVoiceRecording);
+
+    // ── Send Voice Message ──
+    async function sendVoiceMessage(base64Audio, duration) {
+      const user = getCurrentUser();
+      if (!user) return;
+
+      try {
+        const newMsg = {
+          text: '',
+          image: null,
+          audio: base64Audio,
+          audioDuration: duration,
+          replyTo: currentReplyTo,
+          senderId: user.id,
+          senderName: user.name,
+          senderAvatar: user.avatar || null,
+          timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+          createdMillis: Date.now(),
+          reactions: {}
+        };
+
+        await db.collection('bp_team_chat').add(newMsg);
+        clearReply();
+        playChime();
+      } catch (err) {
+        console.error('Error sending voice message:', err);
+        alert('Failed to send voice note: ' + err.message);
+      }
+    }
+
+    // ── Send Standard Message ──
     async function sendMessage() {
       const user = getCurrentUser();
       if (!user) {
@@ -564,6 +925,7 @@
 
       const text = inputEl.value.trim();
       const imagePayload = currentDraftImageBase64;
+      const replyPayload = currentReplyTo;
 
       if (!text && !imagePayload) return;
 
@@ -573,6 +935,9 @@
         const newMsg = {
           text: text,
           image: imagePayload || null,
+          audio: null,
+          audioDuration: null,
+          replyTo: replyPayload,
           senderId: user.id,
           senderName: user.name,
           senderAvatar: user.avatar || null,
@@ -583,10 +948,15 @@
 
         await db.collection('bp_team_chat').add(newMsg);
 
-        // Reset input
+        // Reset input & reply
         inputEl.value = '';
         inputEl.style.height = 'auto';
         clearDraftImage();
+        clearReply();
+        updateInputMode();
+
+        // Broadcast stop typing
+        broadcastTyping(false);
       } catch (err) {
         console.error('Error sending message:', err);
         alert('Failed to send message: ' + err.message);
@@ -604,11 +974,67 @@
       }
     });
 
-    // Auto-grow textarea
+    // Auto-grow textarea & update send/mic button
     inputEl.addEventListener('input', () => {
       inputEl.style.height = 'auto';
       inputEl.style.height = Math.min(90, inputEl.scrollHeight) + 'px';
+      updateInputMode();
+      broadcastTyping(true);
     });
+
+    // ── Live Typing Indicator Engine ──
+    function broadcastTyping(isTyping) {
+      const user = getCurrentUser();
+      if (!user) return;
+
+      const now = Date.now();
+      if (isTyping) {
+        if (now - lastTypingBroadcast > 2000) {
+          lastTypingBroadcast = now;
+          db.collection('bp_chat_presence').doc('typing_' + user.id).set({
+            userId: user.id,
+            userName: user.name,
+            timestamp: now
+          }, { merge: true }).catch(() => {});
+        }
+
+        clearTimeout(typingTimeout);
+        typingTimeout = setTimeout(() => {
+          broadcastTyping(false);
+        }, 3000);
+      } else {
+        clearTimeout(typingTimeout);
+        db.collection('bp_chat_presence').doc('typing_' + user.id).delete().catch(() => {});
+      }
+    }
+
+    // Listen for peer typing
+    db.collection('bp_chat_presence').onSnapshot(snapshot => {
+      const currentUserId = getCurrentUser()?.id;
+      let activeTyper = null;
+      const cutoff = Date.now() - 4000;
+
+      snapshot.forEach(doc => {
+        if (doc.id.startsWith('typing_')) {
+          const data = doc.data();
+          if (data.userId !== currentUserId && data.timestamp > cutoff) {
+            activeTyper = data.userName;
+          }
+        } else {
+          // General presence for read receipts
+          peerPresence[doc.id] = doc.data();
+        }
+      });
+
+      const statusEl = document.getElementById('bpChatHeaderStatus');
+      if (statusEl) {
+        if (activeTyper) {
+          statusEl.innerHTML = `<span class="bp-chat-typing-indicator"><span class="bp-typing-dots"><span></span><span></span><span></span></span> ${escapeHtml(activeTyper)} is typing...</span>`;
+        } else {
+          statusEl.innerHTML = `<span class="bp-chat-online-dot"></span> Live Team Room`;
+        }
+      }
+    }, () => {});
 
     // ── Emoji Reaction Handler ──
     window.bpReactMessage = async function (msgId, emoji) {
@@ -626,7 +1052,6 @@
 
         const userIdx = currentUsers.indexOf(user.id);
         if (userIdx > -1) {
-          // Remove reaction
           currentUsers.splice(userIdx, 1);
           if (currentUsers.length === 0) {
             delete reactions[emoji];
@@ -634,7 +1059,6 @@
             reactions[emoji] = currentUsers;
           }
         } else {
-          // Add reaction
           currentUsers.push(user.id);
           reactions[emoji] = currentUsers;
         }
@@ -645,13 +1069,124 @@
       }
     };
 
-    // ── Delete Message Handler ──
-    window.bpDeleteMessage = async function (msgId) {
-      if (!confirm('Delete this message for everyone?')) return;
-      try {
-        await db.collection('bp_team_chat').doc(msgId).delete();
-      } catch (err) {
-        console.error('Delete error:', err);
+    // ── Delete Message Options (Delete for Me vs Delete for Everyone) ──
+    window.bpDeleteMessageOptions = function (msgId) {
+      const user = getCurrentUser();
+      if (!user) return;
+
+      const doc = messagesCache.find(d => d.id === msgId);
+      if (!doc) return;
+      const data = doc.data();
+      const isMine = data.senderId === user.id;
+
+      let promptMsg = 'Delete Message:\n\n';
+      promptMsg += '1: Delete for Me (Hides from your screen)\n';
+      if (isMine || user.isAdmin) {
+        promptMsg += '2: Delete for Everyone (Removes from Cloud)\n';
+      }
+      promptMsg += '\nEnter 1 or 2 (or Cancel):';
+
+      const choice = prompt(promptMsg, '1');
+      if (choice === '1') {
+        const deletedKey = 'bp_chat_deleted_msgs_' + user.id;
+        const currentList = JSON.parse(localStorage.getItem(deletedKey) || '[]');
+        currentList.push(msgId);
+        localStorage.setItem(deletedKey, JSON.stringify(currentList));
+        renderMessages(messagesCache);
+      } else if (choice === '2' && (isMine || user.isAdmin)) {
+        db.collection('bp_team_chat').doc(msgId).delete().catch(e => alert(e.message));
+      }
+    };
+
+    // ── Copy Message Text ──
+    window.bpCopyMessage = function (text) {
+      navigator.clipboard.writeText(text).then(() => {
+        const tip = document.createElement('div');
+        tip.style = 'position:fixed; bottom:120px; right:40px; background:#1e293b; color:white; padding:8px 16px; border-radius:20px; font-size:12px; font-weight:700; z-index:999999; box-shadow:0 6px 20px rgba(0,0,0,0.3); animation:bpFadeIn 0.2s ease;';
+        tip.innerHTML = '<i class="fas fa-check" style="color:#10b981;"></i> Message copied!';
+        document.body.appendChild(tip);
+        setTimeout(() => tip.remove(), 1800);
+      });
+    };
+
+    // ── Voice Note Audio Player Controller ──
+    let activeAudioObj = null;
+    let activeVoiceId = null;
+    let playbackSpeed = 1.0;
+
+    window.bpToggleVoicePlay = function (msgId, audioSrc) {
+      const playBtn = document.getElementById('voice-btn-' + msgId);
+      const timeLabel = document.getElementById('voice-time-' + msgId);
+      const waveform = document.getElementById('voice-wave-' + msgId);
+
+      if (activeVoiceId === msgId && activeAudioObj) {
+        if (!activeAudioObj.paused) {
+          activeAudioObj.pause();
+          if (playBtn) playBtn.innerHTML = '<i class="fas fa-play"></i>';
+          return;
+        } else {
+          activeAudioObj.play();
+          if (playBtn) playBtn.innerHTML = '<i class="fas fa-pause"></i>';
+          return;
+        }
+      }
+
+      // Stop previous
+      if (activeAudioObj) {
+        activeAudioObj.pause();
+        const prevBtn = document.getElementById('voice-btn-' + activeVoiceId);
+        if (prevBtn) prevBtn.innerHTML = '<i class="fas fa-play"></i>';
+      }
+
+      activeVoiceId = msgId;
+      activeAudioObj = new Audio(audioSrc);
+      activeAudioObj.playbackRate = playbackSpeed;
+
+      if (playBtn) playBtn.innerHTML = '<i class="fas fa-pause"></i>';
+
+      activeAudioObj.ontimeupdate = () => {
+        if (!activeAudioObj.duration) return;
+        const cur = activeAudioObj.currentTime;
+        const dur = activeAudioObj.duration;
+        const m = Math.floor(cur / 60);
+        const s = String(Math.floor(cur % 60)).padStart(2, '0');
+        if (timeLabel) timeLabel.textContent = `${m}:${s}`;
+
+        // Update waveform bars
+        if (waveform) {
+          const bars = waveform.querySelectorAll('.bp-wave-bar');
+          const progressRatio = cur / dur;
+          const playedCount = Math.floor(progressRatio * bars.length);
+          bars.forEach((bar, idx) => {
+            if (idx <= playedCount) {
+              bar.classList.add('played');
+            } else {
+              bar.classList.remove('played');
+            }
+          });
+        }
+      };
+
+      activeAudioObj.onended = () => {
+        if (playBtn) playBtn.innerHTML = '<i class="fas fa-play"></i>';
+        if (waveform) {
+          waveform.querySelectorAll('.bp-wave-bar').forEach(b => b.classList.remove('played'));
+        }
+      };
+
+      activeAudioObj.play().catch(console.error);
+    };
+
+    window.bpChangeVoiceSpeed = function (msgId) {
+      if (playbackSpeed === 1.0) playbackSpeed = 1.5;
+      else if (playbackSpeed === 1.5) playbackSpeed = 2.0;
+      else playbackSpeed = 1.0;
+
+      const badge = document.getElementById('voice-speed-' + msgId);
+      if (badge) badge.textContent = playbackSpeed + 'x';
+
+      if (activeAudioObj && activeVoiceId === msgId) {
+        activeAudioObj.playbackRate = playbackSpeed;
       }
     };
 
@@ -669,45 +1204,163 @@
     });
 
     lightbox.addEventListener('click', (e) => {
-      if (e.target === lightbox) {
-        lightbox.classList.add('hidden');
-      }
+      if (e.target === lightbox) lightbox.classList.add('hidden');
     });
 
-    window.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') {
-        if (!lightbox.classList.contains('hidden')) {
-          lightbox.classList.add('hidden');
-        } else if (isChatOpen) {
-          toggleChat();
+    // ── Clear Chat Modal Controls ──
+    clearBtn.addEventListener('click', () => {
+      clearModal.classList.remove('hidden');
+    });
+
+    btnCancelClear.addEventListener('click', () => {
+      clearModal.classList.add('hidden');
+    });
+
+    // Option 1: Clear for Me
+    btnClearForMe.addEventListener('click', () => {
+      const user = getCurrentUser();
+      if (!user) return;
+
+      localStorage.setItem('bp_chat_cleared_before_' + user.id, Date.now().toString());
+      clearModal.classList.add('hidden');
+      renderMessages(messagesCache);
+    });
+
+    // Option 2: Delete for Everyone (Firestore Chunk Clear)
+    btnClearForEveryone.addEventListener('click', async () => {
+      if (!confirm('Are you absolutely sure you want to permanently delete all messages for the entire team? This cannot be undone.')) return;
+
+      btnClearForEveryone.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Deleting for Everyone...';
+      try {
+        const snap = await db.collection('bp_team_chat').get();
+        if (snap.empty) {
+          alert('Chat history is already empty.');
+          clearModal.classList.add('hidden');
+          return;
         }
+
+        const docs = snap.docs;
+        const CHUNK_SIZE = 450;
+        for (let i = 0; i < docs.length; i += CHUNK_SIZE) {
+          const chunk = docs.slice(i, i + CHUNK_SIZE);
+          const batch = db.batch();
+          chunk.forEach((doc) => batch.delete(doc.ref));
+          await batch.commit();
+        }
+
+        clearModal.classList.add('hidden');
+        alert(`Chat history cleared successfully (${docs.length} messages permanently deleted).`);
+      } catch (err) {
+        alert('Failed to clear: ' + err.message);
+      } finally {
+        btnClearForEveryone.innerHTML = '<div class="bp-clear-btn-title"><i class="fas fa-trash-can"></i> Delete for Everyone</div><div class="bp-clear-btn-desc">Permanently deletes message history from Firebase for all users.</div>';
       }
     });
 
-    // ── Render Messages Feed ──
+    window.bpRestoreLocalHistory = function () {
+      const user = getCurrentUser();
+      if (!user) return;
+      localStorage.removeItem('bp_chat_cleared_before_' + user.id);
+      renderMessages(messagesCache);
+    };
+
+    // ── Search in Chat Controls ──
+    searchToggleBtn.addEventListener('click', () => {
+      searchWrap.classList.toggle('hidden');
+      if (!searchWrap.classList.contains('hidden')) {
+        searchInput.focus();
+      } else {
+        currentSearchQuery = '';
+        renderMessages(messagesCache);
+      }
+    });
+
+    closeSearchBtn.addEventListener('click', () => {
+      searchWrap.classList.add('hidden');
+      currentSearchQuery = '';
+      renderMessages(messagesCache);
+    });
+
+    searchInput.addEventListener('input', (e) => {
+      currentSearchQuery = e.target.value.trim().toLowerCase();
+      renderMessages(messagesCache);
+    });
+
+    // ── Render Messages Feed (with WhatsApp Polish) ──
     function renderMessages(docs) {
       const currentUser = getCurrentUser();
       const currentUserId = currentUser ? currentUser.id : null;
       const isAdmin = currentUser && currentUser.isAdmin;
 
-      if (docs.length === 0) {
-        messagesEl.innerHTML = `
+      const clearedBefore = parseInt(localStorage.getItem('bp_chat_cleared_before_' + (currentUserId || 'default')) || '0', 10);
+      const locallyDeletedList = JSON.parse(localStorage.getItem('bp_chat_deleted_msgs_' + (currentUserId || 'default')) || '[]');
+
+      // Filter locally cleared or deleted messages
+      const visibleDocs = docs.filter(doc => {
+        if (locallyDeletedList.includes(doc.id)) return false;
+        const d = doc.data();
+        const created = d.createdMillis || (d.timestamp ? d.timestamp.toMillis() : 0);
+        return created >= clearedBefore;
+      });
+
+      // Search match filtering & counting
+      let matchCount = 0;
+      if (currentSearchQuery) {
+        visibleDocs.forEach(doc => {
+          const d = doc.data();
+          if ((d.text && d.text.toLowerCase().includes(currentSearchQuery)) || 
+              (d.senderName && d.senderName.toLowerCase().includes(currentSearchQuery))) {
+            matchCount++;
+          }
+        });
+        if (searchCount) searchCount.textContent = `${matchCount} found`;
+      } else if (searchCount) {
+        searchCount.textContent = '';
+      }
+
+      if (visibleDocs.length === 0) {
+        let emptyMsg = `
           <div style="text-align:center; padding:40px 20px; color:#94a3b8; font-size:13px;">
-            <i class="fas fa-comments" style="font-size:32px; color:#cbd5e1; margin-bottom:12px;"></i><br>
-            <strong>Team Chat Room is Ready!</strong><br>
-            Send a message or paste a screenshot to start collaborating.
+            <i class="fas fa-comments" style="font-size:34px; color:#cbd5e1; margin-bottom:12px;"></i><br>
+            <strong>Team Messenger is Ready!</strong><br>
+            Send a message, voice note, or screenshot to start collaborating.
           </div>
         `;
+        if (clearedBefore > 0) {
+          emptyMsg = `
+            <div class="bp-chat-cleared-banner">
+              <span>Messages cleared on this device.</span>
+              <span class="bp-cleared-restore-link" onclick="bpRestoreLocalHistory()">Restore All History</span>
+            </div>
+            ${emptyMsg}
+          `;
+        }
+        messagesEl.innerHTML = emptyMsg;
         return;
       }
 
       let html = '';
+      if (clearedBefore > 0) {
+        html += `
+          <div class="bp-chat-cleared-banner">
+            <span>Older messages cleared on this device.</span>
+            <span class="bp-cleared-restore-link" onclick="bpRestoreLocalHistory()">Restore History</span>
+          </div>
+        `;
+      }
+
       let lastDateStr = '';
 
-      docs.forEach((doc) => {
+      visibleDocs.forEach((doc) => {
         const data = doc.data();
         const id = doc.id;
         const isMine = data.senderId === currentUserId;
+
+        // Search highlight
+        const isSearchMatch = currentSearchQuery && (
+          (data.text && data.text.toLowerCase().includes(currentSearchQuery)) ||
+          (data.senderName && data.senderName.toLowerCase().includes(currentSearchQuery))
+        );
 
         // Date divider
         const timeObj = data.timestamp ? data.timestamp.toDate() : (data.createdMillis ? new Date(data.createdMillis) : new Date());
@@ -719,15 +1372,113 @@
 
         const timeStr = timeObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-        // Avatar
+        // Avatar for incoming
         let avatarHtml = '';
         if (!isMine) {
-          const userAvatar = (window.USERS && window.USERS[data.senderId]?.avatar) || localStorage.getItem('slw_avatar_' + data.senderId) || data.senderAvatar || (data.senderId === 'admin' ? 'Dp/Image.png' : null);
+          const userAvatar = (window.USERS && window.USERS[data.senderId]?.avatar) || 
+                             localStorage.getItem('slw_avatar_' + data.senderId) || 
+                             data.senderAvatar || 
+                             (data.senderId === 'admin' ? 'Dp/Image.png' : null);
           if (userAvatar) {
             avatarHtml = `<img class="bp-msg-avatar" src="${userAvatar}" alt="${escapeHtml(data.senderName)}">`;
           } else {
             const initial = (data.senderName || 'U').charAt(0).toUpperCase();
             avatarHtml = `<div class="bp-msg-avatar">${initial}</div>`;
+          }
+        }
+
+        // WhatsApp Quoted / Reply Preview
+        let quotedHtml = '';
+        if (data.replyTo) {
+          quotedHtml = `
+            <div class="bp-quoted-msg" onclick="bpScrollToMessage('${data.replyTo.id}')">
+              <span class="bp-quoted-sender">${escapeHtml(data.replyTo.senderName)}</span>
+              <span class="bp-quoted-text">${escapeHtml(data.replyTo.text || (data.replyTo.isImage ? '📷 Photo' : (data.replyTo.isVoice ? '🎤 Voice Note' : 'Message')))}</span>
+            </div>
+          `;
+        }
+
+        // Voice Note Player
+        let voiceHtml = '';
+        if (data.audio) {
+          const durSec = data.audioDuration || 6;
+          const durMin = Math.floor(durSec / 60);
+          const durSecRemain = String(Math.floor(durSec % 60)).padStart(2, '0');
+          const timeFormatted = `${durMin}:${durSecRemain}`;
+
+          // Waveform bars simulation
+          const barHeights = [14, 22, 10, 18, 24, 16, 20, 26, 12, 18, 22, 14, 20, 16, 12, 18];
+          let barsHtml = '';
+          barHeights.forEach(h => {
+            barsHtml += `<div class="bp-wave-bar" style="height:${h}px;"></div>`;
+          });
+
+          voiceHtml = `
+            <div class="bp-voice-msg-player">
+              <button type="button" class="bp-voice-play-btn" id="voice-btn-${id}" onclick="bpToggleVoicePlay('${id}', '${data.audio}')">
+                <i class="fas fa-play"></i>
+              </button>
+              <div class="bp-voice-waveform" id="voice-wave-${id}" onclick="bpToggleVoicePlay('${id}', '${data.audio}')">
+                ${barsHtml}
+              </div>
+              <div class="bp-voice-info-col">
+                <span class="bp-voice-time" id="voice-time-${id}">${timeFormatted}</span>
+                <span class="bp-voice-speed-badge" id="voice-speed-${id}" onclick="bpChangeVoiceSpeed('${id}')">1x</span>
+              </div>
+            </div>
+          `;
+        }
+
+        // Image Attachment
+        let imgHtml = '';
+        if (data.image) {
+          imgHtml = `
+            <div class="bp-chat-attachment" onclick="bpOpenLightbox('${data.image}')">
+              <img src="${data.image}" alt="Attached Photo" loading="lazy">
+              <span class="bp-chat-img-zoom-hint"><i class="fas fa-magnifying-glass-plus"></i> View</span>
+            </div>
+          `;
+        }
+
+        // Action Toolbar on Hover (WhatsApp Style)
+        const actionsHtml = `
+          <div class="bp-msg-actions">
+            <button class="bp-btn-react" onclick="bpReactMessage('${id}', '👍')" title="Thumbs up">👍</button>
+            <button class="bp-btn-react" onclick="bpReactMessage('${id}', '❤️')" title="Love">❤️</button>
+            <button class="bp-btn-react" onclick="bpReactMessage('${id}', '😂')" title="Laugh">😂</button>
+            <button class="bp-btn-react" onclick="bpReactMessage('${id}', '✈️')" title="Travel">✈️</button>
+            <button class="bp-btn-react" onclick="bpReactMessage('${id}', '🔥')" title="Fire">🔥</button>
+            <button class="bp-btn-action-icon" onclick="bpReplyToMessage('${id}')" title="Reply"><i class="fas fa-reply"></i></button>
+            ${data.text ? `<button class="bp-btn-action-icon" onclick="bpCopyMessage('${escapeHtml(data.text)}')" title="Copy text"><i class="fas fa-copy"></i></button>` : ''}
+            <button class="bp-btn-action-icon delete" onclick="bpDeleteMessageOptions('${id}')" title="Delete message"><i class="fas fa-trash"></i></button>
+          </div>
+        `;
+
+        // Format message text with search highlighting & linkification
+        let formattedText = data.text ? linkifyText(escapeHtml(data.text)) : '';
+        if (currentSearchQuery && formattedText) {
+          const regex = new RegExp(`(${escapeRegExp(currentSearchQuery)})`, 'gi');
+          formattedText = formattedText.replace(regex, '<mark class="bp-search-hit">$1</mark>');
+        }
+
+        // WhatsApp Double Checkmark Status (Read Receipts)
+        let ticksHtml = '';
+        if (isMine) {
+          const createdMillis = data.createdMillis || 0;
+          let isReadByPeer = false;
+
+          Object.keys(peerPresence).forEach(peerId => {
+            if (peerId !== currentUserId && !peerId.startsWith('typing_')) {
+              if (peerPresence[peerId].lastSeenMillis >= createdMillis) {
+                isReadByPeer = true;
+              }
+            }
+          });
+
+          if (isReadByPeer) {
+            ticksHtml = `<span class="bp-ticks read" title="Read by team">✓✓</span>`;
+          } else {
+            ticksHtml = `<span class="bp-ticks delivered" title="Delivered">✓✓</span>`;
           }
         }
 
@@ -748,57 +1499,31 @@
           reactionsHtml += '</div>';
         }
 
-        // Image attachment
-        let imgHtml = '';
-        if (data.image) {
-          imgHtml = `
-            <div class="bp-chat-attachment" onclick="bpOpenLightbox('${data.image}')">
-              <img src="${data.image}" alt="Attached Photo" loading="lazy">
-              <span class="bp-chat-img-zoom-hint"><i class="fas fa-magnifying-glass-plus"></i> View</span>
-            </div>
-          `;
-        }
-
-        // Action Toolbar on Hover
-        const canDelete = isMine || isAdmin;
-        const actionsHtml = `
-          <div class="bp-msg-actions">
-            <button class="bp-btn-react" onclick="bpReactMessage('${id}', '👍')" title="Thumbs up">👍</button>
-            <button class="bp-btn-react" onclick="bpReactMessage('${id}', '❤️')" title="Love">❤️</button>
-            <button class="bp-btn-react" onclick="bpReactMessage('${id}', '😂')" title="Laugh">😂</button>
-            <button class="bp-btn-react" onclick="bpReactMessage('${id}', '✈️')" title="Travel">✈️</button>
-            <button class="bp-btn-react" onclick="bpReactMessage('${id}', '🔥')" title="Fire">🔥</button>
-            ${canDelete ? `<button class="bp-btn-delete-msg" onclick="bpDeleteMessage('${id}')" title="Delete message"><i class="fas fa-trash"></i></button>` : ''}
-          </div>
-        `;
-
-        // Format message text with linkification
-        const formattedText = data.text ? linkifyText(escapeHtml(data.text)) : '';
-
         html += `
-          <div class="bp-msg-row ${isMine ? 'outgoing' : 'incoming'}">
+          <div class="bp-msg-row ${isMine ? 'outgoing' : 'incoming'} ${isSearchMatch ? 'highlighted' : ''}" id="msg-row-${id}">
             ${avatarHtml}
             <div class="bp-msg-bubble-wrap">
               ${!isMine ? `<span class="bp-msg-sender-name">${escapeHtml(data.senderName)}</span>` : ''}
               <div class="bp-msg-bubble">
                 ${actionsHtml}
+                ${quotedHtml}
                 ${formattedText ? `<div>${formattedText}</div>` : ''}
                 ${imgHtml}
+                ${voiceHtml}
               </div>
               ${reactionsHtml}
               <div class="bp-msg-footer">
                 <span>${timeStr}</span>
-                ${isMine ? '<i class="fas fa-check" style="font-size:9px;"></i>' : ''}
+                ${ticksHtml}
               </div>
             </div>
           </div>
         `;
       });
 
-      const wasAtBottom = messagesEl.scrollHeight - messagesEl.scrollTop <= messagesEl.clientHeight + 80;
+      const wasAtBottom = messagesEl.scrollHeight - messagesEl.scrollTop <= messagesEl.clientHeight + 90;
       messagesEl.innerHTML = html;
 
-      // Auto-scroll to bottom if already near bottom or just opened
       if (wasAtBottom || isChatOpen) {
         messagesEl.scrollTop = messagesEl.scrollHeight;
       }
@@ -808,6 +1533,10 @@
       return (str || '').replace(/[&<>"']/g, (m) => ({
         '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
       }[m]));
+    }
+
+    function escapeRegExp(string) {
+      return string.replace(/[.*+?^$${}()|[\]\\]/g, '\\$&');
     }
 
     function linkifyText(text) {
@@ -821,7 +1550,7 @@
     let isInitialLoad = true;
     db.collection('bp_team_chat')
       .orderBy('createdMillis', 'asc')
-      .limitToLast(150)
+      .limitToLast(200)
       .onSnapshot((snapshot) => {
         messagesCache = snapshot.docs;
         renderMessages(messagesCache);
@@ -849,9 +1578,13 @@
               unreadCount++;
               updateBadge();
 
+              let notifBody = latestIncomingDoc.text;
+              if (!notifBody && latestIncomingDoc.image) notifBody = '📷 Sent a photo';
+              if (!notifBody && latestIncomingDoc.audio) notifBody = '🎤 Sent a voice note';
+
               triggerDesktopNotification(
                 latestIncomingDoc.senderName || 'Team Member',
-                latestIncomingDoc.text || (latestIncomingDoc.image ? '📷 Sent an image attachment' : 'Sent a new message'),
+                notifBody || 'Sent a new message',
                 latestIncomingDoc.senderAvatar
               );
             }
@@ -860,11 +1593,6 @@
         isInitialLoad = false;
       }, (err) => {
         console.error('Firestore chat error:', err);
-        messagesEl.innerHTML = `
-          <div style="padding:20px; color:#ef4444; font-size:12px; text-align:center;">
-            Connection error: ${err.message}<br>Please check network connection.
-          </div>
-        `;
       });
 
     function updateBadge() {
@@ -874,6 +1602,17 @@
       } else {
         badgeEl.style.display = 'none';
       }
+    }
+
+    // Update presence timestamp in Firestore for read receipts
+    function updatePresence() {
+      const user = getCurrentUser();
+      if (!user) return;
+      db.collection('bp_chat_presence').doc(user.id).set({
+        lastSeenMillis: Date.now(),
+        name: user.name,
+        isOnline: true
+      }, { merge: true }).catch(() => {});
     }
 
     // ── Open / Close Chat Controls ──
@@ -887,28 +1626,22 @@
         stopTitleBlink();
         lastSeenTimestamp = Date.now();
         localStorage.setItem('bp_chat_last_seen', lastSeenTimestamp.toString());
+        updatePresence();
+
         setTimeout(() => {
           messagesEl.scrollTop = messagesEl.scrollHeight;
           inputEl.focus();
         }, 100);
 
         updateNotificationBanner();
-
-        // If permission is still default, request permission on user's open gesture
         if ('Notification' in window && Notification.permission === 'default') {
           requestNotificationPermission(false);
-        }
-
-        // Check if admin to show clear button
-        const user = getCurrentUser();
-        if (user && user.isAdmin) {
-          clearBtn.style.display = 'flex';
-        } else {
-          clearBtn.style.display = 'none';
         }
       } else {
         chatWindow.classList.add('hidden');
         triggerBtn.classList.remove('active');
+        emojiPanel.classList.add('hidden');
+        if (isRecordingAudio) cancelVoiceRecording();
       }
     }
 
@@ -917,9 +1650,11 @@
       isChatOpen = false;
       chatWindow.classList.add('hidden');
       triggerBtn.classList.remove('active');
+      emojiPanel.classList.add('hidden');
+      if (isRecordingAudio) cancelVoiceRecording();
     });
 
-    // Sound & Notification toggle button
+    // Sound toggle
     muteBtn.addEventListener('click', () => {
       soundEnabled = !soundEnabled;
       localStorage.setItem('bp_chat_sound', soundEnabled.toString());
@@ -933,36 +1668,7 @@
       }
     });
 
-    // Clear chat button (Admin only)
-    clearBtn.addEventListener('click', async () => {
-      if (!confirm('Are you sure you want to clear the entire chat history for everyone? This cannot be undone.')) return;
-      clearBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-      try {
-        const snap = await db.collection('bp_team_chat').get();
-        if (snap.empty) {
-          alert('Chat history is already empty.');
-          return;
-        }
-
-        // Chunk in batches of 450 (strictly below Firestore 500 operation limit per batch)
-        const docs = snap.docs;
-        const CHUNK_SIZE = 450;
-        for (let i = 0; i < docs.length; i += CHUNK_SIZE) {
-          const chunk = docs.slice(i, i + CHUNK_SIZE);
-          const batch = db.batch();
-          chunk.forEach((doc) => batch.delete(doc.ref));
-          await batch.commit();
-        }
-
-        alert(`Chat history cleared successfully (${docs.length} message${docs.length === 1 ? '' : 's'} permanently removed).`);
-      } catch (err) {
-        alert('Failed to clear: ' + err.message);
-      } finally {
-        clearBtn.innerHTML = '<i class="fas fa-trash-can"></i>';
-      }
-    });
-
-    // Visibility change: check user login
+    // Check auth visibility
     function checkVisibility() {
       const user = getCurrentUser();
       if (!user) {
@@ -983,11 +1689,11 @@
     }
 
     window.bpRefreshChatAuth = checkVisibility;
-    setInterval(checkVisibility, 1500);
+    setInterval(checkVisibility, 2000);
+    setInterval(updatePresence, 30000); // Heartbeat presence
     checkVisibility();
   }
 
-  // Start initialization
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initChatWhenReady);
   } else {
