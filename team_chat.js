@@ -100,6 +100,21 @@
         }
         teamUsers = freshUsers;
         window.USERS = { ...teamUsers };
+
+        // Auto-configure to 1-on-1 direct room if only 1 peer exists in the team
+        const myUser = getCurrentUser();
+        if (myUser) {
+          const peerKeys = Object.keys(teamUsers).filter(k => k !== myUser.id);
+          if (peerKeys.length === 1 && (currentRoomId === "general" || !currentRoomMeta.isDirect)) {
+            const peerKey = peerKeys[0];
+            const peer = teamUsers[peerKey] || {};
+            const peerName = peer.name || (peerKey.charAt(0).toUpperCase() + peerKey.slice(1));
+            const peerAvatar = peer.avatar || localStorage.getItem("slw_avatar_" + peerKey) || (peerKey === "admin" ? "Dp/Image.png" : null);
+            const dmRoomId = getDirectRoomId(myUser.id, peerKey);
+            window.bpOpenRoom(dmRoomId, peerName, true, peerKey, peerAvatar);
+          }
+        }
+
         renderContactsList();
 
         // If currently viewing a direct chat, update header name/avatar if changed
@@ -1529,63 +1544,68 @@
 
       contactsScroll.innerHTML = '';
 
-      // ── 1. Company General Room ──
-      const generalDocs = messagesCache.filter(doc => {
-        const d = doc.data();
-        const rId = d.roomId || 'general';
-        return rId === 'general' && isMessageVisibleToMe(d, user.id);
-      });
-
-      const lastGenDoc = generalDocs.length > 0 ? generalDocs[generalDocs.length - 1].data() : null;
-      let lastGenSnippet = 'Company-wide announcements & discussion';
-      let lastGenTime = '';
-      if (lastGenDoc) {
-        lastGenSnippet = lastGenDoc.text || (lastGenDoc.image ? '📷 Photo' : (lastGenDoc.audio ? '🎤 Voice note' : 'Message'));
-        const t = lastGenDoc.timestamp ? lastGenDoc.timestamp.toDate() : (lastGenDoc.createdMillis ? new Date(lastGenDoc.createdMillis) : new Date());
-        lastGenTime = t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      }
-
-      const lastGenSeen = parseInt(localStorage.getItem('bp_seen_' + user.id + '_general') || '0', 10);
+      // Check if General room should be shown (ONLY when 2+ peers exist, i.e. 3+ members total in company)
+      const shouldShowGeneral = userKeys.length > 1;
       let generalUnreadCount = 0;
-      generalDocs.forEach(doc => {
-        const d = doc.data();
-        if (d.senderId !== user.id && (d.createdMillis || 0) > lastGenSeen) {
-          generalUnreadCount++;
-        }
-      });
 
-      if (!contactSearchQuery || 'team room general'.includes(contactSearchQuery)) {
-        const genDiv = document.createElement('div');
-        genDiv.className = `bp-contact-item ${currentRoomId === 'general' ? 'active' : ''}`;
-        genDiv.onclick = () => window.bpOpenRoom('general', 'Team Room (General)', false, null, null);
-        genDiv.innerHTML = `
-          <div class="bp-contact-avatar-wrap">
-            <div class="bp-contact-avatar-circle" style="background:#e0e7ff;">
-              <i class="fas fa-users" style="color:#2563eb; font-size:16px;"></i>
+      // ── 1. Company General Room (Hidden when there is only 1 user besides admin) ──
+      if (shouldShowGeneral) {
+        const generalDocs = messagesCache.filter(doc => {
+          const d = doc.data();
+          const rId = d.roomId || 'general';
+          return rId === 'general' && isMessageVisibleToMe(d, user.id);
+        });
+
+        const lastGenDoc = generalDocs.length > 0 ? generalDocs[generalDocs.length - 1].data() : null;
+        let lastGenSnippet = 'Company-wide announcements & discussion';
+        let lastGenTime = '';
+        if (lastGenDoc) {
+          lastGenSnippet = lastGenDoc.text || (lastGenDoc.image ? '📷 Photo' : (lastGenDoc.audio ? '🎤 Voice note' : 'Message'));
+          const t = lastGenDoc.timestamp ? lastGenDoc.timestamp.toDate() : (lastGenDoc.createdMillis ? new Date(lastGenDoc.createdMillis) : new Date());
+          lastGenTime = t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        }
+
+        const lastGenSeen = parseInt(localStorage.getItem('bp_seen_' + user.id + '_general') || '0', 10);
+        generalDocs.forEach(doc => {
+          const d = doc.data();
+          if (d.senderId !== user.id && (d.createdMillis || 0) > lastGenSeen) {
+            generalUnreadCount++;
+          }
+        });
+
+        if (!contactSearchQuery || 'team room general'.includes(contactSearchQuery)) {
+          const genDiv = document.createElement('div');
+          genDiv.className = `bp-contact-item ${currentRoomId === 'general' ? 'active' : ''}`;
+          genDiv.onclick = () => window.bpOpenRoom('general', 'Team Room (General)', false, null, null);
+          genDiv.innerHTML = `
+            <div class="bp-contact-avatar-wrap">
+              <div class="bp-contact-avatar-circle" style="background:#e0e7ff;">
+                <i class="fas fa-users" style="color:#2563eb; font-size:16px;"></i>
+              </div>
+              <div class="bp-contact-online-badge"></div>
             </div>
-            <div class="bp-contact-online-badge"></div>
-          </div>
-          <div class="bp-contact-info">
-            <div class="bp-contact-top-row">
-              <span class="bp-contact-name">Team Room (General)</span>
-              <span class="bp-contact-time">${lastGenTime}</span>
+            <div class="bp-contact-info">
+              <div class="bp-contact-top-row">
+                <span class="bp-contact-name">Team Room (General)</span>
+                <span class="bp-contact-time">${lastGenTime}</span>
+              </div>
+              <div class="bp-contact-bottom-row">
+                <span class="bp-contact-snippet ${generalUnreadCount > 0 ? 'unread-bold' : ''}">${escapeHtml(lastGenSnippet)}</span>
+                ${generalUnreadCount > 0 ? `<span class="bp-contact-unread-badge">${generalUnreadCount}</span>` : ''}
+              </div>
             </div>
-            <div class="bp-contact-bottom-row">
-              <span class="bp-contact-snippet ${generalUnreadCount > 0 ? 'unread-bold' : ''}">${escapeHtml(lastGenSnippet)}</span>
-              ${generalUnreadCount > 0 ? `<span class="bp-contact-unread-badge">${generalUnreadCount}</span>` : ''}
-            </div>
-          </div>
-        `;
-        contactsScroll.appendChild(genDiv);
+          `;
+          contactsScroll.appendChild(genDiv);
+        }
+
+        // Section Label: Direct Messages (only shown when General Room is also visible)
+        const dmLabel = document.createElement('div');
+        dmLabel.className = 'bp-contact-section-label';
+        dmLabel.textContent = 'Direct Messages (Private)';
+        contactsScroll.appendChild(dmLabel);
       }
 
-      // Section Label: Direct Messages
-      const dmLabel = document.createElement('div');
-      dmLabel.className = 'bp-contact-section-label';
-      dmLabel.textContent = 'Direct Messages (Private)';
-      contactsScroll.appendChild(dmLabel);
-
-      let totalUnreadAllRooms = generalUnreadCount;
+      let totalUnreadAllRooms = shouldShowGeneral ? generalUnreadCount : 0;
 
       if (userKeys.length === 0) {
         const emptyDiv = document.createElement('div');
@@ -1956,6 +1976,11 @@
             if (change.type === 'added') {
               const d = change.doc.data();
               if (d.senderId !== currentUserId && isMessageVisibleToMe(d, currentUserId)) {
+                const allU = Object.keys(teamUsers).length > 0 ? teamUsers : (window.USERS || {});
+                const pKeys = Object.keys(allU).filter(k => k !== currentUserId);
+                if (pKeys.length <= 1 && (d.roomId || 'general') === 'general') {
+                  return; // Skip general room alerts when hidden
+                }
                 playChime();
 
                 const isTabInBackground = document.hidden || !document.hasFocus();
@@ -2001,12 +2026,24 @@
             }
           }
 
-          // Default: Start in contact list view (unless active room was already direct)
-          const savedRoom = localStorage.getItem('bp_active_room_' + user.id);
-          if (savedRoom && savedRoom !== 'general' && savedRoom.startsWith('dm_')) {
-            viewsWrapper.classList.add('show-conv');
+          const allUsers = Object.keys(teamUsers).length > 0 ? teamUsers : (window.USERS || {});
+          const userKeys = Object.keys(allUsers).filter(k => k !== user.id);
+
+          if (userKeys.length === 1) {
+            // Automatically open 1-on-1 private chat with the only team peer
+            const peerKey = userKeys[0];
+            const peer = allUsers[peerKey] || {};
+            const peerName = peer.name || (peerKey.charAt(0).toUpperCase() + peerKey.slice(1));
+            const peerAvatar = peer.avatar || localStorage.getItem('slw_avatar_' + peerKey) || (peerKey === 'admin' ? 'Dp/Image.png' : null);
+            const dmRoomId = getDirectRoomId(user.id, peerKey);
+            window.bpOpenRoom(dmRoomId, peerName, true, peerKey, peerAvatar);
           } else {
-            viewsWrapper.classList.remove('show-conv');
+            const savedRoom = localStorage.getItem('bp_active_room_' + user.id);
+            if (savedRoom && savedRoom !== 'general' && savedRoom.startsWith('dm_')) {
+              viewsWrapper.classList.add('show-conv');
+            } else {
+              viewsWrapper.classList.remove('show-conv');
+            }
           }
         }
 
