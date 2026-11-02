@@ -58,6 +58,20 @@
 
     // Typing State
     let typingTimeout = null;
+
+    // Safe Firestore Date / Timestamp Parser
+    function safeParseDate(ts, fallbackMillis) {
+      if (!ts) return fallbackMillis ? new Date(fallbackMillis) : new Date();
+      if (typeof ts.toDate === 'function') {
+        try { return ts.toDate(); } catch (e) {}
+      }
+      if (ts.seconds) return new Date(ts.seconds * 1000);
+      if (typeof ts === 'string' || typeof ts === 'number') {
+        const d = new Date(ts);
+        if (!isNaN(d.getTime())) return d;
+      }
+      return fallbackMillis ? new Date(fallbackMillis) : new Date();
+    }
     let lastTypingBroadcast = 0;
 
     // ── Real-time Team Users Listener (for 1-on-1 Direct Messaging Contacts) ──
@@ -280,12 +294,14 @@
           <!-- WhatsApp Emoji Picker Panel -->
           <div class="bp-emoji-picker-panel hidden" id="bpEmojiPanel">
             <div class="bp-emoji-tabs">
-              <button type="button" class="bp-emoji-tab active" data-cat="smileys">😊</button>
+              <button type="button" class="bp-emoji-tab animoji-tab active" data-cat="animated">⚡ Animoji</button>
+              <button type="button" class="bp-emoji-tab" data-cat="smileys">😊</button>
               <button type="button" class="bp-emoji-tab" data-cat="hands">👍</button>
               <button type="button" class="bp-emoji-tab" data-cat="travel">✈️</button>
               <button type="button" class="bp-emoji-tab" data-cat="hearts">❤️</button>
             </div>
             <div class="bp-emoji-grid" id="bpEmojiGrid"></div>
+            <div class="bp-emoji-footer-tip" id="bpEmojiTip">✨ Click any Animoji with empty input to send Sticker!</div>
           </div>
 
           <!-- Input Area -->
@@ -462,6 +478,116 @@
     const emojiGrid = document.getElementById('bpEmojiGrid');
     const emojiTabs = emojiPanel.querySelectorAll('.bp-emoji-tab');
 
+    // ── Google Noto Animated 3D Emojis Catalog ──
+    const ANIMATED_EMOJIS = [
+      { emoji: '😂', code: '1f602', name: 'Laughing Tears' },
+      { emoji: '🤣', code: '1f923', name: 'ROFL' },
+      { emoji: '❤️', code: '2764_fe0f', name: 'Red Heart' },
+      { emoji: '🔥', code: '1f525', name: 'Fire Flame' },
+      { emoji: '👍', code: '1f44d', name: 'Thumbs Up' },
+      { emoji: '✈️', code: '2708_fe0f', name: 'Airplane' },
+      { emoji: '🚀', code: '1f680', name: 'Rocket Launch' },
+      { emoji: '🎉', code: '1f389', name: 'Party Popper' },
+      { emoji: '😍', code: '1f60d', name: 'Heart Eyes' },
+      { emoji: '😎', code: '1f60e', name: 'Cool Sunglasses' },
+      { emoji: '👏', code: '1f44f', name: 'Clapping Hands' },
+      { emoji: '✨', code: '2728', name: 'Sparkles' },
+      { emoji: '👋', code: '1f44b', name: 'Waving Hand' },
+      { emoji: '🤔', code: '1f914', name: 'Thinking' },
+      { emoji: '😘', code: '1f618', name: 'Blowing Kiss' },
+      { emoji: '🥰', code: '1f970', name: 'Smiling with Hearts' },
+      { emoji: '🤩', code: '1f929', name: 'Star Struck' },
+      { emoji: '💯', code: '1f4af', name: '100 Points' },
+      { emoji: '😭', code: '1f62d', name: 'Loud Crying' },
+      { emoji: '🥳', code: '1f973', name: 'Party Face' },
+      { emoji: '🤑', code: '1f911', name: 'Money Face' },
+      { emoji: '😱', code: '1f631', name: 'Shocked Scream' },
+      { emoji: '💪', code: '1f4aa', name: 'Flex Bicep' },
+      { emoji: '🙏', code: '1f64f', name: 'Praying Hands' },
+      { emoji: '☕', code: '2615', name: 'Coffee Cup' },
+      { emoji: '⭐', code: '2b50', name: 'Golden Star' },
+      { emoji: '💖', code: '1f496', name: 'Sparkle Heart' },
+      { emoji: '🥺', code: '1f97a', name: 'Pleading Eyes' },
+      { emoji: '😴', code: '1f634', name: 'Sleeping Zzz' },
+      { emoji: '🤯', code: '1f92f', name: 'Mind Blown' },
+      { emoji: '😋', code: '1f60b', name: 'Delicious' },
+      { emoji: '😜', code: '1f61c', name: 'Wink Tongue' },
+      { emoji: '😇', code: '1f607', name: 'Angel Halo' },
+      { emoji: '😁', code: '1f601', name: 'Beaming Grin' },
+      { emoji: '🤝', code: '1f91d', name: 'Handshake' },
+      { emoji: '✌️', code: '270c_fe0f', name: 'Victory Peace' }
+    ];
+
+    const ANIMATED_EMOJI_LOOKUP = {};
+    ANIMATED_EMOJIS.forEach(item => {
+      ANIMATED_EMOJI_LOOKUP[item.emoji] = item.code;
+    });
+
+    function getAnimojiUrl(code) {
+      return `https://fonts.gstatic.com/s/e/notoemoji/latest/${code}/512.webp`;
+    }
+
+    // Helper: Format message text replacing emojis with inline animated WebP
+    function formatAnimatedEmojis(escapedText) {
+      if (!escapedText) return "";
+      let formatted = escapedText;
+      for (const [em, code] of Object.entries(ANIMATED_EMOJI_LOOKUP)) {
+        if (formatted.includes(em)) {
+          const imgTag = `<img class="bp-inline-animoji" src="${getAnimojiUrl(code)}" alt="${em}" title="${em}" loading="lazy">`;
+          formatted = formatted.split(em).join(imgTag);
+        }
+      }
+      return formatted;
+    }
+
+    // Send Standalone Animated Emoji Sticker
+    async function sendAnimatedSticker(emoji, code) {
+      const user = getCurrentUser();
+      if (!user) return;
+
+      try {
+        const isDirect = currentRoomMeta.isDirect;
+        const participants = isDirect ? [user.id, currentRoomMeta.peerUserKey].sort() : ["all"];
+        const newMsg = {
+          text: emoji,
+          animoji: code,
+          image: null,
+          audio: null,
+          audioDuration: null,
+          replyTo: currentReplyTo,
+          roomId: currentRoomId,
+          chatType: isDirect ? "direct" : "general",
+          participants: participants,
+          senderId: user.id,
+          senderName: user.name,
+          senderAvatar: user.avatar || null,
+          timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+          createdMillis: Date.now(),
+          reactions: {}
+        };
+
+        await db.collection("bp_team_chat").add(newMsg);
+        clearReply();
+        emojiPanel.classList.add("hidden");
+        emojiToggleBtn.classList.remove("active");
+        playChime();
+        markActiveRoomSeen();
+      } catch (err) {
+        console.error("Error sending animoji sticker:", err);
+      }
+    }
+
+    window.bpHandleAnimojiClick = function(emoji, code) {
+      const hasText = inputEl.value.trim().length > 0;
+      if (!hasText) {
+        // Send as animated sticker immediately!
+        sendAnimatedSticker(emoji, code);
+      } else {
+        // Insert into text
+        insertEmoji(emoji);
+      }
+    };
+
     // ── Emoji Categories Map ──
     const EMOJI_CATEGORIES = {
       smileys: ['😀', '😃', '😄', '😁', '😆', '😅', '🤣', '😂', '🙂', '😉', '😊', '😇', '🥰', '😍', '🤩', '😘', '😋', '😜', '🤪', '🤫', '🤔', '🤐', '🤗', '🥳', '😎', '🤓', '🥺', '😢', '😭', '😤', '😡', '🤯', '😱', '🥱', '😴', '🤤'],
@@ -470,8 +596,24 @@
       hearts: ['❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💔', '💖', '💗', '💓', '💞', '💕', '✨', '⭐', '🌟', '💥', '🔥', '🚀', '🎉', '🎊', '🏆', '💯', '☕']
     };
 
-    function renderEmojiGrid(cat = 'smileys') {
+    function renderEmojiGrid(cat = 'animated') {
       emojiGrid.innerHTML = '';
+      const tipEl = document.getElementById('bpEmojiTip');
+
+      if (cat === 'animated') {
+        if (tipEl) tipEl.textContent = '✨ Click any Animoji to send animated sticker!';
+        ANIMATED_EMOJIS.forEach(item => {
+          const div = document.createElement('div');
+          div.className = 'bp-animoji-grid-item';
+          div.title = item.name;
+          div.onclick = () => window.bpHandleAnimojiClick(item.emoji, item.code);
+          div.innerHTML = `<img src="${getAnimojiUrl(item.code)}" alt="${item.emoji}" loading="lazy">`;
+          emojiGrid.appendChild(div);
+        });
+        return;
+      }
+
+      if (tipEl) tipEl.textContent = 'Click an emoji to insert into your message';
       const list = EMOJI_CATEGORIES[cat] || EMOJI_CATEGORIES.smileys;
       list.forEach(emoji => {
         const item = document.createElement('div');
@@ -504,7 +646,7 @@
       e.stopPropagation();
       const isHidden = emojiPanel.classList.contains('hidden');
       if (isHidden) {
-        renderEmojiGrid('smileys');
+        renderEmojiGrid('animated');
         emojiPanel.classList.remove('hidden');
         emojiToggleBtn.classList.add('active');
       } else {
@@ -1094,7 +1236,11 @@
         markActiveRoomSeen();
 
         // Broadcast stop typing
-        broadcastTyping(false);
+        try {
+          if (typeof broadcastTyping === 'function') broadcastTyping(false);
+        } catch (e) {
+          console.warn('broadcastTyping error:', e);
+        }
       } catch (err) {
         console.error('Error sending message:', err);
         alert('Failed to send message: ' + err.message);
@@ -1136,7 +1282,7 @@
           }, { merge: true }).catch(() => {});
         }
 
-        clearTimeout(typingTimeout);
+        if (typeof typingTimeout !== "undefined" && typingTimeout) { clearTimeout(typingTimeout); typingTimeout = null; }
         typingTimeout = setTimeout(() => {
           broadcastTyping(false);
         }, 3000);
@@ -1539,7 +1685,14 @@
       const user = getCurrentUser();
       if (!user) return;
 
-      const allUsers = Object.keys(teamUsers).length > 0 ? teamUsers : (window.USERS || {});
+      // Robust users map with fallback defaults
+      const baseDefaults = {
+        'admin': { id: 'admin', name: 'Buddhika Prabod', avatar: localStorage.getItem('slw_avatar_admin') || 'Dp/Image.png' },
+        'samadhi': { id: 'samadhi', name: 'Samadhi', avatar: localStorage.getItem('slw_avatar_samadhi') || null }
+      };
+      let allUsers = Object.keys(teamUsers).length > 0 ? { ...teamUsers } : { ...baseDefaults, ...(window.USERS || {}) };
+      if (!allUsers['admin']) allUsers['admin'] = baseDefaults['admin'];
+      if (!allUsers['samadhi'] && !localStorage.getItem('slw_deleted_samadhi')) allUsers['samadhi'] = baseDefaults['samadhi'];
       const userKeys = Object.keys(allUsers).filter(k => k !== user.id);
 
       contactsScroll.innerHTML = '';
@@ -1561,7 +1714,7 @@
         let lastGenTime = '';
         if (lastGenDoc) {
           lastGenSnippet = lastGenDoc.text || (lastGenDoc.image ? '📷 Photo' : (lastGenDoc.audio ? '🎤 Voice note' : 'Message'));
-          const t = lastGenDoc.timestamp ? lastGenDoc.timestamp.toDate() : (lastGenDoc.createdMillis ? new Date(lastGenDoc.createdMillis) : new Date());
+          const t = safeParseDate(lastGenDoc.timestamp, lastGenDoc.createdMillis);
           lastGenTime = t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         }
 
@@ -1617,7 +1770,8 @@
 
       // ── 2. Direct Messages (1-on-1 with each Team Member) ──
       userKeys.forEach(peerKey => {
-        const peer = allUsers[peerKey] || {};
+        try {
+          const peer = allUsers[peerKey] || {};
         const peerName = peer.name || (peerKey.charAt(0).toUpperCase() + peerKey.slice(1));
         const peerAvatar = peer.avatar || localStorage.getItem('slw_avatar_' + peerKey) || (peerKey === 'admin' ? 'Dp/Image.png' : null);
         const roomId = getDirectRoomId(user.id, peerKey);
@@ -1637,7 +1791,7 @@
         let lastDmTime = '';
         if (lastDmDoc) {
           lastDmSnippet = (lastDmDoc.senderId === user.id ? 'You: ' : '') + (lastDmDoc.text || (lastDmDoc.image ? '📷 Photo' : (lastDmDoc.audio ? '🎤 Voice note' : 'Message')));
-          const t = lastDmDoc.timestamp ? lastDmDoc.timestamp.toDate() : (lastDmDoc.createdMillis ? new Date(lastDmDoc.createdMillis) : new Date());
+          const t = safeParseDate(lastDmDoc.timestamp, lastDmDoc.createdMillis);
           lastDmTime = t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         }
 
@@ -1686,6 +1840,9 @@
         `;
 
         contactsScroll.appendChild(contactDiv);
+        } catch (contactErr) {
+          console.warn('Error rendering contact item for ' + peerKey, contactErr);
+        }
       });
 
       // Update global floating trigger badge
@@ -1776,7 +1933,7 @@
           (data.senderName && data.senderName.toLowerCase().includes(currentSearchQuery))
         );
 
-        const timeObj = data.timestamp ? data.timestamp.toDate() : (data.createdMillis ? new Date(data.createdMillis) : new Date());
+        const timeObj = safeParseDate(data.timestamp, data.createdMillis);
         const dateStr = timeObj.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
         if (dateStr !== lastDateStr) {
           html += `<div class="bp-chat-date-sep">${dateStr}</div>`;
@@ -1807,7 +1964,7 @@
           quotedHtml = `
             <div class="bp-quoted-msg" onclick="bpScrollToMessage('${data.replyTo.id}')">
               <span class="bp-quoted-sender">${escapeHtml(data.replyTo.senderName)}</span>
-              <span class="bp-quoted-text">${escapeHtml(data.replyTo.text || (data.replyTo.isImage ? '📷 Photo' : (data.replyTo.isVoice ? '🎤 Voice Note' : 'Message')))}</span>
+              <span class="bp-quoted-text">${escapeHtml(data.replyTo.animoji ? '⚡ Animated Sticker' : (data.replyTo.text || (data.replyTo.isImage ? '📷 Photo' : (data.replyTo.isVoice ? '🎤 Voice Note' : 'Message'))))}</span>
             </div>
           `;
         }
@@ -1867,11 +2024,33 @@
           </div>
         `;
 
-        // Format message text with search highlighting
-        let formattedText = data.text ? linkifyText(escapeHtml(data.text)) : '';
-        if (currentSearchQuery && formattedText) {
-          const regex = new RegExp(`(${escapeRegExp(currentSearchQuery)})`, 'gi');
-          formattedText = formattedText.replace(regex, '<mark class="bp-search-hit">$1</mark>');
+        // Animoji Sticker & Animated Text formatting
+        let isSticker = false;
+        let stickerCode = data.animoji || null;
+        const trimmedRawText = (data.text || '').trim();
+
+        // If text is purely 1 known animated emoji, treat as full sticker!
+        if (!stickerCode && !data.image && !data.audio && ANIMATED_EMOJI_LOOKUP[trimmedRawText]) {
+          stickerCode = ANIMATED_EMOJI_LOOKUP[trimmedRawText];
+        }
+
+        let stickerHtml = '';
+        let formattedText = '';
+
+        if (stickerCode && !data.image && !data.audio && (!data.text || data.text.trim() === '' || ANIMATED_EMOJI_LOOKUP[trimmedRawText])) {
+          isSticker = true;
+          stickerHtml = `
+            <div class="bp-msg-animoji-sticker">
+              <img src="${getAnimojiUrl(stickerCode)}" alt="Animoji" loading="lazy">
+            </div>
+          `;
+        } else if (data.text) {
+          formattedText = linkifyText(escapeHtml(data.text));
+          formattedText = formatAnimatedEmojis(formattedText);
+          if (currentSearchQuery && formattedText) {
+            const regex = new RegExp(`(${escapeRegExp(currentSearchQuery)})`, 'gi');
+            formattedText = formattedText.replace(regex, '<mark class="bp-search-hit">$1</mark>');
+          }
         }
 
         // WhatsApp Double Blue Checkmarks (Read Receipts)
@@ -1904,7 +2083,7 @@
               const reactedByMe = users.includes(currentUserId);
               reactionsHtml += `
                 <span class="bp-reaction-pill" style="${reactedByMe ? 'border-color:#3b82f6; background:#eff6ff;' : ''}" onclick="bpReactMessage('${id}', '${emoji}')">
-                  ${emoji} ${users.length}
+                  ${ANIMATED_EMOJI_LOOKUP[emoji] ? `<img class="bp-reaction-animoji" src="${getAnimojiUrl(ANIMATED_EMOJI_LOOKUP[emoji])}" alt="${emoji}">` : emoji} ${users.length}
                 </span>
               `;
             }
@@ -1917,10 +2096,11 @@
             ${avatarHtml}
             <div class="bp-msg-bubble-wrap">
               ${!isMine && !currentRoomMeta.isDirect ? `<span class="bp-msg-sender-name">${escapeHtml(data.senderName)}</span>` : ''}
-              <div class="bp-msg-bubble">
+              <div class="bp-msg-bubble ${isSticker ? 'is-sticker' : ''}">
                 ${actionsHtml}
                 ${quotedHtml}
-                ${formattedText ? `<div>${formattedText}</div>` : ''}
+                ${stickerHtml}
+                ${formattedText ? `<div class="bp-msg-text">${formattedText}</div>` : ''}
                 ${imgHtml}
                 ${voiceHtml}
               </div>
