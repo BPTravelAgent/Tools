@@ -145,12 +145,30 @@
   width: 38px;
   height: 38px;
   border-radius: 50%;
-  padding: 2px;
-  background: linear-gradient(135deg, #3b82f6 0%, #10b981 100%);
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+}
+
+.bp-chat-avatar-ring::before {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0%,
+    transparent 55%,
+    rgba(84, 183, 50, 0.4) 75%,
+    #54b732 88%,
+    #ffb800 96%,
+    #ffffff 100%
+  );
+  animation: bpRingRotate 2.2s linear infinite;
+  filter: drop-shadow(0 0 6px rgba(84, 183, 50, 0.8));
+  z-index: 1;
 }
 
 .bp-chat-avatar-ring img,
@@ -164,8 +182,16 @@
   align-items: center;
   justify-content: center;
   font-weight: 800;
-  color: #1e293b;
-  font-size: 15px;
+  color: #1e7829;
+  font-size: 14px;
+  position: relative;
+  z-index: 2;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+@keyframes bpRingRotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 .bp-chat-title-wrap {
@@ -296,13 +322,15 @@
   object-fit: cover;
   flex-shrink: 0;
   align-self: flex-end;
-  background: #e2e8f0;
+  background: #ffffff;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 11px;
   font-weight: 800;
-  color: #475569;
+  color: #1e7829;
+  border: 1.5px solid #54b732;
+  box-shadow: 0 0 6px rgba(84, 183, 50, 0.45);
 }
 
 .bp-msg-bubble-wrap {

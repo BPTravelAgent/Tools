@@ -7,7 +7,7 @@
   <link rel="icon" type="image/png" href="Dp/Image.png">
   <link rel="apple-touch-icon" href="Dp/Image.png">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="team_chat.css?v=1.1">
+  <link rel="stylesheet" href="team_chat.css?v=1.2">
   <style>
     .bp-chat-trigger { right: 105px !important; }
     .bp-chat-window { right: 105px !important; }
@@ -305,7 +305,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="firebase_init.js?v=2.2"></script>
-  <script src="team_chat.js?v=1.1"></script>
+  <script src="team_chat.js?v=1.2"></script>
 
   <script>
     // Security check: Only allow admin
@@ -344,7 +344,7 @@
         const div = document.createElement('div');
         div.className = 'user-status-item';
         div.innerHTML = `
-          <div class="user-status-avatar">${u.charAt(0).toUpperCase()}</div>
+          <div class="user-status-avatar" style="overflow:hidden; padding:0;">${(USERS[u] && USERS[u].avatar) || (u === 'admin' ? 'Dp/Image.png' : null) ? `<img src="${(USERS[u] && USERS[u].avatar) || 'Dp/Image.png'}" alt="${u}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;display:block;">` : u.charAt(0).toUpperCase()}</div>
           <div class="user-status-info">
             <span class="user-status-name">${USERS[u] ? USERS[u].name : u}</span>
             <span class="user-status-time">${timeText}</span>
@@ -467,7 +467,7 @@
         const tr = document.createElement('tr');
         tr.style.borderBottom = '1px solid var(--border)';
         tr.innerHTML = `
-          <td style="padding:10px;">${username}</td>
+          <td style="padding:10px; display:flex; align-items:center; gap:8px;">${(u.avatar || (username === 'admin' ? 'Dp/Image.png' : null)) ? `<img src="${u.avatar || 'Dp/Image.png'}" style="width:26px;height:26px;border-radius:50%;object-fit:cover;display:inline-block;">` : `<span style="display:inline-flex;width:26px;height:26px;border-radius:50%;background:#e2e8f0;align-items:center;justify-content:center;font-weight:700;font-size:11px;">${(u.name || username).charAt(0).toUpperCase()}</span>`} <span>${username}</span></td>
           <td style="padding:10px;">${u.name || ''}</td>
           <td style="padding:10px; text-transform:capitalize;">${u.role || 'user'}</td>
           <td style="padding:10px; text-align:right;">

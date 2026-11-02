@@ -49,12 +49,15 @@
         displayName = window.USERS[userKey].name;
       }
 
-      let isBuddhikaAdmin = false;
-      let avatarUrl = null;
-
-      if (userKey === 'admin') {
+      let isBuddhikaAdmin = (userKey === 'admin');
+      if (isBuddhikaAdmin) {
         displayName = 'Buddhika Prabod';
-        isBuddhikaAdmin = true;
+      }
+
+      let avatarUrl = null;
+      if (window.USERS && window.USERS[userKey] && window.USERS[userKey].avatar) {
+        avatarUrl = window.USERS[userKey].avatar;
+      } else if (isBuddhikaAdmin) {
         avatarUrl = 'Dp/Image.png';
       }
 
@@ -81,7 +84,7 @@
       <!-- Header -->
       <div class="bp-chat-header">
         <div class="bp-chat-header-info">
-          <div class="bp-chat-avatar-ring">
+          <div class="bp-chat-avatar-ring" id="bpChatHeaderAvatar">
             <img src="Dp/Image.png" alt="BP" onerror="this.outerHTML='<span>BP</span>'">
           </div>
           <div class="bp-chat-title-wrap">
@@ -717,8 +720,9 @@
         // Avatar
         let avatarHtml = '';
         if (!isMine) {
-          if (data.senderAvatar) {
-            avatarHtml = `<img class="bp-msg-avatar" src="${data.senderAvatar}" alt="${escapeHtml(data.senderName)}">`;
+          const userAvatar = (window.USERS && window.USERS[data.senderId]?.avatar) || data.senderAvatar || (data.senderId === 'admin' ? 'Dp/Image.png' : null);
+          if (userAvatar) {
+            avatarHtml = `<img class="bp-msg-avatar" src="${userAvatar}" alt="${escapeHtml(data.senderName)}">`;
           } else {
             const initial = (data.senderName || 'U').charAt(0).toUpperCase();
             avatarHtml = `<div class="bp-msg-avatar">${initial}</div>`;
@@ -964,6 +968,15 @@
         chatWindow.classList.add('hidden');
       } else {
         triggerBtn.style.display = 'flex';
+        const headerAvatarEl = document.getElementById('bpChatHeaderAvatar');
+        if (headerAvatarEl) {
+          if (user.avatar) {
+            headerAvatarEl.innerHTML = `<img src="${user.avatar}" alt="${escapeHtml(user.name)}">`;
+          } else {
+            const init = (user.name || 'U').charAt(0).toUpperCase();
+            headerAvatarEl.innerHTML = `<span>${init}</span>`;
+          }
+        }
       }
     }
 

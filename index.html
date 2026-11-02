@@ -10,7 +10,7 @@
 <meta name="description" content="BP Travel Tools — Travel Agent Portal developed by Buddhika Prabod. Access flight checks, airfare quotations, and itinerary builder tools.">
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-<link rel="stylesheet" href="team_chat.css?v=1.1">
+<link rel="stylesheet" href="team_chat.css?v=1.2">
 <style>
 /* ═══════════════════════════════════════════
    CSS VARIABLES & RESET
@@ -851,6 +851,290 @@ body {
   display: flex;
 }
 
+#profile-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 10001;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(8px);
+}
+
+#profile-modal.show {
+  display: flex;
+}
+
+.profile-card {
+  max-width: 480px;
+  width: 90%;
+  position: relative;
+  animation: profileSlideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes profileSlideIn {
+  from { opacity: 0; transform: translateY(20px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.profile-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.modal-close-x {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 26px;
+  cursor: pointer;
+  line-height: 1;
+  transition: color 0.2s;
+}
+
+.modal-close-x:hover {
+  color: #ef4444;
+}
+
+.profile-avatar-preview-section {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 20px;
+  background: rgba(84, 183, 50, 0.06);
+  border: 1px dashed rgba(84, 183, 50, 0.3);
+  border-radius: var(--radius-lg);
+  margin: 18px 0;
+}
+
+.profile-preview-wrapper {
+  position: relative;
+  width: 86px;
+  height: 86px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.profile-rotating-ring {
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0%,
+    transparent 55%,
+    rgba(84, 183, 50, 0.4) 75%,
+    #54b732 88%,
+    #ffb800 96%,
+    #ffffff 100%
+  );
+  animation: ringRotate 2.2s linear infinite;
+  filter: drop-shadow(0 0 8px rgba(84, 183, 50, 0.75));
+  z-index: 1;
+}
+
+.profile-avatar-circle {
+  position: relative;
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: #ffffff;
+  z-index: 2;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  font-weight: 800;
+  color: #1e7829;
+}
+
+.profile-avatar-circle img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+  display: block;
+}
+
+.profile-user-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.profile-user-meta h3 {
+  font-family: 'Outfit', sans-serif;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.profile-badge-role {
+  font-size: 12px;
+  color: #1e7829;
+  font-weight: 600;
+  background: rgba(84, 183, 50, 0.15);
+  padding: 2px 8px;
+  border-radius: 12px;
+  width: fit-content;
+}
+
+.profile-space-tag {
+  font-size: 11px;
+  color: #64866f;
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.profile-upload-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.btn-upload-dp {
+  flex: 1;
+  background: linear-gradient(135deg, #279e36, #1e7829);
+  color: #ffffff;
+  border: none;
+  padding: 11px 16px;
+  border-radius: var(--radius-sm);
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.25s;
+  box-shadow: 0 4px 14px rgba(30, 120, 41, 0.25);
+}
+
+.btn-upload-dp:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(30, 120, 41, 0.35);
+}
+
+.btn-remove-dp {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  padding: 11px 16px;
+  border-radius: var(--radius-sm);
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.25s;
+}
+
+.btn-remove-dp:hover {
+  background: #ef4444;
+  color: #ffffff;
+}
+
+.profile-drag-tip {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  margin-top: 12px;
+  text-align: center;
+  background: rgba(0, 0, 0, 0.02);
+  padding: 8px;
+  border-radius: 6px;
+}
+
+/* Nav User Avatar & Neon Ring */
+.nav-avatar-wrapper {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.nav-rotating-ring {
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0%,
+    transparent 55%,
+    rgba(84, 183, 50, 0.4) 75%,
+    #54b732 88%,
+    #ffb800 96%,
+    #ffffff 100%
+  );
+  animation: ringRotate 2.2s linear infinite;
+  filter: drop-shadow(0 0 6px rgba(84, 183, 50, 0.8));
+  z-index: 1;
+}
+
+.nav-avatar-circle {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: #ffffff;
+  z-index: 2;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  color: #1e7829;
+  font-size: 13px;
+}
+
+.nav-avatar-circle img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+  display: block;
+}
+
+.nav-user-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.nav-user-edit-hint {
+  font-size: 10px;
+  color: #16a34a;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  opacity: 0.85;
+}
+
+.nav-user .user-avatar {
+  display: none;
+}
+  display: flex;
+}
+
 /* ═══════════════════════════════════════════
    HERO SECTION
    ═══════════════════════════════════════════ */
@@ -1256,12 +1540,12 @@ body {
       <div class="login-logo">
         <div class="login-avatar-wrapper">
           <div class="avatar-rotating-ring"></div>
-          <div class="avatar-circle">
+          <div class="avatar-circle" id="login-avatar-circle">
             <img src="Dp/Image.png" alt="Buddhika Prabod — BP Travel Tools">
           </div>
         </div>
         <h1>BP TRAVEL TOOLS</h1>
-        <p>Travel Agent Portal • Buddhika Prabod</p>
+        <p id="login-portal-subtitle">Travel Agent Portal • Buddhika Prabod</p>
       </div>
 
       <div id="login-error" class="login-error">
@@ -1421,6 +1705,60 @@ body {
 </div>
 
 <!-- ═══════════════════════════════════════════
+     PROFILE & DISPLAY PICTURE (DP) MODAL
+     ═══════════════════════════════════════════ -->
+<div id="profile-modal" class="modal-overlay">
+  <div class="recovery-card profile-card">
+    <div class="profile-header">
+      <h2><i class="fas fa-id-badge"></i> &nbsp;My Profile & Avatar</h2>
+      <button type="button" class="modal-close-x" onclick="closeProfileModal()">&times;</button>
+    </div>
+    <p>Upload a personal photo. It will display with your glowing neon status animation across the portal and team chat.</p>
+
+    <!-- Avatar Preview with the Rotating Neon Laser Ring -->
+    <div class="profile-avatar-preview-section" id="profile-drop-zone">
+      <div class="profile-preview-wrapper" id="profile-preview-wrapper">
+        <div class="profile-rotating-ring"></div>
+        <div class="profile-avatar-circle" id="profile-avatar-circle">
+          <!-- Live image or initial -->
+        </div>
+      </div>
+      <div class="profile-user-meta">
+        <h3 id="profile-display-name">Samadhi</h3>
+        <span class="profile-badge-role" id="profile-badge-role">Travel Agent</span>
+        <span class="profile-space-tag"><i class="fas fa-bolt"></i> Ultra-optimized WebP (Auto-compressed to ~4 KB)</span>
+      </div>
+    </div>
+
+    <!-- Hidden file input -->
+    <input type="file" id="profile-file-input" accept="image/*" style="display:none;" onchange="handleProfileFileSelected(event)">
+
+    <!-- Upload & Remove actions -->
+    <div class="profile-upload-actions">
+      <button type="button" class="btn-upload-dp" onclick="document.getElementById('profile-file-input').click()">
+        <i class="fas fa-camera"></i> &nbsp;Choose New Photo
+      </button>
+      <button type="button" class="btn-remove-dp" id="btn-remove-dp" onclick="handleRemoveProfileAvatar()">
+        <i class="fas fa-trash-alt"></i> &nbsp;Remove Photo
+      </button>
+    </div>
+
+    <div class="profile-drag-tip">
+      <i class="fas fa-info-circle"></i> Tip: You can also paste an image with <b>Ctrl + V</b> or drag & drop a file here.
+    </div>
+
+    <div id="profile-msg" class="login-error" style="display:none; margin: 15px 0;"></div>
+
+    <div class="recovery-actions" style="margin-top: 25px;">
+      <button type="button" class="btn-cancel" onclick="closeProfileModal()">Cancel</button>
+      <button type="button" class="login-btn" id="btn-save-profile" onclick="handleSaveProfileAvatar()">
+        <i class="fas fa-check-circle"></i> &nbsp;Save Profile DP
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════
      MAIN APP
      ═══════════════════════════════════════════ -->
 <div id="main-app">
@@ -1438,10 +1776,22 @@ body {
 
     <div class="nav-right">
       <div class="nav-clock" id="nav-clock"></div><a href="SunLeisureTools.apk" download style="background:#1d4ed8; color:white; padding: 6px 12px; border-radius: 6px; font-size: 13px; text-decoration: none; margin-right: 15px; font-family: 'Outfit', sans-serif;">&#128229; Download App</a>
-      <div class="nav-user">
-        <div class="user-avatar" id="user-avatar">A</div>
-        <span id="display-username">Admin</span>
+      <div class="nav-user" id="nav-user-btn" onclick="openProfileModal()" title="Click to view profile & change DP">
+        <div class="nav-avatar-wrapper">
+          <div class="nav-rotating-ring"></div>
+          <div class="nav-avatar-circle" id="user-avatar-circle">
+            <span id="user-avatar">A</span>
+          </div>
+        </div>
+        <div class="nav-user-text">
+          <span id="display-username">Admin</span>
+  
+          <span class="nav-user-edit-hint"><i class="fas fa-camera"></i> Edit DP</span>
+        </div>
       </div>
+      <button class="btn-settings" onclick="openProfileModal()" id="btn-profile" title="My Profile & Avatar" style="background: rgba(84, 183, 50, 0.15); color: #1e7829; border-color: rgba(84, 183, 50, 0.3);">
+        <i class="fas fa-camera"></i>
+      </button>
       <a href="admin_dashboard.html?v=5" class="btn-settings" id="btn-admin" title="Admin Panel" style="display: none; background: #e0f5e5; color: var(--accent-teal); margin-right: 10px; border: 1px solid var(--border); text-decoration: none; align-items: center; gap: 6px; padding: 0 15px; border-radius: 20px; font-weight: 600;">
         <i class="fas fa-user-shield"></i> <span style="font-size: 14px;">Admin Panel</span>
       </a>
@@ -1709,7 +2059,7 @@ body {
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="firebase_init.js?v=2.2"></script>
-<script src="team_chat.js?v=1.1"></script>
+<script src="team_chat.js?v=1.2"></script>
 
 <script>
 /* ═══════════════════════════════════════════
@@ -1742,6 +2092,12 @@ if (typeof db !== 'undefined') {
       snapshot.forEach(doc => {
         USERS[doc.id] = doc.data();
       });
+      if (currentUser && typeof renderUserNavAvatar === 'function') {
+        renderUserNavAvatar(currentUser);
+      }
+      if (typeof updateLoginScreenAvatar === 'function') {
+        updateLoginScreenAvatar();
+      }
     }
   });
 }
@@ -1816,6 +2172,12 @@ window.addEventListener('DOMContentLoaded', () => {
   const savedUser = sessionStorage.getItem('slw_user_v3') || localStorage.getItem('slw_user_v3');
   if (savedUser) {
     showMainApp(savedUser);
+  } else {
+    updateLoginScreenAvatar();
+  }
+  if (usernameInput) {
+    usernameInput.addEventListener('input', updateLoginScreenAvatar);
+    usernameInput.addEventListener('change', updateLoginScreenAvatar);
   }
   updateClock();
   setInterval(updateClock, 1000);
@@ -1851,13 +2213,8 @@ function showMainApp(user) {
   loginOverlay.classList.add('hidden');
   mainApp.classList.add('show');
 
-  const userData = USERS[user];
-  document.getElementById('display-username').textContent = userData.name;
-  if (user === 'admin') {
-    document.getElementById('user-avatar').innerHTML = '<img src="Dp/Image.png" style="width:100%;height:100%;object-fit:cover;border-radius:50%;display:block;" alt="Buddhika">';
-  } else {
-    document.getElementById('user-avatar').textContent = userData.name.charAt(0).toUpperCase();
-  }
+  const userData = USERS[user] || { name: user };
+  renderUserNavAvatar(user);
 
   if (user === 'admin') {
     document.getElementById('btn-admin').style.display = 'inline-flex';
@@ -1888,6 +2245,7 @@ function handleLogout() {
   passwordInput.value = '';
   loginError.classList.remove('show');
   showToast('You have been signed out', 'info');
+  updateLoginScreenAvatar();
   applyToolVisibility();
   if (window.bpRefreshChatAuth) window.bpRefreshChatAuth();
 }
@@ -2121,8 +2479,264 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     if (recoveryModal.classList.contains('show')) closeRecovery();
     if (changePwModal.classList.contains('show')) closeChangePw();
+    if (typeof profileModal !== 'undefined' && profileModal && profileModal.classList.contains('show')) closeProfileModal();
   }
 });
+
+/* ═══════════════════════════════════════════
+   DYNAMIC AVATAR & DISPLAY PICTURE (DP) ENGINE
+   Ultra-optimized WebP (under 5 KB in Firestore)
+   ═══════════════════════════════════════════ */
+function renderUserNavAvatar(user) {
+  const userData = (window.USERS && window.USERS[user]) || { name: user };
+  const displayNameEl = document.getElementById('display-username');
+  if (displayNameEl) displayNameEl.textContent = userData.name || user;
+
+  const avatarCircleEl = document.getElementById('user-avatar-circle');
+  if (!avatarCircleEl) return;
+
+  const userAvatar = (userData && userData.avatar) || (user === 'admin' ? 'Dp/Image.png' : null);
+
+  if (userAvatar) {
+    avatarCircleEl.innerHTML = `<img src="${userAvatar}" alt="${userData.name || 'User'}">`;
+  } else {
+    const initial = (userData.name || user || 'U').charAt(0).toUpperCase();
+    avatarCircleEl.innerHTML = `<span id="user-avatar" style="font-weight:800; color:#1e7829; font-size:14px;">${initial}</span>`;
+  }
+}
+
+function updateLoginScreenAvatar() {
+  const usernameInputEl = document.getElementById('username');
+  const usernameVal = (usernameInputEl ? usernameInputEl.value : '').trim().toLowerCase();
+  const avatarCircle = document.getElementById('login-avatar-circle');
+  const subtitle = document.getElementById('login-portal-subtitle');
+  if (!avatarCircle) return;
+
+  const userData = window.USERS && window.USERS[usernameVal];
+  const userAvatar = (userData && userData.avatar) || (usernameVal === 'admin' ? 'Dp/Image.png' : null);
+
+  if (userAvatar) {
+    avatarCircle.innerHTML = `<img src="${userAvatar}" alt="${userData ? userData.name : 'BP Tools'}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;display:block;">`;
+    if (subtitle && userData) {
+      subtitle.textContent = `Welcome back, ${userData.name}!`;
+    }
+  } else if (userData) {
+    const initial = (userData.name || usernameVal).charAt(0).toUpperCase();
+    avatarCircle.innerHTML = `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#74d852,#54b732);color:#fff;font-size:38px;font-weight:800;border-radius:50%;">${initial}</div>`;
+    if (subtitle) {
+      subtitle.textContent = `Welcome back, ${userData.name}!`;
+    }
+  } else {
+    // Default: BP Travel Tools brand avatar
+    avatarCircle.innerHTML = `<img src="Dp/Image.png" alt="BP Travel Tools" style="width:100%;height:100%;object-fit:cover;border-radius:50%;display:block;">`;
+    if (subtitle) {
+      subtitle.textContent = `Travel Agent Portal • Buddhika Prabod`;
+    }
+  }
+}
+
+// Ultra-compressed WebP Avatar (180x180 px center crop -> ~4 KB)
+async function compressAvatarToWebP(fileOrBlob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const TARGET = 180;
+        const canvas = document.createElement('canvas');
+        canvas.width = TARGET;
+        canvas.height = TARGET;
+        const ctx = canvas.getContext('2d');
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+
+        // 1:1 Center crop
+        const minDim = Math.min(img.width, img.height);
+        const sx = (img.width - minDim) / 2;
+        const sy = (img.height - minDim) / 2;
+        ctx.drawImage(img, sx, sy, minDim, minDim, 0, 0, TARGET, TARGET);
+
+        let dataUrl = canvas.toDataURL('image/webp', 0.80);
+        if (!dataUrl.startsWith('data:image/webp')) {
+          dataUrl = canvas.toDataURL('image/jpeg', 0.80);
+        }
+        resolve(dataUrl);
+      };
+      img.onerror = () => reject(new Error('Invalid image file.'));
+      img.src = e.target.result;
+    };
+    reader.onerror = () => reject(new Error('Could not read image file.'));
+    reader.readAsDataURL(fileOrBlob);
+  });
+}
+
+const profileModal = document.getElementById('profile-modal');
+const profileFileInput = document.getElementById('profile-file-input');
+const profileAvatarCircle = document.getElementById('profile-avatar-circle');
+const profileDisplayName = document.getElementById('profile-display-name');
+const profileBadgeRole = document.getElementById('profile-badge-role');
+const profileMsg = document.getElementById('profile-msg');
+const btnSaveProfile = document.getElementById('btn-save-profile');
+let draftAvatarBase64 = undefined;
+
+function openProfileModal() {
+  if (!currentUser) return;
+  const userData = (window.USERS && window.USERS[currentUser]) || { name: currentUser };
+  draftAvatarBase64 = undefined;
+
+  if (profileDisplayName) profileDisplayName.textContent = userData.name || currentUser;
+  if (profileBadgeRole) profileBadgeRole.textContent = (currentUser === 'admin') ? 'System Administrator' : 'Travel Agent';
+  if (profileMsg) profileMsg.style.display = 'none';
+
+  renderProfilePreview(userData.avatar || (currentUser === 'admin' ? 'Dp/Image.png' : null), userData.name);
+  if (profileModal) profileModal.classList.add('show');
+}
+
+function closeProfileModal() {
+  if (profileModal) profileModal.classList.remove('show');
+  draftAvatarBase64 = undefined;
+  if (profileFileInput) profileFileInput.value = '';
+}
+
+function renderProfilePreview(avatarUrl, name) {
+  if (!profileAvatarCircle) return;
+  if (avatarUrl) {
+    profileAvatarCircle.innerHTML = `<img src="${avatarUrl}" alt="${name || 'Avatar'}">`;
+  } else {
+    const initial = (name || currentUser || 'U').charAt(0).toUpperCase();
+    profileAvatarCircle.innerHTML = `<span style="font-size:32px; font-weight:800; color:#1e7829;">${initial}</span>`;
+  }
+}
+
+async function handleProfileFileSelected(event) {
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+  await processAvatarFile(file);
+}
+
+async function processAvatarFile(file) {
+  if (!file || !file.type.startsWith('image/')) {
+    alert('Please select a valid image file (PNG, JPG, WebP).');
+    return;
+  }
+  try {
+    if (profileAvatarCircle) {
+      profileAvatarCircle.innerHTML = '<i class="fas fa-spinner fa-spin" style="font-size:24px; color:#1e7829;"></i>';
+    }
+    const compressed = await compressAvatarToWebP(file);
+    draftAvatarBase64 = compressed;
+
+    const sizeKb = Math.round((compressed.length * 3) / 4 / 1024 * 10) / 10;
+    renderProfilePreview(compressed, USERS[currentUser]?.name);
+
+    if (profileMsg) {
+      profileMsg.className = 'login-success';
+      profileMsg.style.display = 'block';
+      profileMsg.innerHTML = `<i class="fas fa-check-circle"></i> Photo optimized: <b>~${sizeKb} KB</b> (Minimum Firebase space!)`;
+    }
+  } catch (err) {
+    alert('Error processing image: ' + err.message);
+    const curr = USERS[currentUser]?.avatar || (currentUser === 'admin' ? 'Dp/Image.png' : null);
+    renderProfilePreview(curr, USERS[currentUser]?.name);
+  }
+}
+
+function handleRemoveProfileAvatar() {
+  draftAvatarBase64 = null;
+  renderProfilePreview(null, USERS[currentUser]?.name);
+  if (profileMsg) {
+    profileMsg.className = 'login-success';
+    profileMsg.style.display = 'block';
+    profileMsg.innerHTML = `<i class="fas fa-info-circle"></i> Photo removed. Click 'Save Profile DP' to apply.`;
+  }
+}
+
+async function handleSaveProfileAvatar() {
+  if (!currentUser) return;
+  if (draftAvatarBase64 === undefined) {
+    closeProfileModal();
+    return;
+  }
+
+  if (btnSaveProfile) {
+    btnSaveProfile.disabled = true;
+    btnSaveProfile.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+  }
+
+  try {
+    const userRef = db.collection('slw_credentials').doc(currentUser);
+
+    if (draftAvatarBase64 === null) {
+      await userRef.update({
+        avatar: firebase.firestore.FieldValue.delete()
+      });
+      if (USERS[currentUser]) delete USERS[currentUser].avatar;
+      showToast('Profile picture removed successfully.', 'info');
+    } else {
+      await userRef.update({
+        avatar: draftAvatarBase64
+      });
+      if (USERS[currentUser]) USERS[currentUser].avatar = draftAvatarBase64;
+      showToast('Profile picture updated successfully!', 'success');
+    }
+
+    renderUserNavAvatar(currentUser);
+    closeProfileModal();
+
+    if (window.bpRefreshChatAuth) window.bpRefreshChatAuth();
+  } catch (err) {
+    console.error('Save DP error:', err);
+    alert('Failed to save profile picture: ' + err.message);
+  } finally {
+    if (btnSaveProfile) {
+      btnSaveProfile.disabled = false;
+      btnSaveProfile.innerHTML = '<i class="fas fa-check-circle"></i> &nbsp;Save Profile DP';
+    }
+  }
+}
+
+// Drag & drop on profile modal
+const dropZone = document.getElementById('profile-drop-zone');
+if (dropZone) {
+  ['dragenter', 'dragover'].forEach(ev => {
+    dropZone.addEventListener(ev, (e) => {
+      e.preventDefault();
+      dropZone.style.borderColor = '#1e7829';
+      dropZone.style.background = 'rgba(84, 183, 50, 0.15)';
+    });
+  });
+  ['dragleave', 'drop'].forEach(ev => {
+    dropZone.addEventListener(ev, (e) => {
+      e.preventDefault();
+      dropZone.style.borderColor = 'rgba(84, 183, 50, 0.3)';
+      dropZone.style.background = 'rgba(84, 183, 50, 0.06)';
+    });
+  });
+  dropZone.addEventListener('drop', (e) => {
+    const files = e.dataTransfer?.files;
+    if (files && files[0]) {
+      processAvatarFile(files[0]);
+    }
+  });
+}
+
+// Paste image with Ctrl+V when profile modal is open
+window.addEventListener('paste', (e) => {
+  if (!profileModal || !profileModal.classList.contains('show')) return;
+  const items = e.clipboardData?.items;
+  if (!items) return;
+  for (let i = 0; i < items.length; i++) {
+    if (items[i].type.indexOf('image') !== -1) {
+      const blob = items[i].getAsFile();
+      if (blob) {
+        processAvatarFile(blob);
+        e.preventDefault();
+        break;
+      }
+    }
+  }
+});
+
 </script>
 <!-- Register Service Worker -->
 <script>
