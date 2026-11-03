@@ -41,7 +41,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
     <script src="firebase_init.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
-    <script src="slw_excel_generator.js?v=2.1"></script>
+    <script src="slw_excel_generator.js?v=2.2"></script>
 </head>
 <body class="bg-gray-100 flex items-center justify-center min-h-screen py-12">
 
@@ -3425,7 +3425,7 @@
         }
 
         // Auto Pax
-        const paxNum = parseInt(document.getElementById('num_people_hotel')?.value) || parseInt(document.getElementById('num_people_transfer')?.value) || 2;
+        const paxNum = parseInt(document.getElementById('num_people_transfer')?.value) || parseInt(document.getElementById('num_people_hotel')?.value) || 2;
         const defaultPax = `${String(paxNum).padStart(2, '0')}Pax`;
 
         // Auto Date
@@ -5645,7 +5645,7 @@
             defaultTitle = 'Thailand Tour Package';
         }
 
-        const rawPax = Number(document.getElementById('num_people_hotel')?.value) || Number(document.getElementById('num_people_transfer')?.value) || 2;
+        const rawPax = Number(document.getElementById('num_people_transfer')?.value) || Number(document.getElementById('num_people_hotel')?.value) || 2;
         const defaultPaxText = String(rawPax).padStart(2, '0') + ' Pax';
 
         // 3. Pre-fill modal inputs
@@ -5769,7 +5769,9 @@
                 title: title,
                 date: date,
                 paxText: paxText,
-                pax: Number(document.getElementById('num_people_hotel')?.value) || 2,
+                pax: Number(document.getElementById('num_people_transfer')?.value) || 2,
+                transferPax: Number(document.getElementById('num_people_transfer')?.value) || 2,
+                hotelDivisor: Number(document.getElementById('num_people_hotel')?.value) || 2,
                 cities: citiesSummary,
                 summary: fullSummary,
                 rates: rates,
@@ -6301,8 +6303,10 @@
 
     function getCurrentCostingExcelPayload() {
         calculate();
-        const rawPax = Number(document.getElementById('num_people_hotel')?.value) || Number(document.getElementById('num_people_transfer')?.value) || 2;
-        const paxText = String(rawPax).padStart(2, '0') + 'Pax';
+        const transferPax = Math.max(1, Number(document.getElementById('num_people_transfer')?.value) || 2);
+        const hotelDivisor = Math.max(1, Number(document.getElementById('num_people_hotel')?.value) || 2);
+        const rawPax = transferPax;
+        const paxText = (document.getElementById('saveQuotationPaxInput')?.value || document.getElementById('exportItineraryPax')?.value || (String(transferPax).padStart(2, '0') + ' Pax')).trim();
         const inq = (document.getElementById('saveQuotationInqInput')?.value || document.getElementById('exportItineraryInq')?.value || ('INQ-' + Math.floor(10000 + Math.random() * 90000))).trim();
         
         let defaultTitle = '';
@@ -6316,7 +6320,10 @@
 
         const title = (document.getElementById('saveQuotationTitleInput')?.value || document.getElementById('exportItineraryTitle')?.value || defaultTitle).trim();
         const roe = parseFloat(document.getElementById('lkr_rate')?.value) || 10.8;
-        const markupVal = parseFloat(document.getElementById('markup')?.value) || 18;
+        const globalMarkup = parseFloat(document.getElementById('markup')?.value) || 18;
+        const m3 = parseFloat(document.getElementById('markup_pct_adult_3star')?.value) || globalMarkup;
+        const mMix = parseFloat(document.getElementById('markup_pct_adult_mix')?.value) || globalMarkup;
+        const m4 = parseFloat(document.getElementById('markup_pct_adult_4star')?.value) || globalMarkup;
 
         const mixCard = document.getElementById('result_card_mix');
         const isMixActive = mixCard && mixCard.style.display !== 'none';
@@ -6350,14 +6357,16 @@
 
         return {
             title: title,
-            pax: rawPax,
+            pax: transferPax,
+            transferPax: transferPax,
+            hotelDivisor: hotelDivisor,
             paxText: paxText,
             inq: inq,
             monthDate: new Date().toLocaleString('en-US', { month: 'short' }) + '-' + new Date().getFullYear(),
             roe: roe,
-            markup3: markupVal || 18,
-            markupMix: 20,
-            markup4: 25,
+            markup3: m3,
+            markupMix: mMix,
+            markup4: m4,
             buffer: 1000,
             hasMix: isMixActive,
             hasChildPrices: hasChildPrices,
@@ -6496,16 +6505,31 @@
                 ))
             );
 
+            const pricingAdj = costing.pricingAdj || docData.pricingAdj || {};
+            const settings = pricingAdj.settings || {};
+            const cardMarkups = pricingAdj.cardMarkups || {};
+
+            const transferPax = Math.max(1, Number(docData.transferPax) || Number(settings.numPeopleTransfer) || Number(docData.pax) || 2);
+            const hotelDivisor = Math.max(1, Number(docData.hotelDivisor) || Number(settings.numPeopleHotel) || 2);
+            const roe = parseFloat(settings.lkrRate) || parseFloat(docData.roe) || 10.8;
+            const defaultMarkup = parseFloat(settings.markup) || 18;
+            const m3 = parseFloat(cardMarkups['3star']?.adult?.pct) || defaultMarkup;
+            const mMix = parseFloat(cardMarkups['mix']?.adult?.pct) || defaultMarkup;
+            const m4 = parseFloat(cardMarkups['4star']?.adult?.pct) || defaultMarkup;
+            const paxText = docData.paxText || (String(transferPax).padStart(2, '0') + ' Pax');
+
             const payload = {
                 title: docData.title || inqKey,
-                pax: docData.pax || 2,
-                paxText: docData.paxText || '02Pax',
+                pax: transferPax,
+                transferPax: transferPax,
+                hotelDivisor: hotelDivisor,
+                paxText: paxText,
                 inq: docData.inq || inqKey,
                 monthDate: docData.date || (new Date().toLocaleString('en-US', { month: 'short' }) + '-' + new Date().getFullYear()),
-                roe: 10.8,
-                markup3: 18,
-                markupMix: 20,
-                markup4: 25,
+                roe: roe,
+                markup3: m3,
+                markupMix: mMix,
+                markup4: m4,
                 buffer: 1000,
                 hasMix: isMixActive,
                 hasChildPrices: hasChild,
@@ -6578,16 +6602,31 @@
                 ))
             );
 
+            const pricingAdj = costing.pricingAdj || docData.pricingAdj || {};
+            const settings = pricingAdj.settings || {};
+            const cardMarkups = pricingAdj.cardMarkups || {};
+
+            const transferPax = Math.max(1, Number(docData.transferPax) || Number(settings.numPeopleTransfer) || Number(docData.pax) || 2);
+            const hotelDivisor = Math.max(1, Number(docData.hotelDivisor) || Number(settings.numPeopleHotel) || 2);
+            const roe = parseFloat(settings.lkrRate) || parseFloat(docData.roe) || 10.8;
+            const defaultMarkup = parseFloat(settings.markup) || 18;
+            const m3 = parseFloat(cardMarkups['3star']?.adult?.pct) || defaultMarkup;
+            const mMix = parseFloat(cardMarkups['mix']?.adult?.pct) || defaultMarkup;
+            const m4 = parseFloat(cardMarkups['4star']?.adult?.pct) || defaultMarkup;
+            const paxText = docData.paxText || (String(transferPax).padStart(2, '0') + ' Pax');
+
             const payload = {
                 title: docData.title || inqKey,
-                pax: docData.pax || 2,
-                paxText: docData.paxText || '02Pax',
+                pax: transferPax,
+                transferPax: transferPax,
+                hotelDivisor: hotelDivisor,
+                paxText: paxText,
                 inq: docData.inq || inqKey,
                 monthDate: docData.date || (new Date().toLocaleString('en-US', { month: 'short' }) + '-' + new Date().getFullYear()),
-                roe: 10.8,
-                markup3: 18,
-                markupMix: 20,
-                markup4: 25,
+                roe: roe,
+                markup3: m3,
+                markupMix: mMix,
+                markup4: m4,
                 buffer: 1000,
                 hasMix: isMixActive,
                 hasChildPrices: hasChild,

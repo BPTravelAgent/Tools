@@ -237,8 +237,10 @@
         wb.modified = new Date();
 
         // 1. Parse & Normalize Inputs
-        const rawPax = Number(payload.pax) || 2;
-        const paxStr = String(rawPax).padStart(2, '0') + 'Pax';
+        const transferPax = Math.max(1, Number(payload.transferPax) || Number(payload.pax) || 2);
+        const hotelDivisor = Math.max(1, Number(payload.hotelDivisor) || 2);
+        const rawPax = transferPax;
+        const paxStr = payload.paxText ? payload.paxText.replace(/\s+/g, '') : (String(transferPax).padStart(2, '0') + 'Pax');
         const inqRef = (payload.inq || 'INQ -' + Math.floor(10000 + Math.random() * 90000)).trim();
         const tourTitle = (payload.title || 'Tour Quotation').trim();
         const dateStr = payload.monthDate || (new Date().toLocaleString('en-US', { month: 'short' }) + '-' + new Date().getFullYear());
@@ -1112,7 +1114,8 @@
             return 0;
         }
 
-        const safePax = Math.max(1, Number(rawPax) || 2);
+        const safeTransferPax = Math.max(1, Number(transferPax) || 2);
+        const safeHotelDivisor = Math.max(1, Number(hotelDivisor) || 2);
 
         let tourSum = 0;
         let trSum = 0;
@@ -1120,7 +1123,7 @@
             tourSum += extractNumericVal(ws.getRow(r).getCell(6).value);
             trSum += extractNumericVal(ws.getRow(r).getCell(7).value);
         }
-        const trPerPax = Math.round((trSum / safePax) * 100) / 100;
+        const trPerPax = Math.round((trSum / safeTransferPax) * 100) / 100;
 
         hotelCols.forEach(hCol => {
             let hSum = 0;
@@ -1133,7 +1136,7 @@
             }
             hCol.hotelSum = hSum;
             hCol.childMealSum = mealSum;
-            hCol.hotelPerPax = Math.round((hSum / 2) * 100) / 100;
+            hCol.hotelPerPax = Math.round((hSum / safeHotelDivisor) * 100) / 100;
 
             // Adult net & breakdown
             hCol.netAdult = Math.round((tourSum + trPerPax + hCol.hotelPerPax) * 100) / 100;
@@ -1197,13 +1200,13 @@
         rPax.getCell(6).font = { name: 'Arial', size: 10, bold: true };
         rPax.getCell(6).border = BORDER_THIN;
 
-        rPax.getCell(7).value = { formula: `SUM(G${subtotalRowIdx}/${safePax})`, result: trPerPax };
+        rPax.getCell(7).value = { formula: `SUM(G${subtotalRowIdx}/${safeTransferPax})`, result: trPerPax };
         rPax.getCell(7).font = { name: 'Arial', size: 10, bold: true };
         rPax.getCell(7).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.HIGHLIGHT_YELLOW } };
         rPax.getCell(7).border = BORDER_THIN;
 
         hotelCols.forEach(hCol => {
-            rPax.getCell(hCol.col).value = { formula: `SUM(${hCol.letter}${subtotalRowIdx}/2)`, result: hCol.hotelPerPax };
+            rPax.getCell(hCol.col).value = { formula: `SUM(${hCol.letter}${subtotalRowIdx}/${safeHotelDivisor})`, result: hCol.hotelPerPax };
             rPax.getCell(hCol.col).font = { name: 'Arial', size: 10 };
             rPax.getCell(hCol.col).border = BORDER_THIN;
         });
