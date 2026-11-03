@@ -1,4 +1,4 @@
-const CACHE_NAME = 'bp-tools-v18';
+const CACHE_NAME = 'bp-tools-v19';
 
 const ASSETS_TO_CACHE = [
   '.',

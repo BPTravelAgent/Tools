@@ -41,7 +41,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
     <script src="firebase_init.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
-    <script src="slw_excel_generator.js"></script>
+    <script src="slw_excel_generator.js?v=2.0"></script>
 </head>
 <body class="bg-gray-100 flex items-center justify-center min-h-screen py-12">
 
@@ -88,6 +88,10 @@
         <button onclick="downloadCurrentCostingExcel()" class="py-2 px-3.5 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-bold rounded-lg shadow-md hover:shadow-lg transition flex items-center gap-1.5 text-xs" title="Download dynamic Costing Excel (.xlsx) with live formulas and rates">
             <i class="fas fa-file-excel text-sm"></i>
             <span>📊 Download Excel (.xlsx)</span>
+        </button>
+        <button onclick="exportCurrentCostingToGoogleSheets()" class="py-2 px-3.5 bg-gradient-to-r from-teal-600 via-emerald-600 to-green-600 hover:from-teal-700 hover:to-emerald-700 text-white font-bold rounded-lg shadow-md hover:shadow-lg transition flex items-center gap-1.5 text-xs" title="Convert & Open dynamic Costing directly in Google Sheets">
+            <i class="fab fa-google-drive text-sm text-green-200"></i>
+            <span>🟢 Open in Google Sheets</span>
         </button>
         <div class="flex items-center">
              <button onclick="document.getElementById('logoUpload').click()" class="py-2 px-6 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition">
@@ -1420,6 +1424,9 @@
                 </button>
                 <button type="button" onclick="downloadCurrentCostingExcel()" class="py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow transition flex items-center justify-center gap-2 text-sm" title="Download dynamic Costing Excel (.xlsx)">
                     <i class="fas fa-file-excel"></i> <span>Excel (.xlsx)</span>
+                </button>
+                <button type="button" onclick="exportCurrentCostingToGoogleSheets()" class="py-2.5 px-3.5 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 text-white font-bold rounded-lg shadow transition flex items-center justify-center gap-1.5 text-sm" title="Convert & Open dynamic Costing in Google Sheets">
+                    <i class="fab fa-google-drive"></i> <span>Google Sheet</span>
                 </button>
                 <button type="button" onclick="executeSaveQuotation(true)" class="py-2.5 px-4 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-lg shadow transition flex items-center justify-center gap-2 text-sm">
                     <i class="fas fa-paper-plane"></i> <span>Save &amp; Open Itinerary</span>
@@ -6132,6 +6139,9 @@
                     <button onclick="downloadInqQuotationExcel('${item.inq}')" class="py-1.5 px-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-xs shadow-2xs transition flex items-center justify-center gap-1" title="Download dynamic Costing Excel (.xlsx)">
                         <i class="fas fa-file-excel"></i> <span>Excel</span>
                     </button>
+                    <button onclick="exportInqQuotationToGoogleSheets('${item.inq}')" class="py-1.5 px-2 ${item.googleSheetUrl ? 'bg-teal-700 text-white hover:bg-teal-800' : 'bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-300'} font-bold rounded-lg text-xs shadow-2xs transition flex items-center justify-center gap-1" title="${item.googleSheetUrl ? 'Open Google Sheet' : 'Convert & Open in Google Sheets'}">
+                        <i class="fab fa-google-drive"></i> <span>Sheet</span>
+                    </button>
                     <button onclick="deleteInqQuotation('${item.inq}')" class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition" title="Delete quotation">
                         <i class="fas fa-trash-alt text-xs"></i>
                     </button>
@@ -6281,9 +6291,15 @@
     }
 
     // ══════════════════════════════════════════════════════════════
-    // DYNAMIC TOUR COSTING EXCEL GENERATOR INTEGRATION
+    // DYNAMIC TOUR COSTING EXCEL & GOOGLE SHEETS INTEGRATION
     // ══════════════════════════════════════════════════════════════
-    async function downloadCurrentCostingExcel() {
+    const DEFAULT_GOOGLE_SHEETS_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbxt1wGx6SaS8a3fDKjO6eP05KOd3XeNHmGqraCXh2TBkKwEaWHdxsd7DpyxRqHGkKaoog/exec';
+
+    function getGoogleSheetsWebhookUrl() {
+        return localStorage.getItem('bp_sheets_webhook_url') || DEFAULT_GOOGLE_SHEETS_WEBHOOK_URL;
+    }
+
+    function getCurrentCostingExcelPayload() {
         calculate();
         const rawPax = Number(document.getElementById('num_people_hotel')?.value) || Number(document.getElementById('num_people_transfer')?.value) || 2;
         const paxText = String(rawPax).padStart(2, '0') + 'Pax';
@@ -6332,7 +6348,7 @@
         const childExtraLabel = document.getElementById('exportChildExtraBedLabel')?.value.trim() || 'Per Child (With Extra Bed)';
         const childShareLabel = document.getElementById('exportChildSharingBedLabel')?.value.trim() || 'Per Child (Sharing Bed)';
 
-        const payload = {
+        return {
             title: title,
             pax: rawPax,
             paxText: paxText,
@@ -6362,7 +6378,10 @@
                 childShare4: cShare4
             }
         };
+    }
 
+    async function downloadCurrentCostingExcel() {
+        const payload = getCurrentCostingExcelPayload();
         if (window.SlwExcelGenerator) {
             showNotification('📊 Generating dynamic Costing Excel (.xlsx)...', false);
             try {
@@ -6374,6 +6393,157 @@
             }
         } else {
             showNotification('⚠️ Excel Generator module is loading, please try again.', true);
+        }
+    }
+
+    async function exportCurrentCostingToGoogleSheets() {
+        const payload = getCurrentCostingExcelPayload();
+        const webhookUrl = getGoogleSheetsWebhookUrl();
+
+        if (!window.SlwExcelGenerator || typeof window.SlwExcelGenerator.exportToGoogleSheets !== 'function') {
+            showNotification('⚠️ Excel Generator module is loading, please try again.', true);
+            return;
+        }
+
+        showNotification('🟢 Converting Costing & creating Google Sheet in Google Drive...', false);
+
+        try {
+            const result = await window.SlwExcelGenerator.exportToGoogleSheets(payload, webhookUrl);
+            if (result && result.sheetUrl) {
+                await saveGoogleSheetUrlToInq(payload.inq, result.sheetUrl);
+                window.open(result.sheetUrl, '_blank');
+                showNotification('✅ Google Sheet created successfully in your Drive! Opened in new tab.', false);
+            } else {
+                throw new Error('Google did not return a valid Sheet URL');
+            }
+        } catch (err) {
+            console.error('Google Sheets export error:', err);
+            showNotification('⚠️ Google Sheets export error: ' + err.message, true);
+        }
+    }
+
+    async function saveGoogleSheetUrlToInq(inqKey, sheetUrl) {
+        if (!inqKey || !sheetUrl) return;
+        
+        // 1. Update in local index
+        if (Array.isArray(inqQuotationIndex)) {
+            const item = inqQuotationIndex.find(i => i.inq === inqKey);
+            if (item) {
+                item.googleSheetUrl = sheetUrl;
+            }
+            localStorage.setItem('slw_quotation_index', JSON.stringify(inqQuotationIndex));
+        }
+
+        // 2. Update local doc
+        const localRaw = localStorage.getItem(SLW_INQ_DOC_PREFIX + inqKey);
+        if (localRaw) {
+            try {
+                const parsed = JSON.parse(localRaw);
+                parsed.googleSheetUrl = sheetUrl;
+                localStorage.setItem(SLW_INQ_DOC_PREFIX + inqKey, JSON.stringify(parsed));
+            } catch(e) {}
+        }
+
+        // 3. Update in Firebase Cloud
+        if (typeof db !== 'undefined' && db) {
+            try {
+                await db.collection('slw_quotations').doc(inqKey).set({ googleSheetUrl: sheetUrl }, { merge: true });
+                await db.collection('slw_settings').doc('quotation_index').set({
+                    items: inqQuotationIndex,
+                    updatedAt: new Date().toISOString()
+                }, { merge: true });
+            } catch(e) {
+                console.warn('Failed to update googleSheetUrl on cloud:', e);
+            }
+        }
+    }
+
+    async function exportInqQuotationToGoogleSheets(inqKey) {
+        if (!inqKey) return;
+        try {
+            let docData = null;
+            const localRaw = localStorage.getItem(SLW_INQ_DOC_PREFIX + inqKey);
+            if (localRaw) docData = JSON.parse(localRaw);
+            if (!docData && typeof db !== 'undefined' && db) {
+                const snap = await db.collection('slw_quotations').doc(inqKey).get();
+                if (snap.exists) docData = snap.data();
+            }
+            if (!docData) {
+                alert('Quotation document not found for ' + inqKey);
+                return;
+            }
+
+            // If already created, open directly
+            if (docData.googleSheetUrl) {
+                window.open(docData.googleSheetUrl, '_blank');
+                showNotification('📂 Opening Google Sheet for ' + inqKey + '...', false);
+                return;
+            }
+
+            const costing = docData.costing || {};
+            const cities = costing.availableCities || [];
+            const tours = costing.availableTours || [];
+            const transfers = costing.availableTransfers || [];
+            const rates = docData.rates || costing.rates || {};
+            const isMixActive = costing.hasMix ?? (rates && rates.pMix && cleanLkrNumber(rates.pMix) !== '0' && cleanLkrNumber(rates.pMix) !== '');
+            const hasChild = Boolean(
+                costing.hasChildPrices ||
+                (rates && (rates.childExtra3 || rates.childShare3 || rates.childExtra4 || rates.childShare4 || rates.childExtra || rates.childShare)) ||
+                (docData.itinerary && Array.isArray(docData.itinerary.options) && docData.itinerary.options.some(opt =>
+                    Array.isArray(opt.hotels) && opt.hotels.some(h =>
+                        Array.isArray(h.prices) && h.prices.some(p => (p.label || '').toLowerCase().includes('child'))
+                    )
+                ))
+            );
+
+            const payload = {
+                title: docData.title || inqKey,
+                pax: docData.pax || 2,
+                paxText: docData.paxText || '02Pax',
+                inq: docData.inq || inqKey,
+                monthDate: docData.date || (new Date().toLocaleString('en-US', { month: 'short' }) + '-' + new Date().getFullYear()),
+                roe: 10.8,
+                markup3: 18,
+                markupMix: 20,
+                markup4: 25,
+                buffer: 1000,
+                hasMix: isMixActive,
+                hasChildPrices: hasChild,
+                childExtraLabel: docData.childExtraLabel || costing.childExtraLabel || 'Per Child (With Extra Bed)',
+                childShareLabel: docData.childShareLabel || costing.childShareLabel || 'Per Child (Sharing Bed)',
+                cities: cities.filter(c => c.selected !== false),
+                tours: tours.filter(t => t.selected !== false),
+                transfers: transfers.filter(t => t.selected !== false),
+                days: docData.itinerary && docData.itinerary.days ? docData.itinerary.days : null,
+                options: docData.itinerary && docData.itinerary.options ? docData.itinerary.options : null,
+                inclusions: docData.itinerary && docData.itinerary.inclusions ? docData.itinerary.inclusions : null,
+                exclusions: docData.itinerary && docData.itinerary.exclusions ? docData.itinerary.exclusions : null,
+                rates: {
+                    p3: cleanLkrNumber(rates.p3),
+                    pMix: isMixActive ? cleanLkrNumber(rates.pMix) : null,
+                    p4: cleanLkrNumber(rates.p4),
+                    childExtra3: cleanLkrNumber(rates.childExtra3 || rates.p3ChildExtra),
+                    childShare3: cleanLkrNumber(rates.childShare3 || rates.p3ChildShare),
+                    childExtraMix: cleanLkrNumber(rates.childExtraMix || rates.pMixChildExtra),
+                    childShareMix: cleanLkrNumber(rates.childShareMix || rates.pMixChildShare),
+                    childExtra4: cleanLkrNumber(rates.childExtra4 || rates.p4ChildExtra),
+                    childShare4: cleanLkrNumber(rates.childShare4 || rates.p4ChildShare)
+                }
+            };
+
+            const webhookUrl = getGoogleSheetsWebhookUrl();
+            showNotification('🟢 Converting ' + inqKey + ' to Google Sheet in Google Drive...', false);
+            const result = await window.SlwExcelGenerator.exportToGoogleSheets(payload, webhookUrl);
+
+            if (result && result.sheetUrl) {
+                await saveGoogleSheetUrlToInq(inqKey, result.sheetUrl);
+                renderQuotationHubCards();
+                window.open(result.sheetUrl, '_blank');
+                showNotification('✅ Google Sheet for ' + inqKey + ' opened successfully!', false);
+            }
+        } catch(err) {
+            console.error('Error generating Google Sheet for INQ:', err);
+            showNotification('⚠️ Google Sheets export error: ' + err.message, true);
         }
     }
 

@@ -1817,8 +1817,77 @@
         return true;
     }
 
+    /**
+     * Generate Base64-encoded string of the Costing Excel (.xlsx) file
+     * @param {Object} payload 
+     * @returns {Promise<string>}
+     */
+    async function generateCostingExcelBase64(payload) {
+        const wb = await createCostingWorkbook(payload);
+        const buffer = await wb.xlsx.writeBuffer();
+        
+        if (typeof Buffer !== 'undefined') {
+            return Buffer.from(buffer).toString('base64');
+        }
+        let binary = '';
+        const bytes = new Uint8Array(buffer);
+        const len = bytes.byteLength;
+        for (let i = 0; i < len; i++) {
+            binary += String.fromCharCode(bytes[i]);
+        }
+        return window.btoa(binary);
+    }
+
+    /**
+     * Direct Export to Google Sheets via Google Apps Script Webhook
+     * Converts .xlsx directly to a native Google Sheet in user's Google Drive.
+     * @param {Object} payload 
+     * @param {string} webhookUrl 
+     * @param {Object} options { folderName, customFilename }
+     * @returns {Promise<{ success: boolean, sheetUrl: string, fileId: string, folderUrl: string }>}
+     */
+    async function exportToGoogleSheets(payload, webhookUrl, options = {}) {
+        if (!webhookUrl) {
+            throw new Error('Google Sheets Webhook URL is not configured.');
+        }
+
+        const base64 = await generateCostingExcelBase64(payload);
+        const inqPart = (payload.inq || 'INQ').replace(/[^a-zA-Z0-9_-]/g, '');
+        const titlePart = (payload.title || 'Tour_Costing').replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 30);
+        const paxPart = (payload.paxText || '02Pax').replace(/[^a-zA-Z0-9_-]/g, '');
+        const filename = options.customFilename || `${titlePart} (${paxPart}) - ${inqPart}`;
+        const folderName = options.folderName || 'BP Travel Costings';
+
+        const postBody = {
+            fileName: filename,
+            folderName: folderName,
+            base64: base64
+        };
+
+        const response = await fetch(webhookUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'text/plain'
+            },
+            body: JSON.stringify(postBody)
+        });
+
+        if (!response.ok) {
+            throw new Error(`Google Apps Script responded with HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        if (!data.success) {
+            throw new Error(data.error || 'Failed to convert to Google Sheet.');
+        }
+
+        return data;
+    }
+
     return {
         createCostingWorkbook,
-        downloadCostingExcel
+        downloadCostingExcel,
+        generateCostingExcelBase64,
+        exportToGoogleSheets
     };
 }));
