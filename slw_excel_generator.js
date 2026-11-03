@@ -245,9 +245,9 @@
         const tourTitle = (payload.title || 'Tour Quotation').trim();
         const dateStr = payload.monthDate || (new Date().toLocaleString('en-US', { month: 'short' }) + '-' + new Date().getFullYear());
         const roe = Number(payload.roe) || 10.8;
-        const markup3 = Number(payload.markup3) || 18;
-        const markupMix = Number(payload.markupMix) || 20;
-        const markup4 = Number(payload.markup4) || 25;
+        const markup3 = (payload.markup3 !== undefined && payload.markup3 !== null && !isNaN(Number(payload.markup3))) ? Number(payload.markup3) : 18;
+        const markupMix = (payload.markupMix !== undefined && payload.markupMix !== null && !isNaN(Number(payload.markupMix))) ? Number(payload.markupMix) : 20;
+        const markup4 = (payload.markup4 !== undefined && payload.markup4 !== null && !isNaN(Number(payload.markup4))) ? Number(payload.markup4) : 25;
         const buffer = (!isNaN(Number(payload.buffer)) && payload.buffer !== null && payload.buffer !== undefined) ? Number(payload.buffer) : 1000;
 
         // Cities, Tours, Transfers & Days

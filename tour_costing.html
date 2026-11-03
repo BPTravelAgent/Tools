@@ -41,7 +41,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
     <script src="firebase_init.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
-    <script src="slw_excel_generator.js?v=2.2"></script>
+    <script src="slw_excel_generator.js?v=2.3"></script>
 </head>
 <body class="bg-gray-100 flex items-center justify-center min-h-screen py-12">
 
@@ -467,24 +467,24 @@
              <h2 class="text-xl font-semibold text-gray-700 border-b pb-2">Calculation Settings</h2>
             <div>
                 <label for="num_people_transfer" class="block text-sm font-medium text-gray-600 mb-1">Divide Total Transfer by (No. of People)</label>
-                <input type="number" id="num_people_transfer" class="w-full p-3 bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500" placeholder="e.g., 2">
+                <input type="number" id="num_people_transfer" oninput="calculate()" class="w-full p-3 bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500" placeholder="e.g., 2">
             </div>
             <div>
                 <label for="num_people_hotel" class="block text-sm font-medium text-gray-600 mb-1">Divide Total Hotel by (No. of People/Rooms)</label>
-                <input type="number" id="num_people_hotel" class="w-full p-3 bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500" placeholder="e.g., 2">
+                <input type="number" id="num_people_hotel" oninput="calculate()" class="w-full p-3 bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500" placeholder="e.g., 2">
             </div>
              <h2 class="text-xl font-semibold text-gray-700 border-b pt-4 pb-2">Pricing & Rates</h2>
             <div>
                 <label for="markup" class="block text-sm font-medium text-gray-600 mb-1">Markup (%)</label>
-                <input type="number" id="markup" value="25" class="w-full p-3 bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500">
+                <input type="number" id="markup" value="25" oninput="calculate()" class="w-full p-3 bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500">
             </div>
              <div>
                 <label for="lkr_rate" class="block text-sm font-medium text-gray-600 mb-1">LKR Rate (Multiply THB by)</label>
-                <input type="number" id="lkr_rate" value="10.0" step="0.01" class="w-full p-3 bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500">
+                <input type="number" id="lkr_rate" value="10.0" step="0.01" oninput="calculate()" class="w-full p-3 bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500">
             </div>
              <div>
                 <label for="usd_divisor" class="block text-sm font-medium text-gray-600 mb-1">USD Conversion (Divide THB by)</label>
-                <input type="number" id="usd_divisor" value="31" step="0.01" class="w-full p-3 bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500">
+                <input type="number" id="usd_divisor" value="31" step="0.01" oninput="calculate()" class="w-full p-3 bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500">
             </div>
             <h2 class="text-xl font-semibold text-gray-700 border-b pt-4 pb-2 mt-4">Child Sharing Bed Inputs</h2>
             <div class="text-sm text-gray-600 mt-2">
@@ -499,15 +499,15 @@
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
                 <label for="adult_manual_markup" class="block text-sm font-medium text-gray-600 mb-1">Adult Markup (THB)</label>
-                <input type="number" id="adult_manual_markup" class="w-full p-3 bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-yellow-500" placeholder="Leave blank for %">
+                <input type="number" id="adult_manual_markup" oninput="calculate()" class="w-full p-3 bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-yellow-500" placeholder="Leave blank for %">
             </div>
             <div>
                 <label for="child_extra_bed_manual_markup" class="block text-sm font-medium text-gray-600 mb-1">Child w/ Extra Bed Markup (THB)</label>
-                <input type="number" id="child_extra_bed_manual_markup" class="w-full p-3 bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-yellow-500" placeholder="Leave blank for %">
+                <input type="number" id="child_extra_bed_manual_markup" oninput="calculate()" class="w-full p-3 bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-yellow-500" placeholder="Leave blank for %">
             </div>
             <div>
                 <label for="child_sharing_manual_markup" class="block text-sm font-medium text-gray-600 mb-1">Child Sharing Markup (THB)</label>
-                <input type="number" id="child_sharing_manual_markup" class="w-full p-3 bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-yellow-500" placeholder="Leave blank for %">
+                <input type="number" id="child_sharing_manual_markup" oninput="calculate()" class="w-full p-3 bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-yellow-500" placeholder="Leave blank for %">
             </div>
         </div>
     </div>
@@ -6306,7 +6306,7 @@
         const transferPax = Math.max(1, Number(document.getElementById('num_people_transfer')?.value) || 2);
         const hotelDivisor = Math.max(1, Number(document.getElementById('num_people_hotel')?.value) || 2);
         const rawPax = transferPax;
-        const paxText = (document.getElementById('saveQuotationPaxInput')?.value || document.getElementById('exportItineraryPax')?.value || (String(transferPax).padStart(2, '0') + ' Pax')).trim();
+        const paxText = String(transferPax).padStart(2, '0') + ' Pax';
         const inq = (document.getElementById('saveQuotationInqInput')?.value || document.getElementById('exportItineraryInq')?.value || ('INQ-' + Math.floor(10000 + Math.random() * 90000))).trim();
         
         let defaultTitle = '';
