@@ -280,21 +280,39 @@
         }
 
         // 2b. Determine Child Pricing Presence
-        const hasChildPrices = Boolean(
-            payload.hasChildPrices ||
-            payload.includeChildPrices ||
-            (payload.rates && (payload.rates.childExtra3 || payload.rates.childShare3 || payload.rates.childExtra4 || payload.rates.childShare4 || payload.rates.childExtra || payload.rates.childShare)) ||
-            (Array.isArray(payload.options) && payload.options.some(opt => 
-                Array.isArray(opt.hotels) && opt.hotels.some(h => 
-                    Array.isArray(h.prices) && h.prices.some(p => {
-                        const l = (p.label || '').toLowerCase();
-                        const a = String(p.amount || '');
-                        return (l.includes('child') || l.includes('extra bed') || l.includes('sharing')) && a && a !== 'LKR 0' && a !== '0';
-                    })
-                )
-            )) ||
-            (payload.childPrices && Object.keys(payload.childPrices).length > 0)
-        );
+        let includeChildExtra = (typeof payload.includeChildExtraBed === 'boolean') ? payload.includeChildExtraBed : true;
+        let includeChildShare = (typeof payload.includeChildSharingBed === 'boolean') ? payload.includeChildSharingBed : true;
+
+        let hasChildPrices = false;
+        if (typeof payload.hasChildPrices === 'boolean') {
+            hasChildPrices = payload.hasChildPrices;
+        } else if (payload.includeChildPrices === false) {
+            hasChildPrices = false;
+        } else {
+            hasChildPrices = Boolean(
+                (payload.rates && (payload.rates.childExtra3 || payload.rates.childShare3 || payload.rates.childExtra4 || payload.rates.childShare4 || payload.rates.childExtra || payload.rates.childShare)) ||
+                (Array.isArray(payload.options) && payload.options.some(opt => 
+                    Array.isArray(opt.hotels) && opt.hotels.some(h => 
+                        Array.isArray(h.prices) && h.prices.some(p => {
+                            const l = (p.label || '').toLowerCase();
+                            const a = String(p.amount || '');
+                            return (l.includes('child') || l.includes('extra bed') || l.includes('sharing')) && a && a !== 'LKR 0' && a !== '0';
+                        })
+                    )
+                )) ||
+                (payload.childPrices && Object.keys(payload.childPrices).length > 0)
+            );
+        }
+
+        if (typeof payload.includeChildExtraBed === 'boolean' && typeof payload.includeChildSharingBed === 'boolean') {
+            if (!includeChildExtra && !includeChildShare) {
+                hasChildPrices = false;
+            }
+        }
+        if (!hasChildPrices) {
+            includeChildExtra = false;
+            includeChildShare = false;
+        }
 
         let childExtraLabel = (payload.childExtraLabel || 'Per Child (With Extra Bed)').trim();
         let childShareLabel = (payload.childShareLabel || 'Per Child (Sharing Bed)').trim();
@@ -1785,7 +1803,7 @@
 
             rPriceCard.getCell(4).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: hCol.cardColor } };
 
-            const isBottomCard = !hasChildPrices;
+            const isBottomCard = !hasChildPrices || (!includeChildExtra && !includeChildShare);
             const priceBorder = {
                 left: { style: 'thin', color: { argb: 'FF000000' } },
                 right: { style: 'thin', color: { argb: 'FF000000' } }
@@ -1825,43 +1843,52 @@
                 }
 
                 // Child Extra Bed Card (Merged C:D)
-                const extraRowIdx = currentRow++;
-                ws.mergeCells(extraRowIdx, 3, extraRowIdx, 4);
-                const rExtraCard = ws.getRow(extraRowIdx);
-                const extraDisplay = `LKR ${extraPriceVal.toLocaleString('en-US')} ${childExtraLabel}`;
+                if (includeChildExtra) {
+                    const extraRowIdx = currentRow++;
+                    ws.mergeCells(extraRowIdx, 3, extraRowIdx, 4);
+                    const rExtraCard = ws.getRow(extraRowIdx);
+                    const extraDisplay = `LKR ${extraPriceVal.toLocaleString('en-US')} ${childExtraLabel}`;
 
-                rExtraCard.getCell(3).value = extraDisplay;
-                rExtraCard.getCell(3).font = { name: 'Calibri', size: 11, bold: true };
-                rExtraCard.getCell(3).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.CHILD_EXTRA_CARD } };
-                rExtraCard.getCell(3).alignment = { vertical: 'middle' };
+                    rExtraCard.getCell(3).value = extraDisplay;
+                    rExtraCard.getCell(3).font = { name: 'Calibri', size: 11, bold: true };
+                    rExtraCard.getCell(3).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.CHILD_EXTRA_CARD } };
+                    rExtraCard.getCell(3).alignment = { vertical: 'middle' };
 
-                rExtraCard.getCell(4).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.CHILD_EXTRA_CARD } };
-                const extraBorder = {
-                    left: { style: 'thin', color: { argb: 'FF000000' } },
-                    right: { style: 'thin', color: { argb: 'FF000000' } }
-                };
-                rExtraCard.getCell(3).border = extraBorder;
-                rExtraCard.getCell(4).border = extraBorder;
+                    rExtraCard.getCell(4).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.CHILD_EXTRA_CARD } };
+                    
+                    const isExtraBottom = !includeChildShare;
+                    const extraBorder = {
+                        left: { style: 'thin', color: { argb: 'FF000000' } },
+                        right: { style: 'thin', color: { argb: 'FF000000' } }
+                    };
+                    if (isExtraBottom) {
+                        extraBorder.bottom = { style: 'thin', color: { argb: 'FF000000' } };
+                    }
+                    rExtraCard.getCell(3).border = extraBorder;
+                    rExtraCard.getCell(4).border = extraBorder;
+                }
 
                 // Child Sharing Bed Card (Merged C:D)
-                const shareRowIdx = currentRow++;
-                ws.mergeCells(shareRowIdx, 3, shareRowIdx, 4);
-                const rShareCard = ws.getRow(shareRowIdx);
-                const shareDisplay = `LKR ${sharePriceVal.toLocaleString('en-US')} ${childShareLabel}`;
+                if (includeChildShare) {
+                    const shareRowIdx = currentRow++;
+                    ws.mergeCells(shareRowIdx, 3, shareRowIdx, 4);
+                    const rShareCard = ws.getRow(shareRowIdx);
+                    const shareDisplay = `LKR ${sharePriceVal.toLocaleString('en-US')} ${childShareLabel}`;
 
-                rShareCard.getCell(3).value = shareDisplay;
-                rShareCard.getCell(3).font = { name: 'Calibri', size: 11, bold: true };
-                rShareCard.getCell(3).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.CHILD_SHARE_CARD } };
-                rShareCard.getCell(3).alignment = { vertical: 'middle' };
+                    rShareCard.getCell(3).value = shareDisplay;
+                    rShareCard.getCell(3).font = { name: 'Calibri', size: 11, bold: true };
+                    rShareCard.getCell(3).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.CHILD_SHARE_CARD } };
+                    rShareCard.getCell(3).alignment = { vertical: 'middle' };
 
-                rShareCard.getCell(4).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.CHILD_SHARE_CARD } };
-                const shareBorder = {
-                    left: { style: 'thin', color: { argb: 'FF000000' } },
-                    right: { style: 'thin', color: { argb: 'FF000000' } },
-                    bottom: { style: 'thin', color: { argb: 'FF000000' } }
-                };
-                rShareCard.getCell(3).border = shareBorder;
-                rShareCard.getCell(4).border = shareBorder;
+                    rShareCard.getCell(4).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.CHILD_SHARE_CARD } };
+                    const shareBorder = {
+                        left: { style: 'thin', color: { argb: 'FF000000' } },
+                        right: { style: 'thin', color: { argb: 'FF000000' } },
+                        bottom: { style: 'thin', color: { argb: 'FF000000' } }
+                    };
+                    rShareCard.getCell(3).border = shareBorder;
+                    rShareCard.getCell(4).border = shareBorder;
+                }
             }
 
             currentRow++; // 1 empty row spacing between cards (matches sample excel)

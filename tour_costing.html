@@ -41,7 +41,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
     <script src="firebase_init.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
-    <script src="slw_excel_generator.js?v=2.4"></script>
+    <script src="slw_excel_generator.js?v=2.5"></script>
 </head>
 <body class="bg-gray-100 flex items-center justify-center min-h-screen py-12">
 
@@ -486,9 +486,28 @@
                 <label for="usd_divisor" class="block text-sm font-medium text-gray-600 mb-1">USD Conversion (Divide THB by)</label>
                 <input type="number" id="usd_divisor" value="31" step="0.01" oninput="calculate()" class="w-full p-3 bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500">
             </div>
-            <h2 class="text-xl font-semibold text-gray-700 border-b pt-4 pb-2 mt-4">Child Sharing Bed Inputs</h2>
-            <div class="text-sm text-gray-600 mt-2">
-                Child meal prices are now entered per-hotel when adding a City Stay.
+            <div class="border-t border-gray-200 pt-4 mt-4">
+                <div class="flex items-center justify-between mb-2">
+                    <label class="text-base font-bold text-gray-700 flex items-center gap-2">
+                        <i class="fas fa-child text-indigo-600"></i>
+                        <span>Child Pricing Options</span>
+                    </label>
+                    <span class="text-xs text-gray-500 font-medium">Tick if children travel</span>
+                </div>
+                <div class="grid grid-cols-2 gap-2 bg-white p-3 rounded-lg border border-gray-300 shadow-2xs">
+                    <label class="flex items-center gap-2 cursor-pointer text-xs font-bold text-gray-700 select-none hover:text-indigo-600 transition">
+                        <input type="checkbox" id="check_child_extra_bed" onchange="onChildOptionToggle()" class="w-4 h-4 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500">
+                        <span>Child (Extra Bed)</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer text-xs font-bold text-gray-700 select-none hover:text-indigo-600 transition">
+                        <input type="checkbox" id="check_child_sharing_bed" onchange="onChildOptionToggle()" class="w-4 h-4 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500">
+                        <span>Child (Sharing Bed)</span>
+                    </label>
+                </div>
+                <p class="text-[11px] text-gray-500 mt-1.5 flex items-center gap-1">
+                    <i class="fas fa-info-circle text-indigo-500"></i>
+                    <span>Untick both for <strong>Adults-Only</strong> costing (omits child prices in cards, Excel &amp; Google Sheets).</span>
+                </p>
             </div>
         </div>
     </div>
@@ -501,11 +520,11 @@
                 <label for="adult_manual_markup" class="block text-sm font-medium text-gray-600 mb-1">Adult Markup (THB)</label>
                 <input type="number" id="adult_manual_markup" oninput="calculate()" class="w-full p-3 bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-yellow-500" placeholder="Leave blank for %">
             </div>
-            <div>
+            <div class="card-child-extra">
                 <label for="child_extra_bed_manual_markup" class="block text-sm font-medium text-gray-600 mb-1">Child w/ Extra Bed Markup (THB)</label>
                 <input type="number" id="child_extra_bed_manual_markup" oninput="calculate()" class="w-full p-3 bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-yellow-500" placeholder="Leave blank for %">
             </div>
-            <div>
+            <div class="card-child-sharing">
                 <label for="child_sharing_manual_markup" class="block text-sm font-medium text-gray-600 mb-1">Child Sharing Markup (THB)</label>
                 <input type="number" id="child_sharing_manual_markup" oninput="calculate()" class="w-full p-3 bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-yellow-500" placeholder="Leave blank for %">
             </div>
@@ -605,7 +624,7 @@
                         <p class="flex justify-between"><span>LKR:</span><strong id="adult_lkr_3star" class="text-blue-700"></strong></p>
                         <p class="flex justify-between mt-1 pt-1 border-t border-gray-100"><span>Final LKR:</span><strong id="adult_final_lkr_3star" class="text-red-600"></strong></p>
                     </div>
-                    <div class="bg-white p-3 rounded shadow-sm">
+                    <div class="bg-white p-3 rounded shadow-sm card-child-extra">
                         <p class="font-bold text-gray-700">Child (Extra Bed)</p>
                         <div class="flex items-center justify-between mb-1 bg-gray-50 p-1 rounded">
     <span class="text-[11px] text-gray-500 font-semibold">Markup:</span>
@@ -626,7 +645,7 @@
                         <p class="flex justify-between"><span>LKR:</span><strong id="child_extra_lkr_3star" class="text-green-700"></strong></p>
                         <p class="flex justify-between mt-1 pt-1 border-t border-gray-100"><span>Final LKR:</span><strong id="child_final_lkr_3star" class="text-red-600"></strong></p>
                     </div>
-                    <div class="bg-white p-3 rounded shadow-sm">
+                    <div class="bg-white p-3 rounded shadow-sm card-child-sharing">
                         <p class="font-bold text-gray-700">Child (Sharing Bed)</p>
                         <div class="flex items-center justify-between mb-1 bg-gray-50 p-1 rounded">
     <span class="text-[11px] text-gray-500 font-semibold">Markup:</span>
@@ -675,7 +694,7 @@
                         <p class="flex justify-between"><span>LKR:</span><strong id="adult_lkr_4star" class="text-blue-700"></strong></p>
                         <p class="flex justify-between mt-1 pt-1 border-t border-gray-100"><span>Final LKR:</span><strong id="adult_final_lkr_4star" class="text-red-600"></strong></p>
                     </div>
-                    <div class="bg-white p-3 rounded shadow-sm">
+                    <div class="bg-white p-3 rounded shadow-sm card-child-extra">
                         <p class="font-bold text-gray-700">Child (Extra Bed)</p>
                         <div class="flex items-center justify-between mb-1 bg-gray-50 p-1 rounded">
     <span class="text-[11px] text-gray-500 font-semibold">Markup:</span>
@@ -696,7 +715,7 @@
                         <p class="flex justify-between"><span>LKR:</span><strong id="child_extra_lkr_4star" class="text-green-700"></strong></p>
                         <p class="flex justify-between mt-1 pt-1 border-t border-gray-100"><span>Final LKR:</span><strong id="child_final_lkr_4star" class="text-red-600"></strong></p>
                     </div>
-                    <div class="bg-white p-3 rounded shadow-sm">
+                    <div class="bg-white p-3 rounded shadow-sm card-child-sharing">
                         <p class="font-bold text-gray-700">Child (Sharing Bed)</p>
                         <div class="flex items-center justify-between mb-1 bg-gray-50 p-1 rounded">
     <span class="text-[11px] text-gray-500 font-semibold">Markup:</span>
@@ -743,7 +762,7 @@
                         <p class="flex justify-between"><span>LKR:</span><strong id="adult_lkr_5star" class="text-blue-700"></strong></p>
                         <p class="flex justify-between mt-1 pt-1 border-t border-gray-100"><span>Final LKR:</span><strong id="adult_final_lkr_5star" class="text-red-600"></strong></p>
                     </div>
-                    <div class="bg-white p-3 rounded shadow-sm">
+                    <div class="bg-white p-3 rounded shadow-sm card-child-extra">
                         <p class="font-bold text-gray-700">Child (Extra Bed)</p>
                         <div class="flex items-center justify-between mb-1 bg-gray-50 p-1 rounded">
     <span class="text-[11px] text-gray-500 font-semibold">Markup:</span>
@@ -764,7 +783,7 @@
                         <p class="flex justify-between"><span>LKR:</span><strong id="child_extra_lkr_5star" class="text-green-700"></strong></p>
                         <p class="flex justify-between mt-1 pt-1 border-t border-gray-100"><span>Final LKR:</span><strong id="child_final_lkr_5star" class="text-red-600"></strong></p>
                     </div>
-                    <div class="bg-white p-3 rounded shadow-sm">
+                    <div class="bg-white p-3 rounded shadow-sm card-child-sharing">
                         <p class="font-bold text-gray-700">Child (Sharing Bed)</p>
                         <div class="flex items-center justify-between mb-1 bg-gray-50 p-1 rounded">
     <span class="text-[11px] text-gray-500 font-semibold">Markup:</span>
@@ -812,7 +831,7 @@
                         <p class="flex justify-between"><span>LKR:</span><strong id="adult_lkr_mix" class="text-blue-700"></strong></p>
                         <p class="flex justify-between mt-1 pt-1 border-t border-gray-100"><span>Final LKR:</span><strong id="adult_final_lkr_mix" class="text-red-600"></strong></p>
                     </div>
-                    <div class="bg-white p-3 rounded shadow-sm">
+                    <div class="bg-white p-3 rounded shadow-sm card-child-extra">
                         <p class="font-bold text-gray-700">Child (Extra Bed)</p>
                         <div class="flex items-center justify-between mb-1 bg-gray-50 p-1 rounded">
     <span class="text-[11px] text-gray-500 font-semibold">Markup:</span>
@@ -833,7 +852,7 @@
                         <p class="flex justify-between"><span>LKR:</span><strong id="child_extra_lkr_mix" class="text-green-700"></strong></p>
                         <p class="flex justify-between mt-1 pt-1 border-t border-gray-100"><span>Final LKR:</span><strong id="child_final_lkr_mix" class="text-red-600"></strong></p>
                     </div>
-                    <div class="bg-white p-3 rounded shadow-sm">
+                    <div class="bg-white p-3 rounded shadow-sm card-child-sharing">
                         <p class="font-bold text-gray-700">Child (Sharing Bed)</p>
                         <div class="flex items-center justify-between mb-1 bg-gray-50 p-1 rounded">
     <span class="text-[11px] text-gray-500 font-semibold">Markup:</span>
@@ -3715,6 +3734,8 @@
         }
 
         // Child labels & prices
+        const includeChildExtra = document.getElementById('check_child_extra_bed')?.checked ?? false;
+        const includeChildShare = document.getElementById('check_child_sharing_bed')?.checked ?? false;
         const childExtraLabel = document.getElementById('exportChildExtraBedLabel')?.value.trim() || 'PER CHILD (WITH EXTRA BED)';
         const childShareLabel = document.getElementById('exportChildSharingBedLabel')?.value.trim() || 'PER CHILD (SHARING BED)';
 
@@ -3725,10 +3746,10 @@
         const pMixChildExtraEl = document.getElementById('child_final_lkr_mix');
         const pMixChildShareEl = document.getElementById('child_sharing_final_lkr_mix');
 
-        const p3ChildExtraAmount = 'LKR ' + cleanLkrNumber(p3ChildExtraEl?.innerText);
-        const p3ChildShareAmount = 'LKR ' + cleanLkrNumber(p3ChildShareEl?.innerText);
-        const p4ChildExtraAmount = 'LKR ' + cleanLkrNumber(p4ChildExtraEl?.innerText);
-        const p4ChildShareAmount = 'LKR ' + cleanLkrNumber(p4ChildShareEl?.innerText);
+        const p3ChildExtraAmount = includeChildExtra ? ('LKR ' + cleanLkrNumber(p3ChildExtraEl?.innerText)) : '';
+        const p3ChildShareAmount = includeChildShare ? ('LKR ' + cleanLkrNumber(p3ChildShareEl?.innerText)) : '';
+        const p4ChildExtraAmount = includeChildExtra ? ('LKR ' + cleanLkrNumber(p4ChildExtraEl?.innerText)) : '';
+        const p4ChildShareAmount = includeChildShare ? ('LKR ' + cleanLkrNumber(p4ChildShareEl?.innerText)) : '';
 
         // Hotel Options with Exact Calculated LKR Rates
         const hotelOptions = [];
@@ -3742,13 +3763,13 @@
                 amount: p3Amount
             }
         ];
-        if (p3ChildExtraAmount && p3ChildExtraAmount !== 'LKR 0') {
+        if (includeChildExtra && p3ChildExtraAmount && p3ChildExtraAmount !== 'LKR 0') {
             p3Prices.push({
                 label: childExtraLabel,
                 amount: p3ChildExtraAmount
             });
         }
-        if (p3ChildShareAmount && p3ChildShareAmount !== 'LKR 0') {
+        if (includeChildShare && p3ChildShareAmount && p3ChildShareAmount !== 'LKR 0') {
             p3Prices.push({
                 label: childShareLabel,
                 amount: p3ChildShareAmount
@@ -3769,13 +3790,13 @@
                 amount: p4Amount
             }
         ];
-        if (p4ChildExtraAmount && p4ChildExtraAmount !== 'LKR 0') {
+        if (includeChildExtra && p4ChildExtraAmount && p4ChildExtraAmount !== 'LKR 0') {
             p4Prices.push({
                 label: childExtraLabel,
                 amount: p4ChildExtraAmount
             });
         }
-        if (p4ChildShareAmount && p4ChildShareAmount !== 'LKR 0') {
+        if (includeChildShare && p4ChildShareAmount && p4ChildShareAmount !== 'LKR 0') {
             p4Prices.push({
                 label: childShareLabel,
                 amount: p4ChildShareAmount
@@ -3794,8 +3815,8 @@
         const pMixEl = document.getElementById('adult_final_lkr_mix');
         if (mixCard && mixCard.style.display !== 'none' && pMixEl && pMixEl.innerText) {
             const pMixAmount = 'LKR ' + cleanLkrNumber(pMixEl.innerText);
-            const pMixChildExtraAmount = 'LKR ' + cleanLkrNumber(pMixChildExtraEl?.innerText);
-            const pMixChildShareAmount = 'LKR ' + cleanLkrNumber(pMixChildShareEl?.innerText);
+            const pMixChildExtraAmount = includeChildExtra ? ('LKR ' + cleanLkrNumber(pMixChildExtraEl?.innerText)) : '';
+            const pMixChildShareAmount = includeChildShare ? ('LKR ' + cleanLkrNumber(pMixChildShareEl?.innerText)) : '';
             const mixTitle = document.getElementById('mix_package_title')?.innerText || 'Custom Mix Option';
             const mixHotelNames = selectedCities.map(c => {
                 const hName = c.mixPref === '4' ? c.hotel4Name : (c.mixPref === '5' ? (c.hotel5Name || c.hotel4Name) : c.hotel3Name);
@@ -3808,13 +3829,13 @@
                     amount: pMixAmount
                 }
             ];
-            if (pMixChildExtraAmount && pMixChildExtraAmount !== 'LKR 0') {
+            if (includeChildExtra && pMixChildExtraAmount && pMixChildExtraAmount !== 'LKR 0') {
                 pMixPrices.push({
                     label: childExtraLabel,
                     amount: pMixChildExtraAmount
                 });
             }
-            if (pMixChildShareAmount && pMixChildShareAmount !== 'LKR 0') {
+            if (includeChildShare && pMixChildShareAmount && pMixChildShareAmount !== 'LKR 0') {
                 pMixPrices.push({
                     label: childShareLabel,
                     amount: pMixChildShareAmount
@@ -3834,6 +3855,9 @@
             pax: pax,
             date: date,
             inq: inq,
+            hasChildPrices: (includeChildExtra || includeChildShare),
+            includeChildExtraBed: includeChildExtra,
+            includeChildSharingBed: includeChildShare,
             clientName: clientName,
             logo: "https://raw.githubusercontent.com/BPTravelAgent/Tools/main/Image/LOGO.png",
             coverImage: coverImage,
@@ -4104,6 +4128,25 @@
         }
     }
 
+    function onChildOptionToggle() {
+        const hasExtra = document.getElementById('check_child_extra_bed')?.checked ?? false;
+        const hasShare = document.getElementById('check_child_sharing_bed')?.checked ?? false;
+
+        document.querySelectorAll('.card-child-extra').forEach(el => {
+            el.style.display = hasExtra ? '' : 'none';
+        });
+        document.querySelectorAll('.card-child-sharing').forEach(el => {
+            el.style.display = hasShare ? '' : 'none';
+        });
+
+        try {
+            localStorage.setItem('bp_child_opt_extra', hasExtra ? 'true' : 'false');
+            localStorage.setItem('bp_child_opt_share', hasShare ? 'true' : 'false');
+        } catch(e) {}
+
+        calculate();
+    }
+
     function captureAllPricingAdjustments() {
         // 1. General & Markup settings
         const settings = {
@@ -4112,6 +4155,8 @@
             markup: Number(document.getElementById('markup')?.value) || 25,
             lkrRate: Number(document.getElementById('lkr_rate')?.value) || 10.0,
             usdDivisor: Number(document.getElementById('usd_divisor')?.value) || 31,
+            includeChildExtraBed: document.getElementById('check_child_extra_bed')?.checked ?? false,
+            includeChildSharingBed: document.getElementById('check_child_sharing_bed')?.checked ?? false,
             adultManualMarkup: document.getElementById('adult_manual_markup')?.value || '',
             childExtraBedManualMarkup: document.getElementById('child_extra_bed_manual_markup')?.value || '',
             childSharingManualMarkup: document.getElementById('child_sharing_manual_markup')?.value || '',
@@ -4195,6 +4240,27 @@
             if (s.waterDays !== undefined) document.getElementById('water_days').value = s.waterDays;
             if (s.mealPricePerDay !== undefined) document.getElementById('meal_price_per_day').value = s.mealPricePerDay;
             if (s.mealDays !== undefined) document.getElementById('meal_days').value = s.mealDays;
+
+            // Restore child pricing checkboxes
+            const extraEl = document.getElementById('check_child_extra_bed');
+            const shareEl = document.getElementById('check_child_sharing_bed');
+            if (s.includeChildExtraBed !== undefined) {
+                if (extraEl) extraEl.checked = Boolean(s.includeChildExtraBed);
+            } else if (preset.renderedFinalPrices && (preset.renderedFinalPrices['3star']?.child_extra || preset.renderedFinalPrices['4star']?.child_extra)) {
+                if (extraEl) extraEl.checked = true;
+            } else if (extraEl) {
+                extraEl.checked = false;
+            }
+
+            if (s.includeChildSharingBed !== undefined) {
+                if (shareEl) shareEl.checked = Boolean(s.includeChildSharingBed);
+            } else if (preset.renderedFinalPrices && (preset.renderedFinalPrices['3star']?.child_sharing || preset.renderedFinalPrices['4star']?.child_sharing)) {
+                if (shareEl) shareEl.checked = true;
+            } else if (shareEl) {
+                shareEl.checked = false;
+            }
+
+            onChildOptionToggle();
         }
 
         // 2. Custom final price overrides restoration
@@ -5745,6 +5811,10 @@
             const pricingSummary = saveLatestCostingPrices(itineraryPayload);
 
             // Rate values
+            const includeChildExtraBed = document.getElementById('check_child_extra_bed')?.checked ?? false;
+            const includeChildSharingBed = document.getElementById('check_child_sharing_bed')?.checked ?? false;
+            const hasChildPrices = (includeChildExtraBed || includeChildSharingBed);
+
             const p3Text = document.getElementById('adult_final_lkr_3star')?.innerText || '';
             const pMixText = document.getElementById('adult_final_lkr_mix')?.innerText || '';
             const p4Text = document.getElementById('adult_final_lkr_4star')?.innerText || '';
@@ -5754,7 +5824,13 @@
                 p3: p3Text ? cleanLkrNumber(p3Text) : '',
                 pMix: pMixText ? cleanLkrNumber(pMixText) : '',
                 p4: p4Text ? cleanLkrNumber(p4Text) : '',
-                p5: p5Text ? cleanLkrNumber(p5Text) : ''
+                p5: p5Text ? cleanLkrNumber(p5Text) : '',
+                childExtra3: includeChildExtraBed ? cleanLkrNumber(document.getElementById('child_final_lkr_3star')?.innerText) : '',
+                childShare3: includeChildSharingBed ? cleanLkrNumber(document.getElementById('child_sharing_final_lkr_3star')?.innerText) : '',
+                childExtra4: includeChildExtraBed ? cleanLkrNumber(document.getElementById('child_final_lkr_4star')?.innerText) : '',
+                childShare4: includeChildSharingBed ? cleanLkrNumber(document.getElementById('child_sharing_final_lkr_4star')?.innerText) : '',
+                childExtraMix: (includeChildExtraBed && document.getElementById('result_card_mix')?.style.display !== 'none') ? cleanLkrNumber(document.getElementById('child_final_lkr_mix')?.innerText) : '',
+                childShareMix: (includeChildSharingBed && document.getElementById('result_card_mix')?.style.display !== 'none') ? cleanLkrNumber(document.getElementById('child_sharing_final_lkr_mix')?.innerText) : ''
             };
 
             const citiesSummary = availableCities.map(c => (c.numberOfNights || 1) + 'N ' + c.name).join(' + ');
@@ -5775,8 +5851,14 @@
                 cities: citiesSummary,
                 summary: fullSummary,
                 rates: rates,
+                hasChildPrices: hasChildPrices,
+                includeChildExtraBed: includeChildExtraBed,
+                includeChildSharingBed: includeChildSharingBed,
                 costing: {
                     hasMix: Boolean(document.getElementById('result_card_mix')?.style.display !== 'none'),
+                    hasChildPrices: hasChildPrices,
+                    includeChildExtraBed: includeChildExtraBed,
+                    includeChildSharingBed: includeChildSharingBed,
                     availableCities: JSON.parse(JSON.stringify(availableCities)),
                     availableTours: JSON.parse(JSON.stringify(availableTours)),
                     availableTransfers: JSON.parse(JSON.stringify(availableTransfers)),
@@ -6343,14 +6425,17 @@
         const pMixChildExtraEl = document.getElementById('child_final_lkr_mix');
         const pMixChildShareEl = document.getElementById('child_sharing_final_lkr_mix');
 
-        const cExtra3 = cleanLkrNumber(p3ChildExtraEl?.innerText);
-        const cShare3 = cleanLkrNumber(p3ChildShareEl?.innerText);
-        const cExtra4 = cleanLkrNumber(p4ChildExtraEl?.innerText);
-        const cShare4 = cleanLkrNumber(p4ChildShareEl?.innerText);
-        const cExtraMix = isMixActive ? cleanLkrNumber(pMixChildExtraEl?.innerText) : null;
-        const cShareMix = isMixActive ? cleanLkrNumber(pMixChildShareEl?.innerText) : null;
+        const includeChildExtraBed = document.getElementById('check_child_extra_bed')?.checked ?? false;
+        const includeChildSharingBed = document.getElementById('check_child_sharing_bed')?.checked ?? false;
 
-        const hasChildPrices = Boolean(
+        const cExtra3 = includeChildExtraBed ? cleanLkrNumber(p3ChildExtraEl?.innerText) : null;
+        const cShare3 = includeChildSharingBed ? cleanLkrNumber(p3ChildShareEl?.innerText) : null;
+        const cExtra4 = includeChildExtraBed ? cleanLkrNumber(p4ChildExtraEl?.innerText) : null;
+        const cShare4 = includeChildSharingBed ? cleanLkrNumber(p4ChildShareEl?.innerText) : null;
+        const cExtraMix = (isMixActive && includeChildExtraBed) ? cleanLkrNumber(pMixChildExtraEl?.innerText) : null;
+        const cShareMix = (isMixActive && includeChildSharingBed) ? cleanLkrNumber(pMixChildShareEl?.innerText) : null;
+
+        const hasChildPrices = (includeChildExtraBed || includeChildSharingBed) && Boolean(
             (cExtra3 && cExtra3 !== '0') ||
             (cShare3 && cShare3 !== '0') ||
             (cExtra4 && cExtra4 !== '0') ||
@@ -6375,6 +6460,8 @@
             buffer: 1000,
             hasMix: isMixActive,
             hasChildPrices: hasChildPrices,
+            includeChildExtraBed: includeChildExtraBed,
+            includeChildSharingBed: includeChildSharingBed,
             childExtraLabel: childExtraLabel,
             childShareLabel: childShareLabel,
             cities: availableCities.filter(c => c.selected),
@@ -6500,19 +6587,33 @@
             const transfers = costing.availableTransfers || [];
             const rates = docData.rates || costing.rates || {};
             const isMixActive = costing.hasMix ?? (rates && rates.pMix && cleanLkrNumber(rates.pMix) !== '0' && cleanLkrNumber(rates.pMix) !== '');
-            const hasChild = Boolean(
-                costing.hasChildPrices ||
-                (rates && (rates.childExtra3 || rates.childShare3 || rates.childExtra4 || rates.childShare4 || rates.childExtra || rates.childShare)) ||
-                (docData.itinerary && Array.isArray(docData.itinerary.options) && docData.itinerary.options.some(opt =>
-                    Array.isArray(opt.hotels) && opt.hotels.some(h =>
-                        Array.isArray(h.prices) && h.prices.some(p => (p.label || '').toLowerCase().includes('child'))
-                    )
-                ))
-            );
-
             const pricingAdj = costing.pricingAdj || docData.pricingAdj || {};
             const settings = pricingAdj.settings || {};
             const cardMarkups = pricingAdj.cardMarkups || {};
+
+            let includeChildExtra = false;
+            let includeChildShare = false;
+            if (typeof costing.includeChildExtraBed === 'boolean') {
+                includeChildExtra = costing.includeChildExtraBed;
+            } else if (typeof settings.includeChildExtraBed === 'boolean') {
+                includeChildExtra = settings.includeChildExtraBed;
+            } else if (typeof docData.includeChildExtraBed === 'boolean') {
+                includeChildExtra = docData.includeChildExtraBed;
+            } else {
+                includeChildExtra = Boolean(rates && (rates.childExtra3 || rates.childExtra4 || rates.p3ChildExtra));
+            }
+
+            if (typeof costing.includeChildSharingBed === 'boolean') {
+                includeChildShare = costing.includeChildSharingBed;
+            } else if (typeof settings.includeChildSharingBed === 'boolean') {
+                includeChildShare = settings.includeChildSharingBed;
+            } else if (typeof docData.includeChildSharingBed === 'boolean') {
+                includeChildShare = docData.includeChildSharingBed;
+            } else {
+                includeChildShare = Boolean(rates && (rates.childShare3 || rates.childShare4 || rates.p3ChildShare));
+            }
+
+            const hasChild = (includeChildExtra || includeChildShare);
 
             const transferPax = Math.max(1, Number(docData.transferPax) || Number(settings.numPeopleTransfer) || Number(docData.pax) || 2);
             const hotelDivisor = Math.max(1, Number(docData.hotelDivisor) || Number(settings.numPeopleHotel) || 2);
@@ -6538,6 +6639,8 @@
                 buffer: 1000,
                 hasMix: isMixActive,
                 hasChildPrices: hasChild,
+                includeChildExtraBed: includeChildExtra,
+                includeChildSharingBed: includeChildShare,
                 childExtraLabel: docData.childExtraLabel || costing.childExtraLabel || 'Per Child (With Extra Bed)',
                 childShareLabel: docData.childShareLabel || costing.childShareLabel || 'Per Child (Sharing Bed)',
                 cities: cities.filter(c => c.selected !== false),
@@ -6551,12 +6654,12 @@
                     p3: cleanLkrNumber(rates.p3),
                     pMix: isMixActive ? cleanLkrNumber(rates.pMix) : null,
                     p4: cleanLkrNumber(rates.p4),
-                    childExtra3: cleanLkrNumber(rates.childExtra3 || rates.p3ChildExtra),
-                    childShare3: cleanLkrNumber(rates.childShare3 || rates.p3ChildShare),
-                    childExtraMix: cleanLkrNumber(rates.childExtraMix || rates.pMixChildExtra),
-                    childShareMix: cleanLkrNumber(rates.childShareMix || rates.pMixChildShare),
-                    childExtra4: cleanLkrNumber(rates.childExtra4 || rates.p4ChildExtra),
-                    childShare4: cleanLkrNumber(rates.childShare4 || rates.p4ChildShare)
+                    childExtra3: includeChildExtra ? cleanLkrNumber(rates.childExtra3 || rates.p3ChildExtra) : null,
+                    childShare3: includeChildShare ? cleanLkrNumber(rates.childShare3 || rates.p3ChildShare) : null,
+                    childExtraMix: (isMixActive && includeChildExtra) ? cleanLkrNumber(rates.childExtraMix || rates.pMixChildExtra) : null,
+                    childShareMix: (isMixActive && includeChildShare) ? cleanLkrNumber(rates.childShareMix || rates.pMixChildShare) : null,
+                    childExtra4: includeChildExtra ? cleanLkrNumber(rates.childExtra4 || rates.p4ChildExtra) : null,
+                    childShare4: includeChildShare ? cleanLkrNumber(rates.childShare4 || rates.p4ChildShare) : null
                 }
             };
 
@@ -6597,19 +6700,33 @@
             const transfers = costing.availableTransfers || [];
             const rates = docData.rates || costing.rates || {};
             const isMixActive = costing.hasMix ?? (rates && rates.pMix && cleanLkrNumber(rates.pMix) !== '0' && cleanLkrNumber(rates.pMix) !== '');
-            const hasChild = Boolean(
-                costing.hasChildPrices ||
-                (rates && (rates.childExtra3 || rates.childShare3 || rates.childExtra4 || rates.childShare4 || rates.childExtra || rates.childShare)) ||
-                (docData.itinerary && Array.isArray(docData.itinerary.options) && docData.itinerary.options.some(opt =>
-                    Array.isArray(opt.hotels) && opt.hotels.some(h =>
-                        Array.isArray(h.prices) && h.prices.some(p => (p.label || '').toLowerCase().includes('child'))
-                    )
-                ))
-            );
-
             const pricingAdj = costing.pricingAdj || docData.pricingAdj || {};
             const settings = pricingAdj.settings || {};
             const cardMarkups = pricingAdj.cardMarkups || {};
+
+            let includeChildExtra = false;
+            let includeChildShare = false;
+            if (typeof costing.includeChildExtraBed === 'boolean') {
+                includeChildExtra = costing.includeChildExtraBed;
+            } else if (typeof settings.includeChildExtraBed === 'boolean') {
+                includeChildExtra = settings.includeChildExtraBed;
+            } else if (typeof docData.includeChildExtraBed === 'boolean') {
+                includeChildExtra = docData.includeChildExtraBed;
+            } else {
+                includeChildExtra = Boolean(rates && (rates.childExtra3 || rates.childExtra4 || rates.p3ChildExtra));
+            }
+
+            if (typeof costing.includeChildSharingBed === 'boolean') {
+                includeChildShare = costing.includeChildSharingBed;
+            } else if (typeof settings.includeChildSharingBed === 'boolean') {
+                includeChildShare = settings.includeChildSharingBed;
+            } else if (typeof docData.includeChildSharingBed === 'boolean') {
+                includeChildShare = docData.includeChildSharingBed;
+            } else {
+                includeChildShare = Boolean(rates && (rates.childShare3 || rates.childShare4 || rates.p3ChildShare));
+            }
+
+            const hasChild = (includeChildExtra || includeChildShare);
 
             const transferPax = Math.max(1, Number(docData.transferPax) || Number(settings.numPeopleTransfer) || Number(docData.pax) || 2);
             const hotelDivisor = Math.max(1, Number(docData.hotelDivisor) || Number(settings.numPeopleHotel) || 2);
@@ -6635,6 +6752,8 @@
                 buffer: 1000,
                 hasMix: isMixActive,
                 hasChildPrices: hasChild,
+                includeChildExtraBed: includeChildExtra,
+                includeChildSharingBed: includeChildShare,
                 childExtraLabel: docData.childExtraLabel || costing.childExtraLabel || 'Per Child (With Extra Bed)',
                 childShareLabel: docData.childShareLabel || costing.childShareLabel || 'Per Child (Sharing Bed)',
                 cities: cities.filter(c => c.selected !== false),
@@ -6648,12 +6767,12 @@
                     p3: cleanLkrNumber(rates.p3),
                     pMix: isMixActive ? cleanLkrNumber(rates.pMix) : null,
                     p4: cleanLkrNumber(rates.p4),
-                    childExtra3: cleanLkrNumber(rates.childExtra3 || rates.p3ChildExtra),
-                    childShare3: cleanLkrNumber(rates.childShare3 || rates.p3ChildShare),
-                    childExtraMix: cleanLkrNumber(rates.childExtraMix || rates.pMixChildExtra),
-                    childShareMix: cleanLkrNumber(rates.childShareMix || rates.pMixChildShare),
-                    childExtra4: cleanLkrNumber(rates.childExtra4 || rates.p4ChildExtra),
-                    childShare4: cleanLkrNumber(rates.childShare4 || rates.p4ChildShare)
+                    childExtra3: includeChildExtra ? cleanLkrNumber(rates.childExtra3 || rates.p3ChildExtra) : null,
+                    childShare3: includeChildShare ? cleanLkrNumber(rates.childShare3 || rates.p3ChildShare) : null,
+                    childExtraMix: (isMixActive && includeChildExtra) ? cleanLkrNumber(rates.childExtraMix || rates.pMixChildExtra) : null,
+                    childShareMix: (isMixActive && includeChildShare) ? cleanLkrNumber(rates.childShareMix || rates.pMixChildShare) : null,
+                    childExtra4: includeChildExtra ? cleanLkrNumber(rates.childExtra4 || rates.p4ChildExtra) : null,
+                    childShare4: includeChildShare ? cleanLkrNumber(rates.childShare4 || rates.p4ChildShare) : null
                 }
             };
 
@@ -6669,6 +6788,16 @@
     }
 
     window.onload = async () => {
+        try {
+            const savedExtra = localStorage.getItem('bp_child_opt_extra');
+            const savedShare = localStorage.getItem('bp_child_opt_share');
+            const extraEl = document.getElementById('check_child_extra_bed');
+            const shareEl = document.getElementById('check_child_sharing_bed');
+            if (extraEl) extraEl.checked = (savedExtra !== null) ? (savedExtra === 'true') : false;
+            if (shareEl) shareEl.checked = (savedShare !== null) ? (savedShare === 'true') : false;
+        } catch(e) {}
+        onChildOptionToggle();
+
         await loadMasterDatabase();
         updateMasterDbCounts();
         await loadCostingPresetsFromCloud();
