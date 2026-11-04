@@ -41,7 +41,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
     <script src="firebase_init.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
-    <script src="slw_excel_generator.js?v=2.5"></script>
+    <script src="slw_excel_generator.js?v=2.6"></script>
 </head>
 <body class="bg-gray-100 flex items-center justify-center min-h-screen py-12">
 
@@ -414,6 +414,33 @@
         <!-- Preset Cards Grid -->
         <div id="itineraryPresetCardsGrid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
             <!-- Rendered by renderPresetCardsGrid() -->
+        </div>
+    </div>
+
+    <!-- Active INQ Quotation Edit Banner -->
+    <div id="activeInqEditBanner" class="hidden mb-6 p-4 bg-gradient-to-r from-indigo-800 via-indigo-700 to-purple-800 text-white rounded-xl shadow-lg border border-indigo-400/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-fade-in">
+        <div class="flex items-center gap-3 min-w-0">
+            <div class="w-10 h-10 rounded-xl bg-amber-400 text-indigo-950 flex items-center justify-center text-lg font-black shrink-0 shadow-sm">
+                <i class="fas fa-edit"></i>
+            </div>
+            <div class="min-w-0">
+                <div class="flex items-center gap-2 flex-wrap">
+                    <span class="text-[10px] uppercase font-black tracking-wider bg-amber-400 text-indigo-950 px-2 py-0.5 rounded-full font-mono">Editing Quotation</span>
+                    <strong id="activeInqBannerKey" class="text-base font-black font-mono tracking-wide text-white">INQ-XXXX</strong>
+                    <span class="text-xs text-indigo-200 hidden sm:inline">•</span>
+                    <span id="activeInqBannerClient" class="text-sm font-bold text-amber-200 truncate">Client Name</span>
+                    <span id="activeInqBannerPax" class="text-xs bg-indigo-900/60 text-indigo-200 px-2 py-0.5 rounded border border-indigo-500/40">2 Pax</span>
+                </div>
+                <p class="text-xs text-indigo-100 mt-1 truncate" id="activeInqBannerTitle">Modify prices or services below. Click "Update Quotation" to save changes.</p>
+            </div>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+            <button onclick="openSaveQuotationModal()" class="py-2 px-4 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-amber-950 font-black rounded-lg text-xs shadow-md transition flex items-center gap-1.5 transform hover:-translate-y-0.5">
+                <i class="fas fa-cloud-upload-alt text-sm"></i> <span>Update Quotation</span>
+            </button>
+            <button onclick="clearActiveLoadedInq()" class="py-2 px-3 bg-white/10 hover:bg-white/20 text-indigo-200 hover:text-white rounded-lg text-xs font-semibold transition" title="Close editing session and start a new quotation">
+                <i class="fas fa-times mr-1"></i> Exit
+            </button>
         </div>
     </div>
 
@@ -1345,10 +1372,10 @@
                     <i class="fas fa-file-invoice-dollar"></i>
                 </div>
                 <div>
-                    <h3 class="text-xl font-bold text-gray-900 flex items-center gap-2">
+                    <h3 id="saveQuotationModalTitle" class="text-xl font-bold text-gray-900 flex items-center gap-2">
                         Save as INQ Quotation
                     </h3>
-                    <p class="text-xs text-gray-500">Saves complete costing calculations and itinerary to Cloud &amp; Local Storage</p>
+                    <p id="saveQuotationModalSubtitle" class="text-xs text-gray-500">Saves complete costing calculations and itinerary to Cloud &amp; Local Storage</p>
                 </div>
             </div>
             <button onclick="closeModal('saveQuotationModal')" class="text-gray-400 hover:text-gray-600 text-xl font-bold px-2 py-1">✕</button>
@@ -1361,7 +1388,12 @@
                     <label class="block text-xs font-bold text-gray-700">
                         Inquiry Reference (INQ #) <span class="text-red-500">*</span>
                     </label>
-                    <span class="text-[11px] text-gray-400">Searchable across all devices</span>
+                    <div class="flex items-center gap-2">
+                        <button type="button" onclick="switchToNewInqMode()" id="btnSwitchNewInq" style="display:none;" class="text-[11px] text-indigo-600 hover:text-indigo-800 font-bold underline">
+                            <i class="fas fa-plus-circle text-[10px]"></i> Save as New INQ instead
+                        </button>
+                        <span class="text-[11px] text-gray-400">Searchable across all devices</span>
+                    </div>
                 </div>
                 <div class="flex gap-2">
                     <div class="relative flex-1">
@@ -1439,7 +1471,7 @@
             <!-- Action Buttons -->
             <div class="flex flex-col sm:flex-row gap-2 pt-3 border-t">
                 <button type="submit" id="btnSaveQuotationSubmit" class="flex-1 py-2.5 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold rounded-lg shadow transition flex items-center justify-center gap-2 text-sm">
-                    <i class="fas fa-save"></i> <span>Save Quotation</span>
+                    <i class="fas fa-save"></i> <span id="saveQuotationSubmitLabel">Save Quotation</span>
                 </button>
                 <button type="button" onclick="downloadCurrentCostingExcel()" class="py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow transition flex items-center justify-center gap-2 text-sm" title="Download dynamic Costing Excel (.xlsx)">
                     <i class="fas fa-file-excel"></i> <span>Excel (.xlsx)</span>
@@ -2690,6 +2722,37 @@
             const index = availableTours.findIndex(t => t === tour);
             const el = document.createElement('div');
             el.className = `flex items-center justify-between p-2.5 rounded-lg border transition-all duration-150 ${tour.selected ? 'bg-white border-blue-200 shadow-sm' : 'bg-gray-50/70 border-gray-200 opacity-75'}`;
+            el.draggable = true;
+            el.dataset.index = index;
+
+            el.addEventListener('dragstart', (e) => {
+                e.dataTransfer.setData('text/plain', String(index));
+                e.dataTransfer.effectAllowed = 'move';
+                el.classList.add('opacity-40', 'border-indigo-400', 'bg-indigo-50/50');
+            });
+            el.addEventListener('dragend', () => {
+                el.classList.remove('opacity-40', 'border-indigo-400', 'bg-indigo-50/50');
+            });
+            el.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                el.classList.add('border-indigo-500', 'bg-indigo-50/60');
+            });
+            el.addEventListener('dragleave', () => {
+                el.classList.remove('border-indigo-500', 'bg-indigo-50/60');
+            });
+            el.addEventListener('drop', (e) => {
+                e.preventDefault();
+                el.classList.remove('border-indigo-500', 'bg-indigo-50/60');
+                const fromIdx = parseInt(e.dataTransfer.getData('text/plain'), 10);
+                const toIdx = index;
+                if (!isNaN(fromIdx) && fromIdx !== toIdx) {
+                    const moved = availableTours.splice(fromIdx, 1)[0];
+                    availableTours.splice(toIdx, 0, moved);
+                    renderTours();
+                    calculate();
+                }
+            });
             
             let priceBadgeHtml = '';
             const ticketPrice = Number(tour.price) || 0;
@@ -2725,13 +2788,24 @@
 
             el.innerHTML = `
                 <div class="flex items-center min-w-0 flex-grow mr-2">
+                    <div class="cursor-grab text-gray-400 hover:text-gray-600 px-1 py-1 mr-1 flex items-center handle" title="Drag to reorder tour position">
+                        <i class="fas fa-grip-vertical text-xs"></i>
+                    </div>
                     <input type="checkbox" id="tour-${index}" class="h-4 w-4 mr-2.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer flex-shrink-0" onchange="toggleSelection('tour', ${index})" ${tour.selected ? 'checked' : ''}>
                     <label for="tour-${index}" class="text-sm font-semibold text-gray-800 truncate cursor-pointer select-none" title="${tour.name}">
                         ${tour.name}
                     </label>
                 </div>
-                <div class="flex items-center gap-2 flex-shrink-0">
+                <div class="flex items-center gap-1.5 flex-shrink-0">
                     ${priceBadgeHtml}
+                    <div class="flex items-center gap-0.5 bg-gray-100/80 p-0.5 rounded border border-gray-200">
+                        <button onclick="moveTourItem(${index}, -1)" ${index === 0 ? 'disabled class="opacity-25 p-1 text-gray-400 cursor-not-allowed"' : 'class="p-1 text-gray-600 hover:text-indigo-600 hover:bg-white rounded transition"'} title="Move Tour Up">
+                            <i class="fas fa-arrow-up text-[11px]"></i>
+                        </button>
+                        <button onclick="moveTourItem(${index}, 1)" ${index === availableTours.length - 1 ? 'disabled class="opacity-25 p-1 text-gray-400 cursor-not-allowed"' : 'class="p-1 text-gray-600 hover:text-indigo-600 hover:bg-white rounded transition"'} title="Move Tour Down">
+                            <i class="fas fa-arrow-down text-[11px]"></i>
+                        </button>
+                    </div>
                     <div class="flex items-center">
                         <button onclick="openEditModal('tour', ${index})" class="p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded transition" title="Edit Tour">
                             <i class="fas fa-pencil-alt text-xs"></i>
@@ -2744,6 +2818,16 @@
             `;
             container.appendChild(el);
         });
+    }
+
+    function moveTourItem(index, direction) {
+        const newIndex = index + direction;
+        if (newIndex < 0 || newIndex >= availableTours.length) return;
+        const item = availableTours.splice(index, 1)[0];
+        availableTours.splice(newIndex, 0, item);
+        renderTours();
+        calculate();
+        showNotification(`Moved "${item.name}" ${direction < 0 ? 'up ⬆️' : 'down ⬇️'}`, false);
     }
 
     function renderTransfers() {
@@ -2778,8 +2862,16 @@
                         ${transfer.name}
                     </label>
                 </div>
-                <div class="flex items-center gap-2 flex-shrink-0">
+                <div class="flex items-center gap-1.5 flex-shrink-0">
                     ${priceBadgeHtml}
+                    <div class="flex items-center gap-0.5 bg-gray-100/80 p-0.5 rounded border border-gray-200">
+                        <button onclick="moveTransferItem(${index}, -1)" ${index === 0 ? 'disabled class="opacity-25 p-1 text-gray-400 cursor-not-allowed"' : 'class="p-1 text-gray-600 hover:text-indigo-600 hover:bg-white rounded transition"'} title="Move Transfer Up">
+                            <i class="fas fa-arrow-up text-[11px]"></i>
+                        </button>
+                        <button onclick="moveTransferItem(${index}, 1)" ${index === availableTransfers.length - 1 ? 'disabled class="opacity-25 p-1 text-gray-400 cursor-not-allowed"' : 'class="p-1 text-gray-600 hover:text-indigo-600 hover:bg-white rounded transition"'} title="Move Transfer Down">
+                            <i class="fas fa-arrow-down text-[11px]"></i>
+                        </button>
+                    </div>
                     <div class="flex items-center">
                         <button onclick="openEditModal('transfer', ${index})" class="p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded transition" title="Edit Transfer">
                             <i class="fas fa-pencil-alt text-xs"></i>
@@ -2792,6 +2884,16 @@
             `;
             container.appendChild(el);
         });
+    }
+
+    function moveTransferItem(index, direction) {
+        const newIndex = index + direction;
+        if (newIndex < 0 || newIndex >= availableTransfers.length) return;
+        const item = availableTransfers.splice(index, 1)[0];
+        availableTransfers.splice(newIndex, 0, item);
+        renderTransfers();
+        calculate();
+        showNotification(`Moved "${item.name}" ${direction < 0 ? 'up ⬆️' : 'down ⬇️'}`, false);
     }
 
     function renderCities() {
@@ -5537,6 +5639,58 @@
     const SLW_INQ_DOC_PREFIX = 'SLW_INQ_DOC_';
     let inqQuotationIndex = [];
     let activeHubFilterCategory = 'all';
+    let activeLoadedInqKey = null;
+    let activeLoadedInqData = null;
+
+    function updateActiveInqBanner() {
+        const banner = document.getElementById('activeInqEditBanner');
+        if (!banner) return;
+        if (activeLoadedInqKey && activeLoadedInqData) {
+            banner.classList.remove('hidden');
+            const keyEl = document.getElementById('activeInqBannerKey');
+            const clientEl = document.getElementById('activeInqBannerClient');
+            const paxEl = document.getElementById('activeInqBannerPax');
+            const titleEl = document.getElementById('activeInqBannerTitle');
+            if (keyEl) keyEl.innerText = activeLoadedInqKey;
+            if (clientEl) clientEl.innerText = activeLoadedInqData.clientName || 'Client';
+            if (paxEl) paxEl.innerText = activeLoadedInqData.paxText || '2 Pax';
+            if (titleEl) titleEl.innerText = (activeLoadedInqData.title ? activeLoadedInqData.title + ' • ' : '') + 'Modify prices or services below. Click "Update Quotation" to save changes.';
+        } else {
+            banner.classList.add('hidden');
+        }
+    }
+
+    function clearActiveLoadedInq() {
+        activeLoadedInqKey = null;
+        activeLoadedInqData = null;
+        updateActiveInqBanner();
+        showNotification('ℹ️ Exited quotation editing mode. You can now create a new quotation.', false);
+    }
+
+    function switchToNewInqMode() {
+        activeLoadedInqKey = null;
+        activeLoadedInqData = null;
+        updateActiveInqBanner();
+
+        const titleEl = document.getElementById('saveQuotationModalTitle');
+        if (titleEl) titleEl.innerHTML = '<i class="fas fa-file-invoice-dollar text-indigo-600"></i> Save as INQ Quotation';
+        const subEl = document.getElementById('saveQuotationModalSubtitle');
+        if (subEl) subEl.innerText = 'Saves complete costing calculations and itinerary to Cloud & Local Storage';
+
+        const btnSwitch = document.getElementById('btnSwitchNewInq');
+        if (btnSwitch) btnSwitch.style.display = 'none';
+
+        const btnSubmit = document.getElementById('btnSaveQuotationSubmit');
+        if (btnSubmit) {
+            const span = btnSubmit.querySelector('span');
+            if (span) span.innerText = 'Save Quotation';
+            else btnSubmit.innerText = 'Save Quotation';
+        }
+
+        const inqInput = document.getElementById('saveQuotationInqInput');
+        if (inqInput) inqInput.value = 'INQ-' + Math.floor(10000 + Math.random() * 90000);
+        showNotification('Switched to New Quotation mode. Generated new Inquiry Reference.', false);
+    }
 
     async function initInqQuotationHub() {
         // 1. Load from local cache first (0ms, 0 reads)
@@ -5714,7 +5868,12 @@
         const rawPax = Number(document.getElementById('num_people_transfer')?.value) || Number(document.getElementById('num_people_hotel')?.value) || 2;
         const defaultPaxText = String(rawPax).padStart(2, '0') + ' Pax';
 
-        // 3. Pre-fill modal inputs
+        // 3. Modal Elements & Dynamic Mode (Update vs New)
+        const modalTitle = document.getElementById('saveQuotationModalTitle');
+        const modalSubtitle = document.getElementById('saveQuotationModalSubtitle');
+        const btnSwitchNew = document.getElementById('btnSwitchNewInq');
+        const btnSubmit = document.getElementById('btnSaveQuotationSubmit');
+
         const inqInput = document.getElementById('saveQuotationInqInput');
         const clientInput = document.getElementById('saveQuotationClientInput');
         const phoneInput = document.getElementById('saveQuotationPhoneInput');
@@ -5727,12 +5886,39 @@
         const exportClient = document.getElementById('exportItineraryClient')?.value.trim();
         const exportTitle = document.getElementById('exportItineraryTitle')?.value.trim();
 
-        if (inqInput) inqInput.value = exportInq || ('INQ-' + Math.floor(10000 + Math.random() * 90000));
-        if (clientInput) clientInput.value = exportClient || '';
-        if (phoneInput) phoneInput.value = '';
-        if (titleInput) titleInput.value = exportTitle || defaultTitle;
-        if (dateInput) dateInput.value = new Date().toISOString().split('T')[0];
-        if (paxInput) paxInput.value = defaultPaxText;
+        if (activeLoadedInqKey && activeLoadedInqData) {
+            if (modalTitle) modalTitle.innerHTML = `<i class="fas fa-edit text-amber-500"></i> Update Quotation: ${activeLoadedInqKey}`;
+            if (modalSubtitle) modalSubtitle.innerText = 'Overwrites and updates this quotation with your modified prices, tours, and services';
+            if (btnSwitchNew) btnSwitchNew.style.display = 'inline-flex';
+            if (btnSubmit) {
+                const s = btnSubmit.querySelector('span');
+                if (s) s.innerText = `Update Quotation (${activeLoadedInqKey})`;
+                else btnSubmit.innerText = `Update Quotation (${activeLoadedInqKey})`;
+            }
+
+            if (inqInput) inqInput.value = activeLoadedInqKey;
+            if (clientInput) clientInput.value = activeLoadedInqData.clientName || exportClient || '';
+            if (phoneInput) phoneInput.value = activeLoadedInqData.clientPhone || '';
+            if (titleInput) titleInput.value = activeLoadedInqData.title || exportTitle || defaultTitle;
+            if (dateInput) dateInput.value = activeLoadedInqData.date || new Date().toISOString().split('T')[0];
+            if (paxInput) paxInput.value = activeLoadedInqData.paxText || defaultPaxText;
+        } else {
+            if (modalTitle) modalTitle.innerHTML = `<i class="fas fa-file-invoice-dollar text-indigo-600"></i> Save as INQ Quotation`;
+            if (modalSubtitle) modalSubtitle.innerText = 'Saves complete costing calculations and itinerary to Cloud & Local Storage';
+            if (btnSwitchNew) btnSwitchNew.style.display = 'none';
+            if (btnSubmit) {
+                const s = btnSubmit.querySelector('span');
+                if (s) s.innerText = 'Save Quotation';
+                else btnSubmit.innerText = 'Save Quotation';
+            }
+
+            if (inqInput) inqInput.value = exportInq || ('INQ-' + Math.floor(10000 + Math.random() * 90000));
+            if (clientInput) clientInput.value = exportClient || '';
+            if (phoneInput) phoneInput.value = '';
+            if (titleInput) titleInput.value = exportTitle || defaultTitle;
+            if (dateInput) dateInput.value = new Date().toISOString().split('T')[0];
+            if (paxInput) paxInput.value = defaultPaxText;
+        }
 
         // 4. Update preview counts and rates
         const countsEl = document.getElementById('saveQuotationPreviewCounts');
@@ -5838,6 +6024,19 @@
 
             // 2. Build full document payload
             const nowIso = new Date().toISOString();
+
+            // Check for existing document to preserve createdAt and googleSheetUrl
+            let existingCreatedAt = nowIso;
+            let existingSheetUrl = null;
+            try {
+                const existingRaw = localStorage.getItem(SLW_INQ_DOC_PREFIX + inqKey);
+                if (existingRaw) {
+                    const parsedExisting = JSON.parse(existingRaw);
+                    if (parsedExisting.createdAt) existingCreatedAt = parsedExisting.createdAt;
+                    if (parsedExisting.googleSheetUrl) existingSheetUrl = parsedExisting.googleSheetUrl;
+                }
+            } catch(e) {}
+
             const fullDoc = {
                 inq: inqKey,
                 clientName: clientName,
@@ -5867,8 +6066,11 @@
                 itinerary: itineraryPayload,
                 pricingSummary: pricingSummary,
                 updatedAt: nowIso,
-                createdAt: nowIso
+                createdAt: existingCreatedAt
             };
+            if (existingSheetUrl) {
+                fullDoc.googleSheetUrl = existingSheetUrl;
+            }
 
             // Calculate byte size
             const sizeBytes = new Blob([JSON.stringify(fullDoc)]).size;
@@ -5928,6 +6130,9 @@
             if (document.getElementById('exportItineraryTitle')) document.getElementById('exportItineraryTitle').value = title;
 
             closeModal('saveQuotationModal');
+            activeLoadedInqKey = inqKey;
+            activeLoadedInqData = fullDoc;
+            updateActiveInqBanner();
             showNotification('✅ Successfully saved Quotation [' + inqKey + '] for ' + clientName + ' to Cloud & Local Storage!', false);
 
             // If user clicked "Save & Open Itinerary"
@@ -6022,6 +6227,11 @@
         if (document.getElementById('exportItineraryPax')) document.getElementById('exportItineraryPax').value = docData.paxText || '';
         if (document.getElementById('exportItineraryDate')) document.getElementById('exportItineraryDate').value = docData.date || '';
 
+        // Set active loaded quotation state for banner and re-saving
+        activeLoadedInqKey = docData.inq || inqKey;
+        activeLoadedInqData = docData;
+        updateActiveInqBanner();
+
         closeModal('quotationHubModal');
         showNotification('⚡ Loaded Quotation [' + docData.inq + '] (' + docData.clientName + ') into Costing! All prices restored.', false);
         document.getElementById('results')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -6084,6 +6294,10 @@
         localStorage.removeItem(SLW_INQ_DOC_PREFIX + inqKey);
         inqQuotationIndex = inqQuotationIndex.filter(i => i.inq !== inqKey);
         localStorage.setItem(SLW_INQ_INDEX_STORAGE_KEY, JSON.stringify(inqQuotationIndex));
+
+        if (activeLoadedInqKey === inqKey) {
+            clearActiveLoadedInq();
+        }
 
         updateQuotationHubCountBadge();
         updateQuotationStorageStats();
@@ -6172,8 +6386,11 @@
                                 <i class="fas fa-copy"></i>
                             </button>
                         </div>
-                        <div class="flex items-center gap-2">
+                        <div class="flex items-center gap-1.5">
                             <span class="text-[11px] font-semibold text-gray-500">${dateStr}</span>
+                            <button onclick="loadInqQuotationIntoCosting('${item.inq}')" class="w-6 h-6 flex items-center justify-center text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition" title="Edit quotation ${item.inq}">
+                                <i class="fas fa-edit text-xs text-indigo-500"></i>
+                            </button>
                             <button onclick="deleteInqQuotation('${item.inq}')" class="w-6 h-6 flex items-center justify-center text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition" title="Delete quotation ${item.inq}">
                                 <i class="fas fa-trash-alt text-xs text-red-500"></i>
                             </button>
@@ -6219,8 +6436,8 @@
 
                 <!-- Card Actions -->
                 <div class="p-2.5 bg-gray-50/60 border-t border-gray-100 flex items-center justify-between gap-1.5">
-                    <button onclick="loadInqQuotationIntoCosting('${item.inq}')" class="flex-1 min-w-0 py-1.5 px-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg text-xs shadow-2xs transition flex items-center justify-center gap-1" title="Load into Tour Costing Calculator">
-                        <i class="fas fa-bolt text-amber-300"></i> <span class="truncate">Costing</span>
+                    <button onclick="loadInqQuotationIntoCosting('${item.inq}')" class="flex-1 min-w-0 py-1.5 px-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg text-xs shadow-2xs transition flex items-center justify-center gap-1" title="Edit / Load into Tour Costing Calculator">
+                        <i class="fas fa-edit text-amber-300"></i> <span class="truncate">Edit / Costing</span>
                     </button>
                     <button onclick="openInqQuotationItinerary('${item.inq}')" class="flex-1 min-w-0 py-1.5 px-2 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-lg text-xs shadow-2xs transition flex items-center justify-center gap-1" title="Open in Tour Itinerary Builder">
                         <i class="fas fa-route"></i> <span class="truncate">Itinerary</span>
@@ -6393,7 +6610,12 @@
         const transferPax = Math.max(1, Number(document.getElementById('num_people_transfer')?.value) || 2);
         const hotelDivisor = Math.max(1, Number(document.getElementById('num_people_hotel')?.value) || 2);
         const rawPax = transferPax;
-        const paxText = String(transferPax).padStart(2, '0') + ' Pax';
+        
+        let paxText = (document.getElementById('saveQuotationPaxInput')?.value || document.getElementById('exportItineraryPax')?.value || '').trim();
+        if (!paxText) {
+            paxText = String(transferPax).padStart(2, '0') + ' Pax';
+        }
+
         const inq = (document.getElementById('saveQuotationInqInput')?.value || document.getElementById('exportItineraryInq')?.value || ('INQ-' + Math.floor(10000 + Math.random() * 90000))).trim();
         
         let defaultTitle = '';
@@ -6411,6 +6633,29 @@
         const m3 = parseFloat(document.getElementById('markup_pct_adult_3star')?.value) || globalMarkup;
         const mMix = parseFloat(document.getElementById('markup_pct_adult_mix')?.value) || globalMarkup;
         const m4 = parseFloat(document.getElementById('markup_pct_adult_4star')?.value) || globalMarkup;
+        const m3ChildExtra = parseFloat(document.getElementById('markup_pct_child_extra_3star')?.value) || m3;
+        const m3ChildShare = parseFloat(document.getElementById('markup_pct_child_sharing_3star')?.value) || m3;
+        const mMixChildExtra = parseFloat(document.getElementById('markup_pct_child_extra_mix')?.value) || mMix;
+        const mMixChildShare = parseFloat(document.getElementById('markup_pct_child_sharing_mix')?.value) || mMix;
+        const m4ChildExtra = parseFloat(document.getElementById('markup_pct_child_extra_4star')?.value) || m4;
+        const m4ChildShare = parseFloat(document.getElementById('markup_pct_child_sharing_4star')?.value) || m4;
+
+        let rawDate = (document.getElementById('saveQuotationDateInput')?.value || document.getElementById('exportItineraryDate')?.value || '').trim();
+        let formattedMonthDate = '';
+        if (rawDate && rawDate.includes('-')) {
+            const parts = rawDate.split('-');
+            if (parts.length === 3) {
+                const d = new Date(rawDate);
+                if (!isNaN(d.getTime())) {
+                    formattedMonthDate = d.toLocaleString('en-US', { month: 'short' }) + '-' + d.getFullYear();
+                }
+            } else if (parts.length === 2) {
+                formattedMonthDate = rawDate;
+            }
+        }
+        if (!formattedMonthDate) {
+            formattedMonthDate = new Date().toLocaleString('en-US', { month: 'short' }) + '-' + new Date().getFullYear();
+        }
 
         const mixCard = document.getElementById('result_card_mix');
         const isMixActive = mixCard && mixCard.style.display !== 'none';
@@ -6452,11 +6697,17 @@
             hotelDivisor: hotelDivisor,
             paxText: paxText,
             inq: inq,
-            monthDate: new Date().toLocaleString('en-US', { month: 'short' }) + '-' + new Date().getFullYear(),
+            monthDate: formattedMonthDate,
             roe: roe,
             markup3: m3,
             markupMix: mMix,
             markup4: m4,
+            markupChildExtra3: m3ChildExtra,
+            markupChildShare3: m3ChildShare,
+            markupChildExtraMix: mMixChildExtra,
+            markupChildShareMix: mMixChildShare,
+            markupChildExtra4: m4ChildExtra,
+            markupChildShare4: m4ChildShare,
             buffer: 1000,
             hasMix: isMixActive,
             hasChildPrices: hasChildPrices,
@@ -6622,6 +6873,30 @@
             const m3 = parseFloat(cardMarkups['3star']?.adult?.pct) || defaultMarkup;
             const mMix = parseFloat(cardMarkups['mix']?.adult?.pct) || defaultMarkup;
             const m4 = parseFloat(cardMarkups['4star']?.adult?.pct) || defaultMarkup;
+            const m3Extra = parseFloat(cardMarkups['3star']?.child_extra?.pct) || m3;
+            const m3Share = parseFloat(cardMarkups['3star']?.child_sharing?.pct) || m3;
+            const mMixExtra = parseFloat(cardMarkups['mix']?.child_extra?.pct) || mMix;
+            const mMixShare = parseFloat(cardMarkups['mix']?.child_sharing?.pct) || mMix;
+            const m4Extra = parseFloat(cardMarkups['4star']?.child_extra?.pct) || m4;
+            const m4Share = parseFloat(cardMarkups['4star']?.child_sharing?.pct) || m4;
+
+            let formattedMonthDate = '';
+            const rawDocDate = docData.date || '';
+            if (rawDocDate && rawDocDate.includes('-')) {
+                const parts = rawDocDate.split('-');
+                if (parts.length === 3) {
+                    const d = new Date(rawDocDate);
+                    if (!isNaN(d.getTime())) {
+                        formattedMonthDate = d.toLocaleString('en-US', { month: 'short' }) + '-' + d.getFullYear();
+                    }
+                } else if (parts.length === 2) {
+                    formattedMonthDate = rawDocDate;
+                }
+            }
+            if (!formattedMonthDate) {
+                formattedMonthDate = new Date().toLocaleString('en-US', { month: 'short' }) + '-' + new Date().getFullYear();
+            }
+
             const paxText = docData.paxText || (String(transferPax).padStart(2, '0') + ' Pax');
 
             const payload = {
@@ -6631,11 +6906,17 @@
                 hotelDivisor: hotelDivisor,
                 paxText: paxText,
                 inq: docData.inq || inqKey,
-                monthDate: docData.date || (new Date().toLocaleString('en-US', { month: 'short' }) + '-' + new Date().getFullYear()),
+                monthDate: formattedMonthDate,
                 roe: roe,
                 markup3: m3,
                 markupMix: mMix,
                 markup4: m4,
+                markupChildExtra3: m3Extra,
+                markupChildShare3: m3Share,
+                markupChildExtraMix: mMixExtra,
+                markupChildShareMix: mMixShare,
+                markupChildExtra4: m4Extra,
+                markupChildShare4: m4Share,
                 buffer: 1000,
                 hasMix: isMixActive,
                 hasChildPrices: hasChild,
@@ -6735,6 +7016,30 @@
             const m3 = parseFloat(cardMarkups['3star']?.adult?.pct) || defaultMarkup;
             const mMix = parseFloat(cardMarkups['mix']?.adult?.pct) || defaultMarkup;
             const m4 = parseFloat(cardMarkups['4star']?.adult?.pct) || defaultMarkup;
+            const m3Extra = parseFloat(cardMarkups['3star']?.child_extra?.pct) || m3;
+            const m3Share = parseFloat(cardMarkups['3star']?.child_sharing?.pct) || m3;
+            const mMixExtra = parseFloat(cardMarkups['mix']?.child_extra?.pct) || mMix;
+            const mMixShare = parseFloat(cardMarkups['mix']?.child_sharing?.pct) || mMix;
+            const m4Extra = parseFloat(cardMarkups['4star']?.child_extra?.pct) || m4;
+            const m4Share = parseFloat(cardMarkups['4star']?.child_sharing?.pct) || m4;
+
+            let formattedMonthDate = '';
+            const rawDocDate = docData.date || '';
+            if (rawDocDate && rawDocDate.includes('-')) {
+                const parts = rawDocDate.split('-');
+                if (parts.length === 3) {
+                    const d = new Date(rawDocDate);
+                    if (!isNaN(d.getTime())) {
+                        formattedMonthDate = d.toLocaleString('en-US', { month: 'short' }) + '-' + d.getFullYear();
+                    }
+                } else if (parts.length === 2) {
+                    formattedMonthDate = rawDocDate;
+                }
+            }
+            if (!formattedMonthDate) {
+                formattedMonthDate = new Date().toLocaleString('en-US', { month: 'short' }) + '-' + new Date().getFullYear();
+            }
+
             const paxText = docData.paxText || (String(transferPax).padStart(2, '0') + ' Pax');
 
             const payload = {
@@ -6744,11 +7049,17 @@
                 hotelDivisor: hotelDivisor,
                 paxText: paxText,
                 inq: docData.inq || inqKey,
-                monthDate: docData.date || (new Date().toLocaleString('en-US', { month: 'short' }) + '-' + new Date().getFullYear()),
+                monthDate: formattedMonthDate,
                 roe: roe,
                 markup3: m3,
                 markupMix: mMix,
                 markup4: m4,
+                markupChildExtra3: m3Extra,
+                markupChildShare3: m3Share,
+                markupChildExtraMix: mMixExtra,
+                markupChildShareMix: mMixShare,
+                markupChildExtra4: m4Extra,
+                markupChildShare4: m4Share,
                 buffer: 1000,
                 hasMix: isMixActive,
                 hasChildPrices: hasChild,

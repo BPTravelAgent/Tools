@@ -248,6 +248,12 @@
         const markup3 = (payload.markup3 !== undefined && payload.markup3 !== null && !isNaN(Number(payload.markup3))) ? Number(payload.markup3) : 18;
         const markupMix = (payload.markupMix !== undefined && payload.markupMix !== null && !isNaN(Number(payload.markupMix))) ? Number(payload.markupMix) : 20;
         const markup4 = (payload.markup4 !== undefined && payload.markup4 !== null && !isNaN(Number(payload.markup4))) ? Number(payload.markup4) : 25;
+        const markupChildExtra3 = (!isNaN(Number(payload.markupChildExtra3)) && payload.markupChildExtra3 !== null) ? Number(payload.markupChildExtra3) : markup3;
+        const markupChildShare3 = (!isNaN(Number(payload.markupChildShare3)) && payload.markupChildShare3 !== null) ? Number(payload.markupChildShare3) : markup3;
+        const markupChildExtraMix = (!isNaN(Number(payload.markupChildExtraMix)) && payload.markupChildExtraMix !== null) ? Number(payload.markupChildExtraMix) : markupMix;
+        const markupChildShareMix = (!isNaN(Number(payload.markupChildShareMix)) && payload.markupChildShareMix !== null) ? Number(payload.markupChildShareMix) : markupMix;
+        const markupChildExtra4 = (!isNaN(Number(payload.markupChildExtra4)) && payload.markupChildExtra4 !== null) ? Number(payload.markupChildExtra4) : markup4;
+        const markupChildShare4 = (!isNaN(Number(payload.markupChildShare4)) && payload.markupChildShare4 !== null) ? Number(payload.markupChildShare4) : markup4;
         const buffer = (!isNaN(Number(payload.buffer)) && payload.buffer !== null && payload.buffer !== undefined) ? Number(payload.buffer) : 1000;
 
         // Cities, Tours, Transfers & Days
@@ -371,6 +377,8 @@
             title: '    3* Hotel ',
             headerColor: COLORS.HEADER_GREEN,
             markup: markup3,
+            extraMarkup: markupChildExtra3,
+            shareMarkup: markupChildShare3,
             priceKey: 'p3',
             cardLabel: '3* Hotel Options',
             cardColor: COLORS.MARKUP_ORANGE,
@@ -394,6 +402,8 @@
                 title: '   Mix Hotel ',
                 headerColor: COLORS.HEADER_MAUVE,
                 markup: markupMix,
+                extraMarkup: markupChildExtraMix,
+                shareMarkup: markupChildShareMix,
                 priceKey: 'pMix',
                 cardLabel: 'Mix Hotel Options',
                 cardColor: COLORS.CARD_YELLOW,
@@ -415,6 +425,8 @@
                 title: '    4* Hotel ',
                 headerColor: COLORS.HEADER_MAUVE,
                 markup: markup4,
+                extraMarkup: markupChildExtra4,
+                shareMarkup: markupChildShare4,
                 priceKey: 'p4',
                 cardLabel: '4* Hotel Options',
                 cardColor: COLORS.CARD_YELLOW,
@@ -437,6 +449,8 @@
                 title: '    4* Hotel ',
                 headerColor: COLORS.HEADER_MAUVE,
                 markup: markup4,
+                extraMarkup: markupChildExtra4,
+                shareMarkup: markupChildShare4,
                 priceKey: 'p4',
                 cardLabel: '4* Hotel Options',
                 cardColor: COLORS.CARD_YELLOW,
@@ -509,22 +523,35 @@
             }
         }
 
-        // ── ROW 2: Tour Name Header ──
+        // ── ROW 2: Tour Name Header (Matches User Design) ──
         const r2 = ws.getRow(2);
         const cellC2 = r2.getCell(3);
         cellC2.value = tourTitle;
         cellC2.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF000000' } };
         cellC2.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.TITLE_GREEN } };
+        const cellD2 = r2.getCell(4);
+        cellD2.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.TITLE_GREEN } };
 
-        // ── ROW 3: Pax & Inquiry Ref ──
+        // ── ROW 3: Pax, Child info, Month & Inquiry Ref (Matches User Screenshot: 02Pax-01Child(7y)-Dec-2026 | INQ-20177) ──
         const r3 = ws.getRow(3);
         const cellC3 = r3.getCell(3);
-        cellC3.value = `${paxStr}  ${dateStr}`;
+        const cleanPaxForHeader = (payload.paxText || paxStr || '').trim().replace(/\s*-\s*/g, '-').replace(/\s+/g, '');
+        const cleanDateForHeader = (dateStr || '').trim().replace(/\s+/g, '');
+        cellC3.value = (cleanPaxForHeader && cleanDateForHeader) ? `${cleanPaxForHeader}-${cleanDateForHeader}` : (cleanPaxForHeader || cleanDateForHeader);
         cellC3.font = { name: 'Calibri', size: 11, bold: false };
 
         const cellD3 = r3.getCell(4);
-        cellD3.value = inqRef;
+        let displayInq = (inqRef || '').trim();
+        if (displayInq && !displayInq.toUpperCase().startsWith('INQ-')) {
+            if (displayInq.toUpperCase().startsWith('INQ')) {
+                displayInq = displayInq.replace(/^INQ\s*-?\s*/i, 'INQ-');
+            } else {
+                displayInq = 'INQ-' + displayInq;
+            }
+        }
+        cellD3.value = displayInq;
         cellD3.font = { name: 'Calibri', size: 11, bold: true };
+        cellD3.alignment = { horizontal: 'right' };
 
         // Night & City Mapping
         const totalNights = cities.reduce((sum, c) => sum + (Number(c.numberOfNights) || 1), 0);
@@ -1167,7 +1194,7 @@
             if (hasChildPrices) {
                 // Child Extra Bed: Tour + Hotel / 2 (no transfer)
                 hCol.netExtra = Math.round((tourSum + hCol.hotelPerPax) * 100) / 100;
-                hCol.thbExtra = Math.round(hCol.netExtra * (100 + hCol.markup) / 100 * 100) / 100;
+                hCol.thbExtra = Math.round(hCol.netExtra * (100 + hCol.extraMarkup) / 100 * 100) / 100;
                 hCol.diffExtra = Math.round((hCol.thbExtra - hCol.netExtra) * 100) / 100;
                 hCol.lkrExtra = Math.round(hCol.thbExtra * roe * 100) / 100;
                 hCol.roundExtra = Math.ceil(hCol.lkrExtra / 100) * 100;
@@ -1175,7 +1202,7 @@
 
                 // Child Sharing Bed: Tour + Child Meals (no hotel, no transfer)
                 hCol.netShare = Math.round((tourSum + hCol.childMealSum) * 100) / 100;
-                hCol.thbShare = Math.round(hCol.netShare * (100 + hCol.markup) / 100 * 100) / 100;
+                hCol.thbShare = Math.round(hCol.netShare * (100 + hCol.shareMarkup) / 100 * 100) / 100;
                 hCol.diffShare = Math.round((hCol.thbShare - hCol.netShare) * 100) / 100;
                 hCol.lkrShare = Math.round(hCol.thbShare * roe * 100) / 100;
                 hCol.roundShare = Math.ceil(hCol.lkrShare / 100) * 100;
@@ -1393,13 +1420,13 @@
             const shareLabelCol = hasMix ? 19 : 17;
             const spacerCol = hasMix ? 17 : 15;
 
-            rInc2.getCell(extraLabelCol).value = `${hotelCols[0].markup}%`;
+            rInc2.getCell(extraLabelCol).value = `${hotelCols[0].extraMarkup}%`;
             rInc2.getCell(extraLabelCol).font = { name: 'Calibri', size: 11, bold: true };
             rInc2.getCell(extraLabelCol).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.MARKUP_ORANGE } };
             rInc2.getCell(extraLabelCol).alignment = { horizontal: 'center' };
             rInc2.getCell(extraLabelCol).border = BORDER_THIN;
 
-            rInc2.getCell(shareLabelCol).value = `${hotelCols[0].markup}%`;
+            rInc2.getCell(shareLabelCol).value = `${hotelCols[0].shareMarkup}%`;
             rInc2.getCell(shareLabelCol).font = { name: 'Calibri', size: 11, bold: true };
             rInc2.getCell(shareLabelCol).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.MARKUP_ORANGE } };
             rInc2.getCell(shareLabelCol).alignment = { horizontal: 'center' };
@@ -1408,12 +1435,12 @@
             rInc2.getCell(spacerCol).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.WHITE } };
 
             hotelCols.forEach(hCol => {
-                rInc2.getCell(hCol.extraCol).value = { formula: `SUM(${hCol.extraLetter}${netRowIdx}*${(100 + hCol.markup)}/100)`, result: hCol.thbExtra };
+                rInc2.getCell(hCol.extraCol).value = { formula: `SUM(${hCol.extraLetter}${netRowIdx}*${(100 + hCol.extraMarkup)}/100)`, result: hCol.thbExtra };
                 rInc2.getCell(hCol.extraCol).font = { name: 'Calibri', size: 11, bold: true };
                 rInc2.getCell(hCol.extraCol).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.MARKUP_ORANGE } };
                 rInc2.getCell(hCol.extraCol).border = BORDER_THIN;
 
-                rInc2.getCell(hCol.shareCol).value = { formula: `SUM(${hCol.shareLetter}${netRowIdx}*${(100 + hCol.markup)}/100)`, result: hCol.thbShare };
+                rInc2.getCell(hCol.shareCol).value = { formula: `SUM(${hCol.shareLetter}${netRowIdx}*${(100 + hCol.shareMarkup)}/100)`, result: hCol.thbShare };
                 rInc2.getCell(hCol.shareCol).font = { name: 'Calibri', size: 11, bold: true };
                 rInc2.getCell(hCol.shareCol).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.MARKUP_ORANGE } };
                 rInc2.getCell(hCol.shareCol).border = BORDER_THIN;
@@ -1898,6 +1925,25 @@
     }
 
     /**
+     * Standardized Document and File Naming (Google Sheet & Excel)
+     * Format: <Title>-<Pax & Child>-<Month/Year>-<INQ>
+     * Example: 04N 05D Bangkok-02Pax-01Child(7y)-Dec-2026-20177
+     */
+    function buildCostingDocFilename(payload) {
+        if (!payload) return 'Tour-Costing';
+        const rawTitle = (payload.title || 'Tour Quotation').trim().replace(/[\\/:*?"<>|]/g, '').replace(/\s+/g, ' ');
+        const rawPax = (payload.paxText || (String(payload.transferPax || payload.pax || 2).padStart(2, '0') + 'Pax')).trim().replace(/\s*-\s*/g, '-').replace(/\s+/g, '');
+        const rawDate = (payload.monthDate || (new Date().toLocaleString('en-US', { month: 'short' }) + '-' + new Date().getFullYear())).trim().replace(/\s+/g, '');
+        
+        let rawInq = (payload.inq || '').trim();
+        const digitsMatch = rawInq.match(/\d+/);
+        const cleanInq = digitsMatch ? digitsMatch[0] : rawInq.replace(/[^a-zA-Z0-9]/g, '');
+
+        const parts = [rawTitle, rawPax, rawDate, cleanInq].filter(Boolean);
+        return parts.join('-');
+    }
+
+    /**
      * Browser Download Trigger
      * @param {Object} payload 
      * @param {string} customFilename 
@@ -1906,10 +1952,8 @@
         const wb = await createCostingWorkbook(payload);
         const buffer = await wb.xlsx.writeBuffer();
 
-        const inqPart = (payload.inq || 'INQ').replace(/[^a-zA-Z0-9_-]/g, '');
-        const titlePart = (payload.title || 'Tour_Costing').replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 30);
-        const paxPart = (payload.paxText || '02Pax').replace(/[^a-zA-Z0-9_-]/g, '');
-        const filename = customFilename || `${titlePart}-${paxPart}-${inqPart}.xlsx`;
+        const defaultBaseName = buildCostingDocFilename(payload);
+        const filename = customFilename || `${defaultBaseName}.xlsx`;
 
         const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
         const url = window.URL.createObjectURL(blob);
@@ -1961,10 +2005,7 @@
         }
 
         const base64 = await generateCostingExcelBase64(payload);
-        const inqPart = (payload.inq || 'INQ').replace(/[^a-zA-Z0-9_-]/g, '');
-        const titlePart = (payload.title || 'Tour_Costing').replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 30);
-        const paxPart = (payload.paxText || '02Pax').replace(/[^a-zA-Z0-9_-]/g, '');
-        const filename = options.customFilename || `${titlePart} (${paxPart}) - ${inqPart}`;
+        const filename = options.customFilename || buildCostingDocFilename(payload);
         const folderName = options.folderName || 'BP Travel Costings';
 
         const postBody = {
@@ -1997,6 +2038,7 @@
         createCostingWorkbook,
         downloadCostingExcel,
         generateCostingExcelBase64,
-        exportToGoogleSheets
+        exportToGoogleSheets,
+        buildCostingDocFilename
     };
 }));
