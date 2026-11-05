@@ -2006,8 +2006,46 @@ function slwGoHome() {
         }
 
         // Restore latest costing prices as well
+        const allowChildExtra = Boolean(docData.includeChildExtraBed ?? (docData.costing?.includeChildExtraBed ?? (docData.rates?.childExtra3 || false)));
+        const allowChildShare = Boolean(docData.includeChildSharingBed ?? (docData.costing?.includeChildSharingBed ?? (docData.rates?.childShare3 || false)));
+        const hasChildPrices = Boolean(docData.hasChildPrices ?? (allowChildExtra || allowChildShare));
+
         if (docData.pricingSummary) {
+            docData.pricingSummary.hasChildPrices = hasChildPrices;
+            docData.pricingSummary.includeChildExtraBed = allowChildExtra;
+            docData.pricingSummary.includeChildSharingBed = allowChildShare;
+            if (!allowChildExtra) {
+                if (docData.pricingSummary.prices3Star) docData.pricingSummary.prices3Star.childExtra = null;
+                if (docData.pricingSummary.prices4Star) docData.pricingSummary.prices4Star.childExtra = null;
+                if (docData.pricingSummary.pricesMix) docData.pricingSummary.pricesMix.childExtra = null;
+                if (docData.pricingSummary.prices5Star) docData.pricingSummary.prices5Star.childExtra = null;
+            }
+            if (!allowChildShare) {
+                if (docData.pricingSummary.prices3Star) docData.pricingSummary.prices3Star.childShare = null;
+                if (docData.pricingSummary.prices4Star) docData.pricingSummary.prices4Star.childShare = null;
+                if (docData.pricingSummary.pricesMix) docData.pricingSummary.pricesMix.childShare = null;
+                if (docData.pricingSummary.prices5Star) docData.pricingSummary.prices5Star.childShare = null;
+            }
             localStorage.setItem('SLW_LATEST_COSTING_PRICES', JSON.stringify(docData.pricingSummary));
+        }
+
+        if (docData.itinerary && Array.isArray(docData.itinerary.options)) {
+            docData.itinerary.hasChildPrices = hasChildPrices;
+            docData.itinerary.includeChildExtraBed = allowChildExtra;
+            docData.itinerary.includeChildSharingBed = allowChildShare;
+            docData.itinerary.options.forEach(opt => {
+                (opt.hotels || []).forEach(h => {
+                    if (Array.isArray(h.prices)) {
+                        h.prices = h.prices.filter(p => {
+                            const l = (p.label || '').toLowerCase();
+                            if (l.includes('extra bed') && !allowChildExtra) return false;
+                            if ((l.includes('sharing') || l.includes('no bed')) && !allowChildShare) return false;
+                            if ((l.includes('child') || l.includes('kid')) && !allowChildExtra && !allowChildShare) return false;
+                            return true;
+                        });
+                    }
+                });
+            });
         }
 
         slwInjectItineraryIntoReact(docData.itinerary, inqKey + '.json');
@@ -2393,9 +2431,36 @@ window.slwDownloadCostingExcelFromBuilder = async function() {
         }
 
         // 7b. Determine Child Pricing Presence & Labels
-        let hasChildPrices = false;
-        let childExtraLabel = 'Per Child (With Extra Bed)';
-        let childShareLabel = 'Per Child (Sharing Bed)';
+        let allowChildExtra = false;
+        let allowChildShare = false;
+
+        if (docData) {
+            if (docData.includeChildExtraBed !== undefined) allowChildExtra = Boolean(docData.includeChildExtraBed);
+            else if (docData.costing?.includeChildExtraBed !== undefined) allowChildExtra = Boolean(docData.costing.includeChildExtraBed);
+            else if (docData.rates?.childExtra3) allowChildExtra = true;
+
+            if (docData.includeChildSharingBed !== undefined) allowChildShare = Boolean(docData.includeChildSharingBed);
+            else if (docData.costing?.includeChildSharingBed !== undefined) allowChildShare = Boolean(docData.costing.includeChildSharingBed);
+            else if (docData.rates?.childShare3) allowChildShare = true;
+        }
+
+        if (costing) {
+            if (costing.includeChildExtraBed !== undefined) allowChildExtra = Boolean(costing.includeChildExtraBed);
+            if (costing.includeChildSharingBed !== undefined) allowChildShare = Boolean(costing.includeChildSharingBed);
+        }
+
+        if (docData && docData.hasChildPrices === false) {
+            allowChildExtra = false;
+            allowChildShare = false;
+        }
+        if (costing && costing.hasChildPrices === false) {
+            allowChildExtra = false;
+            allowChildShare = false;
+        }
+
+        let hasChildPrices = (allowChildExtra || allowChildShare);
+        let childExtraLabel = (costing && costing.childExtraLabel) || (docData && docData.childExtraLabel) || 'Per Child (With Extra Bed)';
+        let childShareLabel = (costing && costing.childShareLabel) || (docData && docData.childShareLabel) || 'Per Child (Sharing Bed)';
 
         const checkOptions = liveData.options || (docData && docData.itinerary && docData.itinerary.options) || [];
         if (Array.isArray(checkOptions)) {
@@ -2404,18 +2469,11 @@ window.slwDownloadCostingExcelFromBuilder = async function() {
                     (h.prices || []).forEach(p => {
                         const l = (p.label || '').trim();
                         const lNorm = l.toLowerCase();
-                        const a = String(p.amount || '');
-                        if ((lNorm.includes('child') || lNorm.includes('extra bed') || lNorm.includes('sharing')) && a && a !== 'LKR 0' && a !== '0') {
-                            hasChildPrices = true;
-                        }
                         if (lNorm.includes('extra bed') && l.length > 5) childExtraLabel = l;
                         if (lNorm.includes('sharing') && l.length > 5) childShareLabel = l;
                     });
                 });
             });
-        }
-        if (!hasChildPrices && costing && costing.hasChildPrices) {
-            hasChildPrices = true;
         }
 
         // 8. Build Complete Payload with Live Finalized Days
@@ -2432,6 +2490,8 @@ window.slwDownloadCostingExcelFromBuilder = async function() {
             buffer: (costing && costing.buffer !== undefined) ? costing.buffer : 1000,
             hasMix: hasMix,
             hasChildPrices: hasChildPrices,
+            includeChildExtraBed: allowChildExtra,
+            includeChildSharingBed: allowChildShare,
             childExtraLabel: childExtraLabel,
             childShareLabel: childShareLabel,
             cities: cities,
@@ -2466,16 +2526,31 @@ window.slwDownloadCostingExcelFromBuilder = async function() {
 };
 
 window.slwApplyCostingPrices = function(targetOptionIndex = 0) {
-        const pricingJson = localStorage.getItem('SLW_LATEST_COSTING_PRICES');
-        if (!pricingJson) {
-            slwShowError("Tour Costing මිල ගණන් හමු නොවීය! කරුණාකර පළමුව Tour Costing Calculator එකෙන් මිල ගණන් ගණනය කර 'Create Itinerary' ලබා දෙන්න.");
-            return;
+        let costingData = null;
+        const activeInqKey = window.__slwActiveInq || localStorage.getItem('SLW_ACTIVE_INQ');
+        let activeDoc = null;
+        if (activeInqKey) {
+            try {
+                const raw = localStorage.getItem(SLW_INQ_DOC_PREFIX + activeInqKey);
+                if (raw) activeDoc = JSON.parse(raw);
+            } catch(e) {}
         }
-        let costingData;
-        try {
-            costingData = JSON.parse(pricingJson);
-        } catch(e) {
-            slwShowError("Costing data parse error: " + e.message);
+
+        if (activeDoc && activeDoc.pricingSummary) {
+            costingData = activeDoc.pricingSummary;
+        }
+
+        if (!costingData) {
+            const pricingJson = localStorage.getItem('SLW_LATEST_COSTING_PRICES');
+            if (pricingJson) {
+                try {
+                    costingData = JSON.parse(pricingJson);
+                } catch(e) {}
+            }
+        }
+
+        if (!costingData) {
+            slwShowError("Tour Costing මිල ගණන් හමු නොවීය! කරුණාකර පළමුව Tour Costing Calculator එකෙන් මිල ගණන් ගණනය කර 'Create Itinerary' ලබා දෙන්න.");
             return;
         }
 
@@ -2691,6 +2766,62 @@ window.slwApplyCostingPrices = function(targetOptionIndex = 0) {
                     const opt = currentData.options[targetOptIdx] || currentData.options[0];
                     if (!opt.hotels) opt.hotels = [];
 
+                    // 1. Resolve Active INQ Doc if available
+                    const activeInqKey = window.__slwActiveInq || localStorage.getItem('SLW_ACTIVE_INQ');
+                    let activeDoc = null;
+                    if (activeInqKey) {
+                        try {
+                            const raw = localStorage.getItem(SLW_INQ_DOC_PREFIX + activeInqKey);
+                            if (raw) activeDoc = JSON.parse(raw);
+                        } catch(e) {}
+                    }
+
+                    // 2. Determine Child Pricing Permissions
+                    let allowChildExtra = false;
+                    let allowChildShare = false;
+
+                    if (activeDoc) {
+                        if (activeDoc.includeChildExtraBed !== undefined) {
+                            allowChildExtra = Boolean(activeDoc.includeChildExtraBed);
+                        } else if (activeDoc.costing?.includeChildExtraBed !== undefined) {
+                            allowChildExtra = Boolean(activeDoc.costing.includeChildExtraBed);
+                        } else if (activeDoc.rates?.childExtra3) {
+                            allowChildExtra = true;
+                        }
+
+                        if (activeDoc.includeChildSharingBed !== undefined) {
+                            allowChildShare = Boolean(activeDoc.includeChildSharingBed);
+                        } else if (activeDoc.costing?.includeChildSharingBed !== undefined) {
+                            allowChildShare = Boolean(activeDoc.costing.includeChildSharingBed);
+                        } else if (activeDoc.rates?.childShare3) {
+                            allowChildShare = true;
+                        }
+
+                        if (activeDoc.hasChildPrices === false) {
+                            allowChildExtra = false;
+                            allowChildShare = false;
+                        }
+                    }
+
+                    if (costingData.includeChildExtraBed !== undefined) {
+                        allowChildExtra = Boolean(costingData.includeChildExtraBed);
+                    }
+                    if (costingData.includeChildSharingBed !== undefined) {
+                        allowChildShare = Boolean(costingData.includeChildSharingBed);
+                    }
+                    if (costingData.hasChildPrices === false) {
+                        allowChildExtra = false;
+                        allowChildShare = false;
+                    }
+
+                    // Fallback to localStorage toggles if neither doc nor costingData specified flags
+                    if (!activeDoc && costingData.includeChildExtraBed === undefined && costingData.hasChildPrices === undefined) {
+                        const rawExtra = localStorage.getItem('bp_child_opt_extra');
+                        const rawShare = localStorage.getItem('bp_child_opt_share');
+                        if (rawExtra !== null) allowChildExtra = (rawExtra === 'true');
+                        if (rawShare !== null) allowChildShare = (rawShare === 'true');
+                    }
+
                     const pax = costingData.pax || currentData.pax || '02Pax';
                     const childExtraLabel = costingData.childExtraLabel || 'PER CHILD (WITH EXTRA BED)';
                     const childShareLabel = costingData.childShareLabel || 'PER CHILD (SHARING BED)';
@@ -2732,14 +2863,14 @@ window.slwApplyCostingPrices = function(targetOptionIndex = 0) {
                             { label: paxLabel, amount: priceObj.adult }
                         ];
 
-                        if (priceObj.childExtra && priceObj.childExtra !== 'LKR 0') {
+                        if (allowChildExtra && priceObj.childExtra && priceObj.childExtra !== 'LKR 0' && priceObj.childExtra !== 'LKR') {
                             updatedPrices.push({
                                 label: childExtraLabel,
                                 amount: priceObj.childExtra
                             });
                         }
 
-                        if (priceObj.childShare && priceObj.childShare !== 'LKR 0') {
+                        if (allowChildShare && priceObj.childShare && priceObj.childShare !== 'LKR 0' && priceObj.childShare !== 'LKR') {
                             updatedPrices.push({
                                 label: childShareLabel,
                                 amount: priceObj.childShare
@@ -2801,6 +2932,26 @@ window.slwApplyCostingPrices = function(targetOptionIndex = 0) {
                     if (costingData.prices5Star && h5) {
                         applyPricesToHotel(h5, costingData.prices5Star);
                     }
+
+                    // Clean out any disallowed child prices across ALL hotels in the target option
+                    (opt.hotels || []).forEach(h => {
+                        if (Array.isArray(h.prices)) {
+                            h.prices = h.prices.filter(p => {
+                                const l = (p.label || '').toLowerCase();
+                                const isExtra = l.includes('extra bed');
+                                const isShare = l.includes('sharing') || l.includes('no bed');
+                                const isChild = l.includes('child') || l.includes('kid');
+                                if (isExtra && !allowChildExtra) return false;
+                                if (isShare && !allowChildShare) return false;
+                                if (isChild && !allowChildExtra && !allowChildShare) return false;
+                                return true;
+                            });
+                        }
+                    });
+
+                    currentData.hasChildPrices = (allowChildExtra || allowChildShare);
+                    currentData.includeChildExtraBed = allowChildExtra;
+                    currentData.includeChildSharingBed = allowChildShare;
 
                     if (costingData.pax) {
                         currentData.pax = costingData.pax;
@@ -3222,6 +3373,29 @@ window.slwApplyCostingPrices = function(targetOptionIndex = 0) {
 
             // If the pending data has complete days and options, offer direct loading
             if (parsedData && parsedData.days && parsedData.days.length > 0 && parsedData.options && parsedData.options.length > 0) {
+                // Ensure child pricing permissions are strictly enforced
+                const allowChildExtra = Boolean(parsedData.includeChildExtraBed ?? (parsedData.costing?.includeChildExtraBed ?? false));
+                const allowChildShare = Boolean(parsedData.includeChildSharingBed ?? (parsedData.costing?.includeChildSharingBed ?? false));
+                const hasChildPrices = Boolean(parsedData.hasChildPrices ?? (allowChildExtra || allowChildShare));
+
+                parsedData.hasChildPrices = hasChildPrices;
+                parsedData.includeChildExtraBed = allowChildExtra;
+                parsedData.includeChildSharingBed = allowChildShare;
+
+                parsedData.options.forEach(opt => {
+                    (opt.hotels || []).forEach(h => {
+                        if (Array.isArray(h.prices)) {
+                            h.prices = h.prices.filter(p => {
+                                const l = (p.label || '').toLowerCase();
+                                if (l.includes('extra bed') && !allowChildExtra) return false;
+                                if ((l.includes('sharing') || l.includes('no bed')) && !allowChildShare) return false;
+                                if ((l.includes('child') || l.includes('kid')) && !allowChildExtra && !allowChildShare) return false;
+                                return true;
+                            });
+                        }
+                    });
+                });
+
                 setTimeout(() => {
                     const clientName = window.__slwActiveInqClient ? ` (${window.__slwActiveInqClient})` : '';
                     const inqTag = window.__slwActiveInq ? ` [${window.__slwActiveInq}]` : '';

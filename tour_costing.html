@@ -4059,27 +4059,31 @@
             const pMixChildExtraEl = document.getElementById('child_final_lkr_mix');
             const pMixChildShareEl = document.getElementById('child_sharing_final_lkr_mix');
 
+            const includeChildExtra = document.getElementById('check_child_extra_bed')?.checked ?? false;
+            const includeChildShare = document.getElementById('check_child_sharing_bed')?.checked ?? false;
+            const hasChildPrices = Boolean(includeChildExtra || includeChildShare);
+
             const p3Amount = 'LKR ' + cleanLkrNumber(p3El?.innerText);
-            const p3ChildExtra = 'LKR ' + cleanLkrNumber(p3ChildExtraEl?.innerText);
-            const p3ChildShare = 'LKR ' + cleanLkrNumber(p3ChildShareEl?.innerText);
+            const p3ChildExtra = includeChildExtra ? ('LKR ' + cleanLkrNumber(p3ChildExtraEl?.innerText)) : null;
+            const p3ChildShare = includeChildShare ? ('LKR ' + cleanLkrNumber(p3ChildShareEl?.innerText)) : null;
 
             const p4Amount = 'LKR ' + cleanLkrNumber(p4El?.innerText);
-            const p4ChildExtra = 'LKR ' + cleanLkrNumber(p4ChildExtraEl?.innerText);
-            const p4ChildShare = 'LKR ' + cleanLkrNumber(p4ChildShareEl?.innerText);
+            const p4ChildExtra = includeChildExtra ? ('LKR ' + cleanLkrNumber(p4ChildExtraEl?.innerText)) : null;
+            const p4ChildShare = includeChildShare ? ('LKR ' + cleanLkrNumber(p4ChildShareEl?.innerText)) : null;
             const p5El = document.getElementById('adult_final_lkr_5star');
             const p5ChildExtraEl = document.getElementById('child_final_lkr_5star');
             const p5ChildShareEl = document.getElementById('child_sharing_final_lkr_5star');
             const p5Amount = 'LKR ' + cleanLkrNumber(p5El?.innerText);
-            const p5ChildExtra = 'LKR ' + cleanLkrNumber(p5ChildExtraEl?.innerText);
-            const p5ChildShare = 'LKR ' + cleanLkrNumber(p5ChildShareEl?.innerText);
+            const p5ChildExtra = includeChildExtra ? ('LKR ' + cleanLkrNumber(p5ChildExtraEl?.innerText)) : null;
+            const p5ChildShare = includeChildShare ? ('LKR ' + cleanLkrNumber(p5ChildShareEl?.innerText)) : null;
 
             const mixCard = document.getElementById('result_card_mix');
             let mixObj = null;
             if (mixCard && mixCard.style.display !== 'none' && pMixEl && pMixEl.innerText) {
                 mixObj = {
                     adult: 'LKR ' + cleanLkrNumber(pMixEl.innerText),
-                    childExtra: 'LKR ' + cleanLkrNumber(pMixChildExtraEl?.innerText),
-                    childShare: 'LKR ' + cleanLkrNumber(pMixChildShareEl?.innerText),
+                    childExtra: includeChildExtra ? ('LKR ' + cleanLkrNumber(pMixChildExtraEl?.innerText)) : null,
+                    childShare: includeChildShare ? ('LKR ' + cleanLkrNumber(pMixChildShareEl?.innerText)) : null,
                     title: document.getElementById('mix_package_title')?.innerText || 'Custom Mix Option'
                 };
             }
@@ -4092,6 +4096,9 @@
             const summary = {
                 title: payload?.title || document.getElementById('exportItineraryTitle')?.value || 'Tour Package',
                 pax: pax,
+                hasChildPrices: hasChildPrices,
+                includeChildExtraBed: includeChildExtra,
+                includeChildSharingBed: includeChildShare,
                 prices3Star: {
                     adult: p3Amount,
                     childExtra: p3ChildExtra,
@@ -4133,11 +4140,20 @@
         const roe = parseFloat(document.getElementById('lkr_rate')?.value) || 10.8;
         const markupVal = parseFloat(document.getElementById('markup')?.value) || 18;
 
+        const includeChildExtra = document.getElementById('check_child_extra_bed')?.checked ?? false;
+        const includeChildShare = document.getElementById('check_child_sharing_bed')?.checked ?? false;
+        const hasChildPrices = Boolean(includeChildExtra || includeChildShare);
+
         const costingData = {
             availableCities: JSON.parse(JSON.stringify(availableCities.filter(c => c.selected))),
             availableTours: JSON.parse(JSON.stringify(availableTours.filter(t => t.selected))),
             availableTransfers: JSON.parse(JSON.stringify(availableTransfers.filter(t => t.selected))),
             hasMix: isMixActive,
+            hasChildPrices: hasChildPrices,
+            includeChildExtraBed: includeChildExtra,
+            includeChildSharingBed: includeChildShare,
+            childExtraLabel: document.getElementById('exportChildExtraBedLabel')?.value.trim() || 'PER CHILD (WITH EXTRA BED)',
+            childShareLabel: document.getElementById('exportChildSharingBedLabel')?.value.trim() || 'PER CHILD (SHARING BED)',
             roe: roe,
             markup3: markupVal,
             markupMix: 20,
@@ -4146,7 +4162,13 @@
             rates: {
                 p3: cleanLkrNumber(p3Text),
                 pMix: isMixActive ? cleanLkrNumber(pMixText) : null,
-                p4: cleanLkrNumber(p4Text)
+                p4: cleanLkrNumber(p4Text),
+                childExtra3: includeChildExtra ? cleanLkrNumber(document.getElementById('child_final_lkr_3star')?.innerText) : null,
+                childShare3: includeChildShare ? cleanLkrNumber(document.getElementById('child_sharing_final_lkr_3star')?.innerText) : null,
+                childExtra4: includeChildExtra ? cleanLkrNumber(document.getElementById('child_final_lkr_4star')?.innerText) : null,
+                childShare4: includeChildShare ? cleanLkrNumber(document.getElementById('child_sharing_final_lkr_4star')?.innerText) : null,
+                childExtraMix: (includeChildExtra && isMixActive) ? cleanLkrNumber(document.getElementById('child_final_lkr_mix')?.innerText) : null,
+                childShareMix: (includeChildShare && isMixActive) ? cleanLkrNumber(document.getElementById('child_sharing_final_lkr_mix')?.innerText) : null
             }
         };
         payload.costing = costingData;
@@ -6269,10 +6291,48 @@
         localStorage.setItem('SLW_ACTIVE_INQ', docData.inq || inqKey);
         localStorage.setItem('SLW_ACTIVE_INQ_CLIENT', docData.clientName || '');
         localStorage.setItem('SLW_ACTIVE_INQ_TITLE', docData.title || '');
+
+        const allowChildExtra = Boolean(docData.includeChildExtraBed ?? (docData.costing?.includeChildExtraBed ?? (docData.rates?.childExtra3 || false)));
+        const allowChildShare = Boolean(docData.includeChildSharingBed ?? (docData.costing?.includeChildSharingBed ?? (docData.rates?.childShare3 || false)));
+        const hasChildPrices = Boolean(docData.hasChildPrices ?? (allowChildExtra || allowChildShare));
+
         if (docData.itinerary) {
+            docData.itinerary.hasChildPrices = hasChildPrices;
+            docData.itinerary.includeChildExtraBed = allowChildExtra;
+            docData.itinerary.includeChildSharingBed = allowChildShare;
+            if (Array.isArray(docData.itinerary.options)) {
+                docData.itinerary.options.forEach(opt => {
+                    (opt.hotels || []).forEach(h => {
+                        if (Array.isArray(h.prices)) {
+                            h.prices = h.prices.filter(p => {
+                                const l = (p.label || '').toLowerCase();
+                                if (l.includes('extra bed') && !allowChildExtra) return false;
+                                if ((l.includes('sharing') || l.includes('no bed')) && !allowChildShare) return false;
+                                if ((l.includes('child') || l.includes('kid')) && !allowChildExtra && !allowChildShare) return false;
+                                return true;
+                            });
+                        }
+                    });
+                });
+            }
             localStorage.setItem('SLW_PENDING_COSTING_ITINERARY', JSON.stringify(docData.itinerary));
         }
         if (docData.pricingSummary) {
+            docData.pricingSummary.hasChildPrices = hasChildPrices;
+            docData.pricingSummary.includeChildExtraBed = allowChildExtra;
+            docData.pricingSummary.includeChildSharingBed = allowChildShare;
+            if (!allowChildExtra) {
+                if (docData.pricingSummary.prices3Star) docData.pricingSummary.prices3Star.childExtra = null;
+                if (docData.pricingSummary.prices4Star) docData.pricingSummary.prices4Star.childExtra = null;
+                if (docData.pricingSummary.pricesMix) docData.pricingSummary.pricesMix.childExtra = null;
+                if (docData.pricingSummary.prices5Star) docData.pricingSummary.prices5Star.childExtra = null;
+            }
+            if (!allowChildShare) {
+                if (docData.pricingSummary.prices3Star) docData.pricingSummary.prices3Star.childShare = null;
+                if (docData.pricingSummary.prices4Star) docData.pricingSummary.prices4Star.childShare = null;
+                if (docData.pricingSummary.pricesMix) docData.pricingSummary.pricesMix.childShare = null;
+                if (docData.pricingSummary.prices5Star) docData.pricingSummary.prices5Star.childShare = null;
+            }
             localStorage.setItem('SLW_LATEST_COSTING_PRICES', JSON.stringify(docData.pricingSummary));
         }
 
