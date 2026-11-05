@@ -1437,6 +1437,52 @@
                 </div>
             </div>
 
+            <!-- Customer Travel Period (Month & Year) for Excel, Google Sheet & Itinerary -->
+            <div class="p-3 bg-gradient-to-r from-indigo-50/80 via-blue-50/60 to-purple-50/60 border border-indigo-200/90 rounded-xl space-y-2">
+                <div class="flex items-center justify-between">
+                    <label class="block text-xs font-bold text-indigo-900 flex items-center gap-1.5">
+                        <i class="fas fa-calendar-alt text-indigo-600"></i> Customer Travel Period
+                        <span class="text-[10px] text-gray-500 font-normal">(Excel / Google Sheet / Itinerary)</span>
+                    </label>
+                    <span id="saveQuotationTravelPreviewBadge" class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-600 text-white shadow-xs font-mono">
+                        Jan-2027
+                    </span>
+                </div>
+                <div class="grid grid-cols-2 gap-2.5">
+                    <div>
+                        <label class="block text-[11px] font-semibold text-gray-700 mb-0.5">Travel Month</label>
+                        <input type="text" id="saveQuotationTravelMonthInput" list="saveTravelMonthsList" placeholder="e.g. Jan, Dec, Oct-Nov" class="w-full p-2 bg-white border border-indigo-200 rounded-lg text-xs font-bold text-gray-800 focus:ring-2 focus:ring-indigo-500" oninput="updateTravelMonthYearPreview()">
+                        <datalist id="saveTravelMonthsList">
+                            <option value="Jan">January (Jan)</option>
+                            <option value="Feb">February (Feb)</option>
+                            <option value="Mar">March (Mar)</option>
+                            <option value="Apr">April (Apr)</option>
+                            <option value="May">May (May)</option>
+                            <option value="Jun">June (Jun)</option>
+                            <option value="Jul">July (Jul)</option>
+                            <option value="Aug">August (Aug)</option>
+                            <option value="Sep">September (Sep)</option>
+                            <option value="Oct">October (Oct)</option>
+                            <option value="Nov">November (Nov)</option>
+                            <option value="Dec">December (Dec)</option>
+                            <option value="Oct-Nov">Oct-Nov</option>
+                            <option value="Nov-Dec">Nov-Dec</option>
+                            <option value="Dec-Jan">Dec-Jan</option>
+                        </datalist>
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-semibold text-gray-700 mb-0.5">Travel Year</label>
+                        <select id="saveQuotationTravelYearInput" class="w-full p-2 bg-white border border-indigo-200 rounded-lg text-xs font-bold text-gray-800 focus:ring-2 focus:ring-indigo-500" onchange="updateTravelMonthYearPreview()">
+                            <option value="2026">2026</option>
+                            <option value="2027" selected>2027</option>
+                            <option value="2028">2028</option>
+                            <option value="2029">2029</option>
+                            <option value="2030">2030</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
             <!-- Quotation Snapshot Preview Card -->
             <div class="p-3.5 bg-gray-50 border border-gray-200 rounded-xl space-y-2">
                 <span class="block text-[11px] font-bold text-gray-600 uppercase tracking-wider flex items-center justify-between">
@@ -5893,6 +5939,51 @@
         if (inp) inp.value = 'INQ-' + rand5;
     }
 
+    function parseTravelMonthYear(str) {
+        if (!str) return null;
+        str = String(str).trim();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+            const d = new Date(str);
+            if (!isNaN(d.getTime())) {
+                return { month: d.toLocaleString('en-US', { month: 'short' }), year: String(d.getFullYear()) };
+            }
+        }
+        const yearMatch = str.match(/(20\d{2})/);
+        const year = yearMatch ? yearMatch[1] : String(new Date().getFullYear());
+        let monthPart = str.replace(/(20\d{2})/, '').replace(/[\/\-_]/g, ' ').trim();
+        monthPart = monthPart.replace(/\s+/g, '-');
+        if (!monthPart) monthPart = 'Jan';
+        return { month: monthPart, year: year };
+    }
+
+    function updateTravelMonthYearPreview() {
+        const monthInp = document.getElementById('saveQuotationTravelMonthInput');
+        const yearInp = document.getElementById('saveQuotationTravelYearInput');
+        const badge = document.getElementById('saveQuotationTravelPreviewBadge');
+
+        let m = (monthInp?.value || '').trim();
+        let y = (yearInp?.value || '').trim();
+        if (!y) y = String(new Date().getFullYear());
+
+        let combined = '';
+        if (m && y) {
+            if (/\d{4}/.test(m)) {
+                combined = m.replace('/', '-');
+            } else {
+                combined = `${m}-${y}`;
+            }
+        } else if (m) {
+            combined = m;
+        } else {
+            combined = `${new Date().toLocaleString('en-US', { month: 'short' })}-${y}`;
+        }
+
+        if (badge) badge.innerText = combined;
+        const exportDateInp = document.getElementById('exportItineraryDate');
+        if (exportDateInp) exportDateInp.value = combined;
+        return combined;
+    }
+
     function openSaveQuotationModal(fromExport = false) {
         // 1. Ensure current calculation is fresh
         calculate();
@@ -5923,11 +6014,14 @@
         const titleInput = document.getElementById('saveQuotationTitleInput');
         const dateInput = document.getElementById('saveQuotationDateInput');
         const paxInput = document.getElementById('saveQuotationPaxInput');
+        const monthInput = document.getElementById('saveQuotationTravelMonthInput');
+        const yearInput = document.getElementById('saveQuotationTravelYearInput');
 
         // Check if export modal already has values
         const exportInq = document.getElementById('exportItineraryInq')?.value.trim();
         const exportClient = document.getElementById('exportItineraryClient')?.value.trim();
         const exportTitle = document.getElementById('exportItineraryTitle')?.value.trim();
+        const exportDate = document.getElementById('exportItineraryDate')?.value.trim();
 
         if (activeLoadedInqKey && activeLoadedInqData) {
             if (modalTitle) modalTitle.innerHTML = `<i class="fas fa-edit text-amber-500"></i> Update Quotation: ${activeLoadedInqKey}`;
@@ -5943,8 +6037,24 @@
             if (clientInput) clientInput.value = activeLoadedInqData.clientName || exportClient || '';
             if (phoneInput) phoneInput.value = activeLoadedInqData.clientPhone || '';
             if (titleInput) titleInput.value = activeLoadedInqData.title || exportTitle || defaultTitle;
-            if (dateInput) dateInput.value = activeLoadedInqData.date || new Date().toISOString().split('T')[0];
+            if (dateInput) dateInput.value = activeLoadedInqData.quotationDate || activeLoadedInqData.date || new Date().toISOString().split('T')[0];
             if (paxInput) paxInput.value = activeLoadedInqData.paxText || defaultPaxText;
+
+            // Travel Month & Year
+            let tMonth = activeLoadedInqData.travelMonth || '';
+            let tYear = activeLoadedInqData.travelYear || '';
+            if (!tMonth || !tYear) {
+                const parsed = parseTravelMonthYear(activeLoadedInqData.travelMonthDate || activeLoadedInqData.itinerary?.date || activeLoadedInqData.date || exportDate);
+                if (parsed) {
+                    if (!tMonth) tMonth = parsed.month;
+                    if (!tYear) tYear = parsed.year;
+                }
+            }
+            if (!tMonth) tMonth = 'Jan';
+            if (!tYear) tYear = '2027';
+            if (monthInput) monthInput.value = tMonth;
+            if (yearInput) yearInput.value = tYear;
+            updateTravelMonthYearPreview();
         } else {
             if (modalTitle) modalTitle.innerHTML = `<i class="fas fa-file-invoice-dollar text-indigo-600"></i> Save as INQ Quotation`;
             if (modalSubtitle) modalSubtitle.innerText = 'Saves complete costing calculations and itinerary to Cloud & Local Storage';
@@ -5961,6 +6071,13 @@
             if (titleInput) titleInput.value = exportTitle || defaultTitle;
             if (dateInput) dateInput.value = new Date().toISOString().split('T')[0];
             if (paxInput) paxInput.value = defaultPaxText;
+
+            let parsedExport = parseTravelMonthYear(exportDate);
+            let defMonth = parsedExport ? parsedExport.month : 'Jan';
+            let defYear = parsedExport ? parsedExport.year : '2027';
+            if (monthInput) monthInput.value = defMonth;
+            if (yearInput) yearInput.value = defYear;
+            updateTravelMonthYearPreview();
         }
 
         // 4. Update preview counts and rates
@@ -5997,6 +6114,9 @@
         const clientPhone = (document.getElementById('saveQuotationPhoneInput')?.value || '').trim();
         const title = (document.getElementById('saveQuotationTitleInput')?.value || '').trim() || 'Tour Quotation';
         const date = document.getElementById('saveQuotationDateInput')?.value || new Date().toISOString().split('T')[0];
+        const travelMonth = (document.getElementById('saveQuotationTravelMonthInput')?.value || '').trim() || 'Jan';
+        const travelYear = (document.getElementById('saveQuotationTravelYearInput')?.value || '').trim() || '2027';
+        const travelMonthDate = updateTravelMonthYearPreview();
         const paxText = (document.getElementById('saveQuotationPaxInput')?.value || '').trim() || '02 Pax';
         const syncCloud = document.getElementById('saveQuotationCloudSyncCheck')?.checked ?? true;
 
@@ -6036,6 +6156,11 @@
             itineraryPayload.inq = inqKey;
             itineraryPayload.clientName = clientName;
             itineraryPayload.title = title;
+            itineraryPayload.date = travelMonthDate;
+            itineraryPayload.quotationDate = date;
+            itineraryPayload.travelMonth = travelMonth;
+            itineraryPayload.travelYear = travelYear;
+            itineraryPayload.travelMonthDate = travelMonthDate;
 
             const pricingSummary = saveLatestCostingPrices(itineraryPayload);
 
@@ -6086,6 +6211,10 @@
                 clientPhone: clientPhone,
                 title: title,
                 date: date,
+                quotationDate: date,
+                travelMonth: travelMonth,
+                travelYear: travelYear,
+                travelMonthDate: travelMonthDate,
                 paxText: paxText,
                 pax: Number(document.getElementById('num_people_transfer')?.value) || 2,
                 transferPax: Number(document.getElementById('num_people_transfer')?.value) || 2,
@@ -6135,6 +6264,10 @@
                 clientPhone: clientPhone,
                 title: title,
                 date: date,
+                quotationDate: date,
+                travelMonth: travelMonth,
+                travelYear: travelYear,
+                travelMonthDate: travelMonthDate,
                 paxText: paxText,
                 cities: citiesSummary,
                 rates: rates,
@@ -6268,7 +6401,9 @@
         if (document.getElementById('exportItineraryClient')) document.getElementById('exportItineraryClient').value = docData.clientName || '';
         if (document.getElementById('exportItineraryInq')) document.getElementById('exportItineraryInq').value = docData.inq || '';
         if (document.getElementById('exportItineraryPax')) document.getElementById('exportItineraryPax').value = docData.paxText || '';
-        if (document.getElementById('exportItineraryDate')) document.getElementById('exportItineraryDate').value = docData.date || '';
+        if (document.getElementById('exportItineraryDate')) {
+            document.getElementById('exportItineraryDate').value = docData.travelMonthDate || (docData.travelMonth && docData.travelYear ? `${docData.travelMonth}-${docData.travelYear}` : (docData.date || ''));
+        }
 
         // Set active loaded quotation state for banner and re-saving
         activeLoadedInqKey = docData.inq || inqKey;
@@ -6318,6 +6453,11 @@
         const hasChildPrices = Boolean(docData.hasChildPrices ?? (allowChildExtra || allowChildShare));
 
         if (docData.itinerary) {
+            if (docData.travelMonthDate) {
+                docData.itinerary.date = docData.travelMonthDate;
+            } else if (docData.travelMonth && docData.travelYear) {
+                docData.itinerary.date = `${docData.travelMonth}-${docData.travelYear}`;
+            }
             docData.itinerary.hasChildPrices = hasChildPrices;
             docData.itinerary.includeChildExtraBed = allowChildExtra;
             docData.itinerary.includeChildSharingBed = allowChildShare;
@@ -6451,7 +6591,8 @@
             const p3 = rates.p3 ? ('LKR ' + rates.p3) : '-';
             const pMix = rates.pMix ? ('LKR ' + rates.pMix) : '-';
             const p4 = rates.p4 ? ('LKR ' + rates.p4) : '-';
-            const dateStr = item.date || 'Recent';
+            const dateStr = item.quotationDate || item.date || 'Recent';
+            const travelStr = item.travelMonthDate || (item.travelMonth && item.travelYear ? `${item.travelMonth}-${item.travelYear}` : '');
             const paxStr = item.paxText || (item.pax ? (item.pax + ' Pax') : '2 Pax');
 
             html += `
@@ -6468,7 +6609,8 @@
                             </button>
                         </div>
                         <div class="flex items-center gap-1.5">
-                            <span class="text-[11px] font-semibold text-gray-500">${dateStr}</span>
+                            ${travelStr ? `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200" title="Travel Period"><i class="fas fa-plane-departure text-[9px] text-amber-600"></i> ${travelStr}</span>` : ''}
+                            <span class="text-[11px] font-semibold text-gray-500" title="Quotation Date">${dateStr}</span>
                             <button onclick="loadInqQuotationIntoCosting('${item.inq}')" class="w-6 h-6 flex items-center justify-center text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition" title="Edit quotation ${item.inq}">
                                 <i class="fas fa-edit text-xs text-indigo-500"></i>
                             </button>
@@ -6721,7 +6863,16 @@
         const m4ChildExtra = parseFloat(document.getElementById('markup_pct_child_extra_4star')?.value) || m4;
         const m4ChildShare = parseFloat(document.getElementById('markup_pct_child_sharing_4star')?.value) || m4;
 
-        let rawDate = (document.getElementById('saveQuotationDateInput')?.value || document.getElementById('exportItineraryDate')?.value || '').trim();
+        let travelMonthDate = '';
+        const modalMonth = (document.getElementById('saveQuotationTravelMonthInput')?.value || '').trim();
+        const modalYear = (document.getElementById('saveQuotationTravelYearInput')?.value || '').trim();
+        if (modalMonth && modalYear) {
+            travelMonthDate = modalMonth.includes(modalYear) ? modalMonth : `${modalMonth}-${modalYear}`;
+        } else if (activeLoadedInqData && (activeLoadedInqData.travelMonthDate || (activeLoadedInqData.travelMonth && activeLoadedInqData.travelYear))) {
+            travelMonthDate = activeLoadedInqData.travelMonthDate || `${activeLoadedInqData.travelMonth}-${activeLoadedInqData.travelYear}`;
+        }
+
+        let rawDate = travelMonthDate || (document.getElementById('exportItineraryDate')?.value || document.getElementById('saveQuotationDateInput')?.value || '').trim();
         let formattedMonthDate = '';
         if (rawDate && rawDate.includes('-')) {
             const parts = rawDate.split('-');
@@ -6733,6 +6884,8 @@
             } else if (parts.length === 2) {
                 formattedMonthDate = rawDate;
             }
+        } else if (rawDate) {
+            formattedMonthDate = rawDate;
         }
         if (!formattedMonthDate) {
             formattedMonthDate = new Date().toLocaleString('en-US', { month: 'short' }) + '-' + new Date().getFullYear();
@@ -6961,16 +7114,20 @@
             const m4Extra = parseFloat(cardMarkups['4star']?.child_extra?.pct) || m4;
             const m4Share = parseFloat(cardMarkups['4star']?.child_sharing?.pct) || m4;
 
-            let formattedMonthDate = '';
-            const rawDocDate = docData.date || '';
-            if (rawDocDate && rawDocDate.includes('-')) {
-                const parts = rawDocDate.split('-');
-                if (parts.length === 3) {
-                    const d = new Date(rawDocDate);
-                    if (!isNaN(d.getTime())) {
-                        formattedMonthDate = d.toLocaleString('en-US', { month: 'short' }) + '-' + d.getFullYear();
+            let formattedMonthDate = docData.travelMonthDate || (docData.travelMonth && docData.travelYear ? `${docData.travelMonth}-${docData.travelYear}` : '');
+            if (!formattedMonthDate) {
+                const rawDocDate = docData.date || '';
+                if (rawDocDate && rawDocDate.includes('-')) {
+                    const parts = rawDocDate.split('-');
+                    if (parts.length === 3) {
+                        const d = new Date(rawDocDate);
+                        if (!isNaN(d.getTime())) {
+                            formattedMonthDate = d.toLocaleString('en-US', { month: 'short' }) + '-' + d.getFullYear();
+                        }
+                    } else if (parts.length === 2) {
+                        formattedMonthDate = rawDocDate;
                     }
-                } else if (parts.length === 2) {
+                } else if (rawDocDate) {
                     formattedMonthDate = rawDocDate;
                 }
             }
@@ -7104,16 +7261,20 @@
             const m4Extra = parseFloat(cardMarkups['4star']?.child_extra?.pct) || m4;
             const m4Share = parseFloat(cardMarkups['4star']?.child_sharing?.pct) || m4;
 
-            let formattedMonthDate = '';
-            const rawDocDate = docData.date || '';
-            if (rawDocDate && rawDocDate.includes('-')) {
-                const parts = rawDocDate.split('-');
-                if (parts.length === 3) {
-                    const d = new Date(rawDocDate);
-                    if (!isNaN(d.getTime())) {
-                        formattedMonthDate = d.toLocaleString('en-US', { month: 'short' }) + '-' + d.getFullYear();
+            let formattedMonthDate = docData.travelMonthDate || (docData.travelMonth && docData.travelYear ? `${docData.travelMonth}-${docData.travelYear}` : '');
+            if (!formattedMonthDate) {
+                const rawDocDate = docData.date || '';
+                if (rawDocDate && rawDocDate.includes('-')) {
+                    const parts = rawDocDate.split('-');
+                    if (parts.length === 3) {
+                        const d = new Date(rawDocDate);
+                        if (!isNaN(d.getTime())) {
+                            formattedMonthDate = d.toLocaleString('en-US', { month: 'short' }) + '-' + d.getFullYear();
+                        }
+                    } else if (parts.length === 2) {
+                        formattedMonthDate = rawDocDate;
                     }
-                } else if (parts.length === 2) {
+                } else if (rawDocDate) {
                     formattedMonthDate = rawDocDate;
                 }
             }

@@ -2482,7 +2482,7 @@ window.slwDownloadCostingExcelFromBuilder = async function() {
             pax: liveData.pax ? parseInt(liveData.pax) : ((docData && docData.pax) || 2),
             paxText: liveData.pax || (docData && docData.paxText) || '02Pax',
             inq: inqKey || ('INQ-' + Math.floor(10000 + Math.random() * 90000)),
-            monthDate: liveData.date || (docData && docData.date) || (new Date().toLocaleString('en-US', { month: 'short' }) + '-' + new Date().getFullYear()),
+            monthDate: (docData && docData.travelMonthDate) || (docData && docData.travelMonth && docData.travelYear ? `${docData.travelMonth}-${docData.travelYear}` : null) || liveData.date || (docData && docData.date) || (new Date().toLocaleString('en-US', { month: 'short' }) + '-' + new Date().getFullYear()),
             roe: (costing && costing.roe) || 10.8,
             markup3: (costing && costing.markup3) || 18,
             markupMix: (costing && costing.markupMix) || 20,

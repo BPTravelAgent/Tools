@@ -243,7 +243,7 @@
         const paxStr = payload.paxText ? payload.paxText.replace(/\s+/g, '') : (String(transferPax).padStart(2, '0') + 'Pax');
         const inqRef = (payload.inq || 'INQ -' + Math.floor(10000 + Math.random() * 90000)).trim();
         const tourTitle = (payload.title || 'Tour Quotation').trim();
-        const dateStr = payload.monthDate || (new Date().toLocaleString('en-US', { month: 'short' }) + '-' + new Date().getFullYear());
+        const dateStr = payload.monthDate || payload.travelMonthDate || (new Date().toLocaleString('en-US', { month: 'short' }) + '-' + new Date().getFullYear());
         const roe = Number(payload.roe) || 10.8;
         const markup3 = (payload.markup3 !== undefined && payload.markup3 !== null && !isNaN(Number(payload.markup3))) ? Number(payload.markup3) : 18;
         const markupMix = (payload.markupMix !== undefined && payload.markupMix !== null && !isNaN(Number(payload.markupMix))) ? Number(payload.markupMix) : 20;
@@ -1933,7 +1933,7 @@
         if (!payload) return 'Tour-Costing';
         const rawTitle = (payload.title || 'Tour Quotation').trim().replace(/[\\/:*?"<>|]/g, '').replace(/\s+/g, ' ');
         const rawPax = (payload.paxText || (String(payload.transferPax || payload.pax || 2).padStart(2, '0') + 'Pax')).trim().replace(/\s*-\s*/g, '-').replace(/\s+/g, '');
-        const rawDate = (payload.monthDate || (new Date().toLocaleString('en-US', { month: 'short' }) + '-' + new Date().getFullYear())).trim().replace(/\s+/g, '');
+        const rawDate = (payload.monthDate || payload.travelMonthDate || (new Date().toLocaleString('en-US', { month: 'short' }) + '-' + new Date().getFullYear())).trim().replace(/\s+/g, '');
         
         let rawInq = (payload.inq || '').trim();
         const digitsMatch = rawInq.match(/\d+/);
