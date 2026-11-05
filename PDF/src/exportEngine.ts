@@ -364,9 +364,9 @@ export class ExportEngine {
 
         const wasMoved = change.origX !== undefined && change.origY !== undefined && (Math.abs(change.x - change.origX) > 1 || Math.abs(change.y - change.origY) > 1);
 
-        const maskHeight = Math.max(origHeight + 4, change.fontSize * 1.25);
-        const maskY = origBaseY - change.fontSize * 0.28;
-        const maskWidth = Math.max(origWidth + 6, 20);
+        const maskHeight = Math.max(origHeight + 6, change.fontSize * 1.35);
+        const maskY = origBaseY - change.fontSize * 0.32;
+        const maskWidth = Math.max(origWidth + 8, change.width + 8, 24);
 
         newPage.drawRectangle({
           x: Math.max(0, origX - 2),

@@ -397,9 +397,13 @@ export class AnnotationManager {
       this.annotations.delete(pageIndex);
     } else {
       this.annotations.clear();
+      this.undoStack = [];
+      this.redoStack = [];
     }
     this.selectedId = null;
-    this.notifyChange();
+    if (this.onChangeCallback) {
+      this.onChangeCallback();
+    }
   }
 }
 

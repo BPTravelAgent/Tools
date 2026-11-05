@@ -203,6 +203,10 @@ export class PDFEditorUI {
             </div>
           </div>
           <div class="header-right">
+            <button id="btnHeaderOpenPDF" class="btn btn-outline btn-open-doc" title="Open another PDF document (clears previous document edits)" style="display: inline-flex; align-items: center; gap: 6px;">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>
+              <span>Open PDF</span>
+            </button>
             <button id="btnLoadSample" class="btn btn-outline" title="Try editing with preloaded sample PDF">
               Try Sample PDF
             </button>
@@ -415,7 +419,16 @@ export class PDFEditorUI {
     // 1. File Uploading
     const fileInput = document.getElementById('pdfFileInput') as HTMLInputElement;
     const btnSelectFile = document.getElementById('btnSelectFile');
-    btnSelectFile?.addEventListener('click', () => fileInput.click());
+    btnSelectFile?.addEventListener('click', () => {
+      fileInput.value = '';
+      fileInput.click();
+    });
+
+    const btnHeaderOpenPDF = document.getElementById('btnHeaderOpenPDF');
+    btnHeaderOpenPDF?.addEventListener('click', () => {
+      fileInput.value = '';
+      fileInput.click();
+    });
 
     fileInput.addEventListener('change', async (e) => {
       const file = (e.target as HTMLInputElement).files?.[0];
@@ -743,7 +756,7 @@ export class PDFEditorUI {
     return this.activePageIndex;
   }
 
-  private async handleFile(file: File) {
+  public async handleFile(file: File) {
     const buffer = await file.arrayBuffer();
     await this.loadPDFBuffer(buffer, file.name);
   }
@@ -751,8 +764,23 @@ export class PDFEditorUI {
   async loadPDFBuffer(buffer: ArrayBuffer, fileName: string) {
     try {
       this.showProcessingModal('Opening PDF...', 'Loading and parsing pages...');
+
+      // CRITICAL FIX: Reset all previous document edits, TrueEdit modifications, and annotations
+      // so changes from previous PDF sessions never bleed into or overlap with the new document!
+      this.trueEditManager.clearAll();
+      this.annotationManager.clearAll();
+
+      // Dismiss any open popovers or inline editors
+      document.querySelectorAll('.trueedit-popover').forEach((el) => el.remove());
+      document.querySelectorAll('.trueedit-inline-input').forEach((el) => el.remove());
+      document.querySelectorAll('.font-picker-dropdown').forEach((el) => el.remove());
+
       await this.pdfManager.loadPDF(buffer, fileName);
       this.hideProcessingModal();
+
+      // Reset file input value so selecting the same file again triggers change event
+      const fileInput = document.getElementById('pdfFileInput') as HTMLInputElement | null;
+      if (fileInput) fileInput.value = '';
 
       // Show document area, hide empty uploader
       this.uploaderContainer.classList.add('hidden');

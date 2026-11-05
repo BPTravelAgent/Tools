@@ -30,9 +30,20 @@ async function initApp() {
       }
     }
 
-    // Prevent browser from opening dragged files directly outside dropzone
-    window.addEventListener('dragover', (e) => e.preventDefault());
-    window.addEventListener('drop', (e) => e.preventDefault());
+    // Global window drag and drop: allow dropping any PDF anywhere onto the editor at any time
+    window.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      if (e.dataTransfer) {
+        e.dataTransfer.dropEffect = 'copy';
+      }
+    });
+    window.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      const file = e.dataTransfer?.files?.[0];
+      if (file && (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'))) {
+        await editorUI.handleFile(file);
+      }
+    });
   } catch (error) {
     console.error('Error initializing PDF Editor:', error);
   }
