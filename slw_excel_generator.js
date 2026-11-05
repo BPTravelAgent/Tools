@@ -169,6 +169,268 @@
     }
 
     /**
+     * City detector for Thailand Tours
+     */
+    function detectTourCity(tourName, availableCities = []) {
+        if (!tourName) return '';
+        const norm = String(tourName).toLowerCase();
+        
+        for (const city of availableCities) {
+            const cName = (city.name || '').toLowerCase();
+            if (cName && norm.includes(cName)) return city.name;
+        }
+        
+        const PATTAYA_KEYWORDS = [
+            'pattaya', 'coral island', 'koh larn', 'big buddha', 'viewpoint', 'nong nooch',
+            'tiger park', 'alcazar', 'tiffany', 'art in paradise', 'dolphinarium', 'sanctuary of truth',
+            'ramayana', 'columbia pictures', 'floating market with rowing boat', 'pattaya floating'
+        ];
+        for (const kw of PATTAYA_KEYWORDS) {
+            if (norm.includes(kw)) return 'Pattaya';
+        }
+        
+        const BANGKOK_KEYWORDS = [
+            'bangkok', 'chao phraya', 'dinner cruise', 'cruise dinner', 'white orchid', 'meridian',
+            'royal princess', 'alangka', 'chaophraya princess', 'dream world', 'safari world',
+            'marine park', 'snow town', 'damnoen', 'maeklong', 'sea life', 'madame tussauds',
+            'calypso', 'golden buddha', 'marble temple', 'reclining buddha', 'grand palace',
+            'wat arun', 'wat pho', 'siam amazing', 'mahanakhon', 'pororo'
+        ];
+        for (const kw of BANGKOK_KEYWORDS) {
+            if (norm.includes(kw)) return 'Bangkok';
+        }
+        
+        const PHUKET_KEYWORDS = [
+            'phuket', 'phi phi', 'maya bay', 'khai island', 'james bond', 'phang nga',
+            'similan', 'fantasea', 'carnival magic', 'siam niramit', 'promthep', 'racha island',
+            'coral island phuket', 'kahung beach', 'tiger kingdom phuket', 'dolphin bay phuket'
+        ];
+        for (const kw of PHUKET_KEYWORDS) {
+            if (norm.includes(kw)) return 'Phuket';
+        }
+        
+        const KRABI_KEYWORDS = [
+            'krabi', '4 islands', 'four islands', 'hong island', 'emerald pool', 'hot springs',
+            'ao nang', 'railay', 'phi phi from krabi'
+        ];
+        for (const kw of KRABI_KEYWORDS) {
+            if (norm.includes(kw)) return 'Krabi';
+        }
+
+        const CHIANGMAI_KEYWORDS = [
+            'chiang mai', 'chiangmai', 'doi suthep', 'elephant sanctuary', 'night safari',
+            'doi inthanon', 'white temple', 'chiang rai'
+        ];
+        for (const kw of CHIANGMAI_KEYWORDS) {
+            if (norm.includes(kw)) return 'Chiang Mai';
+        }
+
+        return availableCities.length > 0 ? availableCities[0].name : 'Bangkok';
+    }
+
+    /**
+     * Smart Day-by-Day Generation for Multi-City Packages
+     */
+    function generateSmartDays(selectedCities = [], selectedTours = [], selectedTransfers = []) {
+        const totalNights = selectedCities.reduce((sum, c) => sum + (Number(c.numberOfNights) || 1), 0);
+        const totalDays = totalNights > 0 ? totalNights + 1 : Math.max(1, selectedTours.length + 1);
+
+        // Group tours by city
+        const toursByCity = {};
+        selectedCities.forEach(c => {
+            toursByCity[c.name.toLowerCase()] = [];
+        });
+
+        selectedTours.forEach(tour => {
+            const detected = detectTourCity(tour.name, selectedCities).toLowerCase();
+            if (toursByCity[detected]) {
+                toursByCity[detected].push(tour);
+            } else {
+                const firstCity = selectedCities[0]?.name.toLowerCase() || 'bangkok';
+                if (!toursByCity[firstCity]) toursByCity[firstCity] = [];
+                toursByCity[firstCity].push(tour);
+            }
+        });
+
+        // Helper to match and consume transfers
+        const usedTransfers = new Set();
+        const findTransfer = (predicate) => {
+            for (const tr of selectedTransfers) {
+                if (!usedTransfers.has(tr) && predicate(tr)) {
+                    usedTransfers.add(tr);
+                    return tr;
+                }
+            }
+            return null;
+        };
+
+        const days = [];
+        let currentCityIdx = 0;
+        let nightsInCurCity = 0;
+
+        for (let dayNum = 1; dayNum <= totalDays; dayNum++) {
+            const isFirstDay = (dayNum === 1);
+            const isLastDay = (dayNum === totalDays);
+            const dayTitle = `Day-${String(dayNum).padStart(2, '0')}`;
+            const activities = [];
+            let hasLunch = false;
+            let hasDinner = false;
+
+            const curCity = selectedCities[currentCityIdx] || { name: 'Bangkok', hotel3Name: 'Hotel 3*', hotel4Name: 'Hotel 4*' };
+            const curCityKey = curCity.name.toLowerCase();
+            const curCityTours = toursByCity[curCityKey] || [];
+
+            if (isFirstDay) {
+                // Day 1 Arrival
+                const arrTr = findTransfer(tr => {
+                    const n = tr.name.toLowerCase();
+                    return n.includes('arrival') || (n.includes('airport') && n.includes('to ' + curCityKey));
+                }) || findTransfer(tr => tr.name.toLowerCase().includes('arrival') || tr.name.toLowerCase().includes('airport'));
+
+                if (arrTr) {
+                    activities.push(arrTr.name);
+                } else {
+                    activities.push(`Private Arrival at Bangkok Airport and Transfer to ${curCity.name} Hotel`);
+                }
+
+                // Check if there is an arrival/en-route tour in City 1 (e.g. Pattaya City Tour - Big Buddha & Viewpoint)
+                const cityTourIdx = curCityTours.findIndex(t => {
+                    const n = t.name.toLowerCase();
+                    return n.includes('city tour') || n.includes('half day') || n.includes('viewpoint') || n.includes('big buddha');
+                });
+
+                if (cityTourIdx !== -1) {
+                    const cityTour = curCityTours.splice(cityTourIdx, 1)[0];
+                    let tag = cityTour.transferPrice > 0 ? '(Private Transfer)' : '(Join Transfer)';
+                    if (cityTour.name.toLowerCase().includes('private') || cityTour.name.toLowerCase().includes('join') || cityTour.name.toLowerCase().includes('transfer')) tag = '';
+                    activities.push(`${cityTour.name}${tag ? ' ' + tag : ''}`.trim());
+                    if (cityTour.name.toLowerCase().includes('lunch')) hasLunch = true;
+                    if (cityTour.name.toLowerCase().includes('dinner')) hasDinner = true;
+                }
+
+                activities.push(`14.00 Check in at ${curCity.hotel3Name || curCity.name + ' Hotel 3*'} or Similar 3*`);
+
+                // If arrival is in Bangkok and there is an evening dinner cruise, place it
+                if (curCityKey === 'bangkok') {
+                    const eveIdx = curCityTours.findIndex(t => t.name.toLowerCase().includes('dinner') || t.name.toLowerCase().includes('cruise'));
+                    if (eveIdx !== -1) {
+                        const eveTour = curCityTours.splice(eveIdx, 1)[0];
+                        let tag = eveTour.transferPrice > 0 ? '(Private Transfer)' : '(Join Transfer)';
+                        if (eveTour.name.toLowerCase().includes('private') || eveTour.name.toLowerCase().includes('join') || eveTour.name.toLowerCase().includes('transfer')) tag = '';
+                        activities.push(`${eveTour.name}${tag ? ' ' + tag : ''}`.trim());
+                        hasDinner = true;
+                    }
+                }
+
+                activities.push("Overnight at Hotel");
+                nightsInCurCity++;
+
+            } else if (isLastDay) {
+                // Last Day Departure
+                activities.push("Breakfast at Hotel");
+
+                const depTr = findTransfer(tr => {
+                    const n = tr.name.toLowerCase();
+                    return n.includes('departure') || (n.includes('to airport') && (n.includes(curCityKey) || n.includes('bangkok')));
+                }) || findTransfer(tr => tr.name.toLowerCase().includes('departure') || tr.name.toLowerCase().includes('airport'));
+
+                if (depTr) {
+                    activities.push(depTr.name);
+                } else {
+                    activities.push(`Private Transfer ${curCity.name} Hotel to Bangkok Airport`);
+                }
+
+                activities.push("12.00pm Checkout from Hotel");
+                activities.push("Tour End!");
+
+            } else {
+                // Intermediate Days
+                activities.push("Breakfast at Hotel");
+
+                // Check if today is a transition day to the next city
+                const isCityTransitionDay = (currentCityIdx < selectedCities.length - 1 && nightsInCurCity >= (Number(selectedCities[currentCityIdx].numberOfNights) || 1));
+
+                if (isCityTransitionDay) {
+                    const prevCity = selectedCities[currentCityIdx];
+                    currentCityIdx++;
+                    nightsInCurCity = 0;
+                    const nextCity = selectedCities[currentCityIdx];
+                    const nextCityKey = nextCity.name.toLowerCase();
+                    const nextCityTours = toursByCity[nextCityKey] || [];
+
+                    activities.push("12.00 Check out from Hotel");
+
+                    // Inter-city transfer
+                    const interTr = findTransfer(tr => {
+                        const n = tr.name.toLowerCase();
+                        return n.includes(prevCity.name.toLowerCase()) && n.includes(nextCity.name.toLowerCase());
+                    }) || findTransfer(tr => {
+                        const n = tr.name.toLowerCase();
+                        return (n.includes('hotel to') && n.includes('hotel')) || n.includes('intercity');
+                    });
+
+                    if (interTr) {
+                        activities.push(interTr.name);
+                    } else {
+                        activities.push(`Private Transfer ${prevCity.name} Hotel to ${nextCity.name} Hotel (Private Transfer)`);
+                    }
+
+                    activities.push(`14.00 Check in at ${nextCity.hotel3Name || nextCity.name + ' Hotel 3*'} or Similar 3*`);
+
+                    // Check for evening tour in next city (e.g. Chao Phraya Dinner Cruise on arrival in Bangkok)
+                    const eveIdx = nextCityTours.findIndex(t => t.name.toLowerCase().includes('dinner') || t.name.toLowerCase().includes('cruise'));
+                    if (eveIdx !== -1) {
+                        const eveTour = nextCityTours.splice(eveIdx, 1)[0];
+                        let tag = eveTour.transferPrice > 0 ? '(Private Transfer)' : '(Join Transfer)';
+                        if (eveTour.name.toLowerCase().includes('private') || eveTour.name.toLowerCase().includes('join') || eveTour.name.toLowerCase().includes('transfer')) tag = '';
+                        activities.push(`${eveTour.name}${tag ? ' ' + tag : ''}`.trim());
+                        hasDinner = true;
+                    }
+
+                    activities.push("Overnight at Hotel");
+                    nightsInCurCity++;
+
+                } else {
+                    // Regular stay day in curCity
+                    if (curCityTours.length > 0) {
+                        const tour = curCityTours.shift();
+                        let tag = tour.transferPrice > 0 ? '(Private Transfer)' : '(Join Transfer)';
+                        if (tour.name.toLowerCase().includes('private') || tour.name.toLowerCase().includes('join') || tour.name.toLowerCase().includes('transfer')) tag = '';
+                        activities.push(`${tour.name}${tag ? ' ' + tag : ''}`.trim());
+                        if (tour.name.toLowerCase().includes('lunch')) hasLunch = true;
+                        if (tour.name.toLowerCase().includes('dinner') || tour.name.toLowerCase().includes('cruise')) hasDinner = true;
+                    } else {
+                        activities.push("Free For Leisure");
+                    }
+
+                    activities.push("Overnight at Hotel");
+                    nightsInCurCity++;
+                }
+            }
+
+            // Accurate Meal code based on actual scheduled activities
+            let mealStr = '';
+            if (isFirstDay) {
+                mealStr = hasDinner ? '(--/--/D)' : '(--/--/--)';
+            } else {
+                const b = 'B';
+                const l = hasLunch ? 'L' : '--';
+                const d = hasDinner ? 'D' : '--';
+                mealStr = `(${b}/${l}/${d})`;
+            }
+
+            days.push({
+                id: dayNum,
+                title: dayTitle,
+                meal: mealStr,
+                activities: activities
+            });
+        }
+
+        return days;
+    }
+
+    /**
      * Smart matcher for transfers from itinerary activity text
      */
     function matchAndConsumeTransfer(actText, transferList) {
@@ -176,27 +438,55 @@
         const norm = normalizeText(actText);
         if (!norm) return null;
 
-        // 1. Direct or substring match
+        const cleanKey = (txt) => {
+            return normalizeText(txt)
+                .replace(/\b(private|join|pvt|transfer|car|van|bus|basis)\b/g, '')
+                .replace(/\s+/g, ' ')
+                .trim();
+        };
+
+        const normKey = cleanKey(actText);
+
+        // 1. Direct or key-based exact match
         for (let i = 0; i < transferList.length; i++) {
             const tr = transferList[i];
             const trNorm = normalizeText(tr.name);
+            const trKey = cleanKey(tr.name);
             if (!trNorm) continue;
-            if (norm.includes(trNorm) || trNorm.includes(norm)) {
+            if (norm.includes(trNorm) || trNorm.includes(norm) || (normKey && trKey && (normKey === trKey || normKey.includes(trKey) || trKey.includes(normKey)))) {
                 return transferList.splice(i, 1)[0];
             }
         }
 
-        // 2. Semantic keywords: arrival
+        // 2. City-specific Intercity transfer match (e.g. Pattaya to Bangkok, Phuket to Krabi)
+        const isIntercity = (norm.includes('hotel to') && norm.includes('hotel')) || 
+                            (norm.includes('pattaya') && norm.includes('bangkok')) ||
+                            (norm.includes('phuket') && norm.includes('krabi'));
+        if (isIntercity) {
+            const interIdx = transferList.findIndex(t => {
+                const tn = normalizeText(t.name);
+                if (norm.includes('pattaya') && norm.includes('bangkok')) {
+                    return tn.includes('pattaya') && tn.includes('bangkok');
+                }
+                if (norm.includes('phuket') && norm.includes('krabi')) {
+                    return tn.includes('phuket') && tn.includes('krabi');
+                }
+                return (tn.includes('hotel to') && tn.includes('hotel')) || (!tn.includes('arrival') && !tn.includes('departure') && !tn.includes('airport'));
+            });
+            if (interIdx !== -1) return transferList.splice(interIdx, 1)[0];
+        }
+
+        // 3. Semantic keywords: arrival (Airport to Hotel)
         const isArrival = norm.includes('arrival') || (norm.includes('airport') && (norm.includes('transfer to hotel') || norm.includes('to hotel')) && !norm.includes('departure') && !norm.includes('check out'));
         if (isArrival) {
             const arrIdx = transferList.findIndex(t => {
                 const tn = normalizeText(t.name);
-                return tn.includes('arrival') || tn.includes('airport to') || (!tn.includes('departure') && tn.includes('airport'));
+                return tn.includes('arrival') || tn.includes('airport to') || (!tn.includes('departure') && tn.includes('airport') && !tn.includes('to airport'));
             });
             if (arrIdx !== -1) return transferList.splice(arrIdx, 1)[0];
         }
 
-        // 3. Semantic keywords: departure
+        // 4. Semantic keywords: departure (Hotel to Airport)
         const isDeparture = norm.includes('departure') || norm.includes('check out and transfer') || (norm.includes('hotel to airport') || norm.includes('to airport'));
         if (isDeparture) {
             const depIdx = transferList.findIndex(t => {
@@ -204,16 +494,6 @@
                 return tn.includes('departure') || tn.includes('to airport') || (!tn.includes('arrival') && tn.includes('airport'));
             });
             if (depIdx !== -1) return transferList.splice(depIdx, 1)[0];
-        }
-
-        // 4. Semantic keywords: intercity
-        const isIntercity = (norm.includes('hotel to') && norm.includes('hotel')) || (norm.includes('transfer') && (norm.includes('pattaya to bangkok') || norm.includes('bangkok to pattaya') || norm.includes('phuket to krabi')));
-        if (isIntercity) {
-            const interIdx = transferList.findIndex(t => {
-                const tn = normalizeText(t.name);
-                return tn.includes('hotel to') || tn.includes('pvt transfer') || (!tn.includes('arrival') && !tn.includes('departure'));
-            });
-            if (interIdx !== -1) return transferList.splice(interIdx, 1)[0];
         }
 
         return null;
@@ -260,7 +540,10 @@
         const cities = payload.cities || [];
         const tours = [...(payload.tours || [])];
         const transfers = [...(payload.transfers || [])];
-        const days = Array.isArray(payload.days) && payload.days.length > 0 ? payload.days : null;
+        let days = Array.isArray(payload.days) && payload.days.length > 0 ? payload.days : null;
+        if (!days || days.length === 0) {
+            days = generateSmartDays(cities, tours, transfers);
+        }
 
         // 2. Determine Mix Package Presence
         let hasMix = false;
@@ -709,15 +992,24 @@
                         row.getCell(6).font = { name: 'Arial', size: 10 };
                         row.getCell(6).alignment = { horizontal: 'right' };
                         row.getCell(3).font = { name: 'Arial', size: 10, bold: true };
+
+                        // If tour has dedicated private transfer addon (e.g. Pattaya City Tour private van 1200 THB), place in Transfer column (Col 7)
+                        if (Number(matchedTour.transferPrice) > 0) {
+                            row.getCell(7).value = Number(matchedTour.transferPrice);
+                            row.getCell(7).font = { name: 'Arial', size: 10 };
+                            row.getCell(7).alignment = { horizontal: 'right' };
+                        }
                     }
                     row.getCell(6).border = BORDER_THIN;
 
-                    // Match Transfers
-                    const matchedTransfer = matchAndConsumeTransfer(actText, remainingTransfers);
-                    if (matchedTransfer) {
-                        row.getCell(7).value = Number(matchedTransfer.price) || 0;
-                        row.getCell(7).font = { name: 'Arial', size: 10 };
-                        row.getCell(7).alignment = { horizontal: 'right' };
+                    // Match Transfers (if transfer column not already filled by tour transfer addon)
+                    if (!row.getCell(7).value) {
+                        const matchedTransfer = matchAndConsumeTransfer(actText, remainingTransfers);
+                        if (matchedTransfer) {
+                            row.getCell(7).value = Number(matchedTransfer.price) || 0;
+                            row.getCell(7).font = { name: 'Arial', size: 10 };
+                            row.getCell(7).alignment = { horizontal: 'right' };
+                        }
                     }
                     row.getCell(7).border = BORDER_THIN;
 
