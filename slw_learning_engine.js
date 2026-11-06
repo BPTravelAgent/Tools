@@ -99,6 +99,45 @@
             learnedFromInq: 'INQ-39423',
             learnedAt: '2026-11-06T09:30:00.000Z',
             active: true
+        },
+        {
+            id: 'rule_pattaya_floating_market_07',
+            type: 'transfer_addon',
+            category: 'Transfer Addon',
+            title: 'Pattaya Floating Market Transfer Addon',
+            pattern: 'floting market',
+            city: 'Pattaya',
+            transferPrice: 1000,
+            targetColumn: 'Transfer (Col 7)',
+            description: 'Places 1,000 THB private transfer addon directly into Transfer Column (Col 7) on Pattaya Floating Market row.',
+            learnedFromInq: 'INQ-63378',
+            learnedAt: '2026-11-06T15:55:00.000Z',
+            active: true
+        },
+        {
+            id: 'rule_chao_phraya_addon_08',
+            type: 'transfer_addon',
+            category: 'Transfer Addon',
+            title: 'Chao Phraya Dinner Cruise Transfer Addon',
+            pattern: 'chao phraya dinner cruise',
+            city: 'Bangkok',
+            transferPrice: 1400,
+            targetColumn: 'Transfer (Col 7)',
+            description: 'Places 1,400 THB private transfer addon directly into Transfer Column (Col 7) on Chao Phraya Dinner Cruise row.',
+            learnedFromInq: 'INQ-63378',
+            learnedAt: '2026-11-06T15:55:00.000Z',
+            active: true
+        },
+        {
+            id: 'rule_domestic_flight_pairing_09',
+            type: 'routing',
+            category: 'Routing & Transfers',
+            title: 'Phuket to Pattaya Domestic Flight Pairing',
+            pattern: 'phuket airport',
+            description: 'Automatically pairs Phuket Hotel to Phuket Airport transfer with Bangkok Airport to Pattaya Hotel transfer on inter-regional transition day.',
+            learnedFromInq: 'INQ-63378',
+            learnedAt: '2026-11-06T15:55:00.000Z',
+            active: true
         }
     ];
 
@@ -436,3 +475,4 @@
         SEED_RULES: SEED_RULES
     };
 }));
+
