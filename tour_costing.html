@@ -41,6 +41,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
     <script src="firebase_init.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+    <script src="slw_learning_engine.js?v=1.0"></script>
     <script src="slw_excel_generator.js?v=2.6"></script>
 </head>
 <body class="bg-gray-100 flex items-center justify-center min-h-screen py-12">
@@ -80,6 +81,9 @@
             <i class="fas fa-folder-open text-sm"></i>
             <span>📂 INQ Quotation Hub</span>
             <span id="quotationHubCountBadge" class="bg-white/25 text-white text-[11px] px-2 py-0.5 rounded-full font-bold">0</span>
+        </button>
+        <button onclick="if(window.SlwLearningEngine)window.SlwLearningEngine.openTodaySummaryModal()" class="py-2 px-3 bg-gradient-to-r from-indigo-700 to-purple-700 hover:from-indigo-800 hover:to-purple-800 text-white font-bold rounded-lg shadow-md hover:shadow-lg transition flex items-center gap-1.5 text-xs" title="View Today's AI Learned Rules &amp; Corrections">
+            <span>🧠 Today's Summary</span>
         </button>
         <button onclick="openSaveQuotationModal()" class="py-2 px-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold rounded-lg shadow-md hover:shadow-lg transition flex items-center gap-1.5 text-xs" title="Save current costing as INQ Quotation to Cloud">
             <i class="fas fa-cloud-upload-alt"></i>
@@ -1506,12 +1510,15 @@
                 <p class="text-[10px] text-gray-500 italic">Includes custom price adjustments, card markups, passenger count, itinerary days &amp; hotel choices.</p>
             </div>
 
-            <!-- Cloud Sync Checkbox -->
-            <div class="flex items-center justify-between pt-1">
+            <!-- Cloud Sync & Learning Summary Bar -->
+            <div class="flex items-center justify-between pt-1 gap-2 flex-wrap">
                 <label class="flex items-center text-xs text-indigo-950 font-semibold cursor-pointer select-none">
                     <input type="checkbox" id="saveQuotationCloudSyncCheck" checked class="mr-2 h-4 w-4 text-indigo-600 rounded">
                     <span>☁️ Sync to Firebase Cloud (Accessible anywhere on any PC)</span>
                 </label>
+                <button type="button" onclick="if(window.SlwLearningEngine)window.SlwLearningEngine.openTodaySummaryModal()" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 transition" title="View rules & corrections learned from manual edits">
+                    <span>🧠 AI Learning Summary</span>
+                </button>
             </div>
 
             <!-- Action Buttons -->
@@ -1555,6 +1562,9 @@
                 </div>
             </div>
             <div class="flex items-center gap-2 self-end sm:self-auto">
+                <button type="button" onclick="if(window.SlwLearningEngine)window.SlwLearningEngine.openTodaySummaryModal()" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 shadow-2xs transition" title="View rules &amp; corrections learned by SLW Engine">
+                    <span>🧠 AI Learning Hub</span>
+                </button>
                 <div id="hubCloudBadge" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-green-50 text-green-700 border border-green-200 shadow-2xs">
                     <i class="fas fa-cloud text-green-600"></i> <span id="hubCloudBadgeText">Cloud Synced</span>
                 </div>
@@ -3887,6 +3897,21 @@
         let currentCityIdx = 0;
         let nightsInCurCity = 0;
 
+        let learnedRules = [];
+        try {
+            if (window.SlwLearningEngine && typeof window.SlwLearningEngine.getRules === 'function') {
+                learnedRules = window.SlwLearningEngine.getRules().filter(r => r.active !== false);
+            }
+        } catch(e) {}
+
+        const formatHotelCheckIn = (hotelName, fallbackCity, star = '3*') => {
+            let hName = (hotelName || `${fallbackCity.name} Hotel ${star}`).trim();
+            if (!hName.toLowerCase().includes('similar')) {
+                hName += ` or Similar ${star}`;
+            }
+            return `14.00 Check in at ${hName}`;
+        };
+
         for (let dayNum = 1; dayNum <= totalDays; dayNum++) {
             const isFirstDay = (dayNum === 1);
             const isLastDay = (dayNum === totalDays);
@@ -3916,6 +3941,7 @@
                 // Check if there is an arrival/en-route tour in City 1 (e.g. Pattaya City Tour - Big Buddha & Viewpoint)
                 const cityTourIdx = curCityTours.findIndex(t => {
                     const n = t.name.toLowerCase();
+                    if (learnedRules.some(r => r.type === 'en_route' && r.timing === 'day_1_en_route' && n.includes(r.pattern))) return true;
                     return n.includes('city tour') || n.includes('half day') || n.includes('viewpoint') || n.includes('big buddha');
                 });
 
@@ -3929,7 +3955,7 @@
                     if (cityTour.name.toLowerCase().includes('dinner')) hasDinner = true;
                 }
 
-                activities.push(`14.00 Check in at ${curCity.hotel3Name || curCity.name + ' Hotel 3*'} or Similar 3*`);
+                activities.push(formatHotelCheckIn(curCity.hotel3Name, curCity, '3*'));
 
                 // If arrival is in Bangkok and there is an evening dinner cruise, place it
                 if (curCityKey === 'bangkok') {
@@ -3997,10 +4023,14 @@
                         activities.push(`Private Transfer ${prevCity.name} Hotel to ${nextCity.name} Hotel (Private Transfer)`);
                     }
 
-                    activities.push(`14.00 Check in at ${nextCity.hotel3Name || nextCity.name + ' Hotel 3*'} or Similar 3*`);
+                    activities.push(formatHotelCheckIn(nextCity.hotel3Name, nextCity, '3*'));
 
                     // Check for evening tour in next city (e.g. Chao Phraya Dinner Cruise on arrival in Bangkok)
-                    const eveIdx = nextCityTours.findIndex(t => t.name.toLowerCase().includes('dinner') || t.name.toLowerCase().includes('cruise'));
+                    const eveIdx = nextCityTours.findIndex(t => {
+                        const n = t.name.toLowerCase();
+                        if (learnedRules.some(r => (r.type === 'tour_timing' || r.type === 'evening_tour') && n.includes(r.pattern))) return true;
+                        return n.includes('dinner') || n.includes('cruise');
+                    });
                     if (eveIdx !== -1) {
                         const eveTour = nextCityTours.splice(eveIdx, 1)[0];
                         let tag = eveTour.transferPrice > 0 ? '(Private Transfer)' : '(Join Transfer)';
@@ -5951,6 +5981,13 @@
         syncInqQuotationsFromCloud(false).catch(err => {
             console.warn("Initial cloud quotation index sync error:", err);
         });
+
+        // 3. Sync learned AI rules from Firebase Cloud (slw_settings/learned_patterns)
+        if (window.SlwLearningEngine && typeof window.SlwLearningEngine.syncWithCloud === 'function' && typeof db !== 'undefined' && db) {
+            window.SlwLearningEngine.syncWithCloud(db).catch(err => {
+                console.warn("Learning Engine cloud sync error:", err);
+            });
+        }
     }
 
     function updateQuotationHubCountBadge() {
@@ -6455,6 +6492,15 @@
             if (document.getElementById('exportItineraryInq')) document.getElementById('exportItineraryInq').value = inqKey;
             if (document.getElementById('exportItineraryClient')) document.getElementById('exportItineraryClient').value = clientName;
             if (document.getElementById('exportItineraryTitle')) document.getElementById('exportItineraryTitle').value = title;
+
+            // 6. Continuous Self-Study & Pattern Learning
+            if (window.SlwLearningEngine && typeof window.SlwLearningEngine.learnFromQuotation === 'function') {
+                try {
+                    window.SlwLearningEngine.learnFromQuotation(inqKey, fullDoc.costing, fullDoc.itinerary);
+                } catch (e) {
+                    console.warn('SlwLearningEngine learn error:', e);
+                }
+            }
 
             closeModal('saveQuotationModal');
             activeLoadedInqKey = inqKey;

@@ -174,6 +174,20 @@
     function detectTourCity(tourName, availableCities = []) {
         if (!tourName) return '';
         const norm = String(tourName).toLowerCase();
+
+        // 0. Check active learned rules first
+        try {
+            const engine = (typeof root !== 'undefined' && root.SlwLearningEngine) ? root.SlwLearningEngine : (typeof window !== 'undefined' ? window.SlwLearningEngine : null);
+            if (engine && typeof engine.getRules === 'function') {
+                const rules = engine.getRules().filter(r => r.active !== false && r.city && r.pattern);
+                for (const r of rules) {
+                    if (norm.includes(r.pattern.toLowerCase())) {
+                        const matchedCity = availableCities.find(c => c.name.toLowerCase() === r.city.toLowerCase());
+                        return matchedCity ? matchedCity.name : r.city;
+                    }
+                }
+            }
+        } catch (e) {}
         
         for (const city of availableCities) {
             const cName = (city.name || '').toLowerCase();
@@ -235,6 +249,15 @@
         const totalNights = selectedCities.reduce((sum, c) => sum + (Number(c.numberOfNights) || 1), 0);
         const totalDays = totalNights > 0 ? totalNights + 1 : Math.max(1, selectedTours.length + 1);
 
+        // Retrieve active learned rules from SLW Learning Engine
+        let learnedRules = [];
+        try {
+            const engine = (typeof root !== 'undefined' && root.SlwLearningEngine) ? root.SlwLearningEngine : (typeof window !== 'undefined' ? window.SlwLearningEngine : null);
+            if (engine && typeof engine.getRules === 'function') {
+                learnedRules = engine.getRules().filter(r => r.active !== false);
+            }
+        } catch (e) {}
+
         // Group tours by city
         const toursByCity = {};
         selectedCities.forEach(c => {
@@ -268,6 +291,15 @@
         let currentCityIdx = 0;
         let nightsInCurCity = 0;
 
+        // Helper to format hotel check-in without duplicating "or Similar"
+        const formatHotelCheckIn = (hotelName, fallbackCity, star = '3*') => {
+            let hName = (hotelName || `${fallbackCity.name} Hotel ${star}`).trim();
+            if (!hName.toLowerCase().includes('similar')) {
+                hName += ` or Similar ${star}`;
+            }
+            return `14.00 Check in at ${hName}`;
+        };
+
         for (let dayNum = 1; dayNum <= totalDays; dayNum++) {
             const isFirstDay = (dayNum === 1);
             const isLastDay = (dayNum === totalDays);
@@ -296,6 +328,7 @@
                 // Check if there is an arrival/en-route tour in City 1 (e.g. Pattaya City Tour - Big Buddha & Viewpoint)
                 const cityTourIdx = curCityTours.findIndex(t => {
                     const n = t.name.toLowerCase();
+                    if (learnedRules.some(r => r.type === 'en_route' && r.timing === 'day_1_en_route' && n.includes(r.pattern))) return true;
                     return n.includes('city tour') || n.includes('half day') || n.includes('viewpoint') || n.includes('big buddha');
                 });
 
@@ -308,7 +341,7 @@
                     if (cityTour.name.toLowerCase().includes('dinner')) hasDinner = true;
                 }
 
-                activities.push(`14.00 Check in at ${curCity.hotel3Name || curCity.name + ' Hotel 3*'} or Similar 3*`);
+                activities.push(formatHotelCheckIn(curCity.hotel3Name, curCity, '3*'));
 
                 // If arrival is in Bangkok and there is an evening dinner cruise, place it
                 if (curCityKey === 'bangkok') {
@@ -375,10 +408,14 @@
                         activities.push(`Private Transfer ${prevCity.name} Hotel to ${nextCity.name} Hotel (Private Transfer)`);
                     }
 
-                    activities.push(`14.00 Check in at ${nextCity.hotel3Name || nextCity.name + ' Hotel 3*'} or Similar 3*`);
+                    activities.push(formatHotelCheckIn(nextCity.hotel3Name, nextCity, '3*'));
 
                     // Check for evening tour in next city (e.g. Chao Phraya Dinner Cruise on arrival in Bangkok)
-                    const eveIdx = nextCityTours.findIndex(t => t.name.toLowerCase().includes('dinner') || t.name.toLowerCase().includes('cruise'));
+                    const eveIdx = nextCityTours.findIndex(t => {
+                        const n = t.name.toLowerCase();
+                        if (learnedRules.some(r => (r.type === 'tour_timing' || r.type === 'evening_tour') && n.includes(r.pattern))) return true;
+                        return n.includes('dinner') || n.includes('cruise');
+                    });
                     if (eveIdx !== -1) {
                         const eveTour = nextCityTours.splice(eveIdx, 1)[0];
                         let tag = eveTour.transferPrice > 0 ? '(Private Transfer)' : '(Join Transfer)';
@@ -421,6 +458,7 @@
 
             days.push({
                 id: dayNum,
+                day: dayTitle,
                 title: dayTitle,
                 meal: mealStr,
                 activities: activities
@@ -994,8 +1032,20 @@
                         row.getCell(3).font = { name: 'Arial', size: 10, bold: true };
 
                         // If tour has dedicated private transfer addon (e.g. Pattaya City Tour private van 1200 THB), place in Transfer column (Col 7)
-                        if (Number(matchedTour.transferPrice) > 0) {
-                            row.getCell(7).value = Number(matchedTour.transferPrice);
+                        let trAddonPrice = Number(matchedTour.transferPrice) || 0;
+                        if (trAddonPrice <= 0) {
+                            try {
+                                const engine = (typeof root !== 'undefined' && root.SlwLearningEngine) ? root.SlwLearningEngine : (typeof window !== 'undefined' ? window.SlwLearningEngine : null);
+                                if (engine && typeof engine.getRules === 'function') {
+                                    const addonRule = engine.getRules().find(r => r.active !== false && r.type === 'transfer_addon' && matchedTour.name.toLowerCase().includes(r.pattern));
+                                    if (addonRule && Number(addonRule.transferPrice) > 0) {
+                                        trAddonPrice = Number(addonRule.transferPrice);
+                                    }
+                                }
+                            } catch (e) {}
+                        }
+                        if (trAddonPrice > 0) {
+                            row.getCell(7).value = trAddonPrice;
                             row.getCell(7).font = { name: 'Arial', size: 10 };
                             row.getCell(7).alignment = { horizontal: 'right' };
                         }
@@ -2067,7 +2117,11 @@
                         star = '4*';
                         hName = c.hotel4Name || 'Hotel 4*';
                     }
-                    optHotelNames.push(`${c.name} - ${hName}, or Similar ${star}`);
+                    let cleanHName = hName;
+                    if (!cleanHName.toLowerCase().includes('similar')) {
+                        cleanHName += `, or Similar ${star}`;
+                    }
+                    optHotelNames.push(`${c.name} - ${cleanHName}`);
                 });
             }
 
@@ -2331,6 +2385,11 @@
         downloadCostingExcel,
         generateCostingExcelBase64,
         exportToGoogleSheets,
-        buildCostingDocFilename
+        buildCostingDocFilename,
+        detectTourCity,
+        generateSmartDays,
+        get learningEngine() {
+            return (typeof root !== 'undefined' && root.SlwLearningEngine) ? root.SlwLearningEngine : (typeof window !== 'undefined' ? window.SlwLearningEngine : null);
+        }
     };
 }));
