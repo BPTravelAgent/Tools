@@ -1697,39 +1697,165 @@
         }
     }
 
+    function deduplicateMasterDatabase(rawDb) {
+        if (!rawDb) return { tours: [], hotels: [], transfers: [], extras: [] };
+
+        const stripTourTags = (str) => {
+            if (!str) return '';
+            return String(str)
+                .replace(/\s*\((Join Tour|Join Transfer|Private Transfer|Private - Van|Private - Bus|Private.*|Ticket Only|Join)\)/gi, '')
+                .replace(/\s+/g, ' ')
+                .trim();
+        };
+
+        const normalizeTransferRoute = (raw) => {
+            if (!raw) return '';
+            return String(raw)
+                .replace(/\s*\((Car|Van|Bus|Private.*)\)/gi, '')
+                .replace(/\bPvt\s+Basis\b/gi, '')
+                .replace(/\bPrivate\b/gi, '')
+                .replace(/\s+/g, ' ')
+                .trim()
+                .toLowerCase();
+        };
+
+        // 1. Deduplicate & Merge Tours
+        const tourGroups = {};
+        (rawDb.tours || []).forEach(t => {
+            const rawName = String(t.name || '').trim();
+            if (!rawName) return;
+            const canonName = stripTourTags(rawName);
+            const loc = String(t.location || '').trim();
+            const key = (canonName.toLowerCase() + '|' + loc.toLowerCase()).trim();
+
+            if (!tourGroups[key]) {
+                tourGroups[key] = {
+                    id: String(t.id || ('t_' + Date.now())),
+                    name: canonName,
+                    location: loc,
+                    joinPrice: t.joinPrice !== null && t.joinPrice !== undefined && t.joinPrice !== '' ? Number(t.joinPrice) : null,
+                    ticketOnlyPrice: t.ticketOnlyPrice !== null && t.ticketOnlyPrice !== undefined && t.ticketOnlyPrice !== '' ? Number(t.ticketOnlyPrice) : null,
+                    privateCarPrice: t.privateCarPrice !== null && t.privateCarPrice !== undefined && t.privateCarPrice !== '' ? Number(t.privateCarPrice) : null,
+                    privateVanPrice: t.privateVanPrice !== null && t.privateVanPrice !== undefined && t.privateVanPrice !== '' ? Number(t.privateVanPrice) : null,
+                    privateBusPrice: t.privateBusPrice !== null && t.privateBusPrice !== undefined && t.privateBusPrice !== '' ? Number(t.privateBusPrice) : null
+                };
+            } else {
+                const g = tourGroups[key];
+                if (canonName.length < g.name.length && canonName.length >= 4) g.name = canonName;
+                if (!g.location && loc) g.location = loc;
+                if (t.joinPrice !== null && t.joinPrice !== undefined && t.joinPrice !== '') g.joinPrice = Number(t.joinPrice);
+                if (t.ticketOnlyPrice !== null && t.ticketOnlyPrice !== undefined && t.ticketOnlyPrice !== '') g.ticketOnlyPrice = Number(t.ticketOnlyPrice);
+                if (t.privateCarPrice !== null && t.privateCarPrice !== undefined && t.privateCarPrice !== '') g.privateCarPrice = Number(t.privateCarPrice);
+                if (t.privateVanPrice !== null && t.privateVanPrice !== undefined && t.privateVanPrice !== '') g.privateVanPrice = Number(t.privateVanPrice);
+                if (t.privateBusPrice !== null && t.privateBusPrice !== undefined && t.privateBusPrice !== '') g.privateBusPrice = Number(t.privateBusPrice);
+            }
+        });
+
+        // 2. Deduplicate & Merge Transfers
+        const trGroups = {};
+        (rawDb.transfers || []).forEach(tr => {
+            const rawName = String(tr.name || '').trim();
+            if (!rawName) return;
+            const norm = normalizeTransferRoute(rawName);
+            const isBkkPattayaArr = (norm.includes('bangkok') && norm.includes('airport') && norm.includes('pattaya')) && !norm.includes('hotel to');
+            const isPattayaBkkInter = (norm.includes('pattaya') && norm.includes('hotel') && norm.includes('bangkok') && norm.includes('hotel'));
+            const isBkkDep = norm.includes('bangkok') && norm.includes('hotel to') && norm.includes('airport');
+            const isBkkArr = norm.includes('bangkok') && norm.includes('airport to') && norm.includes('hotel') && !norm.includes('pattaya');
+            const isPhuketArr = norm.includes('phuket') && norm.includes('airport') && (norm.includes('to') || norm.includes('arrival')) && !norm.includes('hotel to');
+            const isPhuketDep = norm.includes('phuket') && norm.includes('hotel') && norm.includes('airport');
+
+            let groupKey = norm;
+            let cleanDisplayName = rawName.replace(/\s+/g, ' ').trim();
+            let location = String(tr.location || '').trim();
+
+            if (isBkkPattayaArr) {
+                groupKey = 'bkk_airport_to_pattaya_hotel';
+                cleanDisplayName = 'Arrival at Bangkok Airport and Transfer to Pattaya Hotel';
+                if (!location) location = 'Pattaya';
+            } else if (isPattayaBkkInter) {
+                groupKey = 'pattaya_hotel_to_bangkok_hotel';
+                cleanDisplayName = 'Transfer Pattaya Hotel to Bangkok Hotel';
+                if (!location) location = 'Pattaya';
+            } else if (isBkkDep) {
+                groupKey = 'bangkok_hotel_to_bangkok_airport';
+                cleanDisplayName = 'Transfer Bangkok Hotel to Bangkok Airport';
+                if (!location) location = 'Bangkok';
+            } else if (isBkkArr) {
+                groupKey = 'bangkok_airport_to_bangkok_hotel';
+                cleanDisplayName = 'Arrival at Bangkok Airport and Transfer to Bangkok Hotel';
+                if (!location) location = 'Bangkok';
+            } else if (isPhuketArr) {
+                groupKey = 'phuket_airport_to_phuket_hotel';
+                cleanDisplayName = 'Arrival at Phuket Airport and Transfer to Phuket Hotel';
+                if (!location) location = 'Phuket';
+            } else if (isPhuketDep) {
+                groupKey = 'phuket_hotel_to_phuket_airport';
+                cleanDisplayName = 'Transfer Phuket Hotel to Phuket Airport';
+                if (!location) location = 'Phuket';
+            }
+
+            const pCar = tr.carPrice !== null && tr.carPrice !== undefined && tr.carPrice !== '' ? Number(tr.carPrice) : (tr.price ? Number(tr.price) : null);
+            const pVan = tr.vanPrice !== null && tr.vanPrice !== undefined && tr.vanPrice !== '' ? Number(tr.vanPrice) : null;
+            const pBus = tr.busPrice !== null && tr.busPrice !== undefined && tr.busPrice !== '' ? Number(tr.busPrice) : null;
+
+            if (!trGroups[groupKey]) {
+                trGroups[groupKey] = {
+                    id: String(tr.id || ('tr_' + Date.now())),
+                    name: cleanDisplayName,
+                    location: location,
+                    carPrice: pCar,
+                    vanPrice: pVan,
+                    busPrice: pBus
+                };
+            } else {
+                const g = trGroups[groupKey];
+                if (pCar !== null) g.carPrice = pCar;
+                if (pVan !== null) g.vanPrice = pVan;
+                if (pBus !== null) g.busPrice = pBus;
+                if (!g.location && location) g.location = location;
+            }
+        });
+
+        // 3. Deduplicate & Merge Hotels
+        const hGroups = {};
+        (rawDb.hotels || []).forEach(h => {
+            const rawName = String(h.name || '').trim();
+            if (!rawName) return;
+            const cleanName = rawName.replace(/(\s*,?\s*or\s+similar\s*(\d*\*?|\*)?)+/gi, '').replace(/\s+/g, ' ').trim();
+            const star = String(h.star || '3').trim();
+            const loc = String(h.location || '').trim();
+            const key = (cleanName.toLowerCase() + '|' + star + '|' + loc.toLowerCase()).trim();
+
+            if (!hGroups[key]) {
+                hGroups[key] = {
+                    id: String(h.id || ('h_' + Date.now())),
+                    name: cleanName,
+                    location: loc,
+                    star: star,
+                    price: Number(h.price) || 0,
+                    mealPrice: Number(h.mealPrice) || 0
+                };
+            } else {
+                const g = hGroups[key];
+                if (Number(h.price) > 0) g.price = Number(h.price);
+                if (Number(h.mealPrice) > 0) g.mealPrice = Number(h.mealPrice);
+                if (!g.location && loc) g.location = loc;
+            }
+        });
+
+        return {
+            hotels: Object.values(hGroups),
+            tours: Object.values(tourGroups),
+            transfers: Object.values(trGroups),
+            extras: rawDb.extras || []
+        };
+    }
+
     async function saveMasterDatabaseToFirebase(silent = false) {
         updateCloudSyncStatus('syncing', (masterDb.tours || []).length, (masterDb.hotels || []).length);
         
-        const cleanDb = {
-            hotels: (masterDb.hotels || []).map(h => ({
-                id: String(h.id || ('h_' + Date.now())),
-                name: String(h.name || '').trim(),
-                location: String(h.location || '').trim(),
-                star: String(h.star || '3'),
-                price: Number(h.price) || 0,
-                mealPrice: Number(h.mealPrice) || 0
-            })),
-            tours: (masterDb.tours || []).map(t => ({
-                id: String(t.id || ('t_' + Date.now())),
-                name: String(t.name || '').trim(),
-                location: String(t.location || '').trim(),
-                joinPrice: t.joinPrice !== null && t.joinPrice !== undefined && t.joinPrice !== '' ? Number(t.joinPrice) : null,
-                ticketOnlyPrice: t.ticketOnlyPrice !== null && t.ticketOnlyPrice !== undefined && t.ticketOnlyPrice !== '' ? Number(t.ticketOnlyPrice) : null,
-                privateCarPrice: t.privateCarPrice !== null && t.privateCarPrice !== undefined && t.privateCarPrice !== '' ? Number(t.privateCarPrice) : null,
-                privateVanPrice: t.privateVanPrice !== null && t.privateVanPrice !== undefined && t.privateVanPrice !== '' ? Number(t.privateVanPrice) : null,
-                privateBusPrice: t.privateBusPrice !== null && t.privateBusPrice !== undefined && t.privateBusPrice !== '' ? Number(t.privateBusPrice) : null
-            })),
-            transfers: (masterDb.transfers || []).map(tr => ({
-                id: String(tr.id || ('tr_' + Date.now())),
-                name: String(tr.name || '').trim(),
-                location: String(tr.location || '').trim(),
-                carPrice: tr.carPrice !== null && tr.carPrice !== undefined && tr.carPrice !== '' ? Number(tr.carPrice) : null,
-                vanPrice: tr.vanPrice !== null && tr.vanPrice !== undefined && tr.vanPrice !== '' ? Number(tr.vanPrice) : null,
-                busPrice: tr.busPrice !== null && tr.busPrice !== undefined && tr.busPrice !== '' ? Number(tr.busPrice) : null
-            })),
-            extras: masterDb.extras || []
-        };
-        
+        // Auto deduplicate and merge all records before saving
+        const cleanDb = deduplicateMasterDatabase(masterDb);
         masterDb = cleanDb;
         localStorage.setItem('SLW_Master_Inventory', JSON.stringify(cleanDb));
         
@@ -1741,7 +1867,7 @@
                     window.slwLogActivity('Updated Master Database from Tour Costing Calculator');
                 }
                 if (!silent) {
-                    showNotification("☁️ Master Database successfully saved to Firebase Cloud!", false);
+                    showNotification("☁️ Master Database successfully saved & deduplicated in Firebase Cloud!", false);
                 }
             } else {
                 updateCloudSyncStatus('local', cleanDb.tours.length, cleanDb.hotels.length);
@@ -2614,9 +2740,16 @@
         if (currentSelectedModalTourDbId) {
             existingTour = (masterDb.tours || []).find(t => t.id === currentSelectedModalTourDbId);
         }
+        const stripTourTags = (str) => {
+            if (!str) return '';
+            return String(str)
+                .replace(/\s*\((Join Tour|Join Transfer|Private Transfer|Private - Van|Private - Bus|Private.*|Ticket Only|Join)\)/gi, '')
+                .replace(/\s+/g, ' ')
+                .trim();
+        };
+        const cleanBase = stripTourTags(name).toLowerCase();
         if (!existingTour) {
-            const cleanBase = name.replace(/\s*\((Join Tour|Private.*|Ticket Only)\)/i, '').trim().toLowerCase();
-            existingTour = (masterDb.tours || []).find(t => (t.name || '').toLowerCase() === cleanBase);
+            existingTour = (masterDb.tours || []).find(t => stripTourTags(t.name).toLowerCase() === cleanBase);
         }
         
         const isVan = name.toLowerCase().includes('van') || currentSelectedModalTourVehicle === 'van';
@@ -2690,9 +2823,19 @@
         if (currentSelectedModalTransferDbId) {
             existingTr = (masterDb.transfers || []).find(t => t.id === currentSelectedModalTransferDbId);
         }
+        const normalizeTransferRoute = (raw) => {
+            if (!raw) return '';
+            return String(raw)
+                .replace(/\s*\((Car|Van|Bus|Private.*)\)/gi, '')
+                .replace(/\bPvt\s+Basis\b/gi, '')
+                .replace(/\bPrivate\b/gi, '')
+                .replace(/\s+/g, ' ')
+                .trim()
+                .toLowerCase();
+        };
+        const cleanBase = normalizeTransferRoute(name);
         if (!existingTr) {
-            const cleanBase = name.replace(/\s*\((Car|Van|Bus)\)/i, '').trim().toLowerCase();
-            existingTr = (masterDb.transfers || []).find(t => (t.name || '').toLowerCase() === cleanBase);
+            existingTr = (masterDb.transfers || []).find(t => normalizeTransferRoute(t.name) === cleanBase);
         }
         
         const isVan = name.toLowerCase().includes('van');
