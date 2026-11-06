@@ -2302,21 +2302,21 @@
                     if (t.privateCarPrice || (!t.privateVanPrice && !t.privateBusPrice && t.privateTransferPrice)) {
                         const carPrice = Number(t.privateCarPrice || t.privateTransferPrice || 0);
                         const ticketPrice = Number(t.ticketOnlyPrice || 0);
-                        const data = { id: t.id, baseName: t.name, location: loc, type: 'private', name: t.name + ' (Private - Car)', price: ticketPrice, transfer: carPrice };
+                        const data = { id: t.id, baseName: t.name, location: loc, type: 'private', vehicle: 'car', name: t.name + ' (Private - Car)', price: ticketPrice, transfer: carPrice };
                         const label = `${t.name} (Private - Car) - Ticket: ${ticketPrice}, Transfer: ${carPrice}`;
                         options.push({ data, label, name: t.name, location: loc });
                         addedAny = true;
                     }
                     if (t.privateVanPrice) {
                         const ticketPrice = Number(t.ticketOnlyPrice || 0);
-                        const data = { id: t.id, baseName: t.name, location: loc, type: 'private', name: t.name + ' (Private - Van)', price: ticketPrice, transfer: Number(t.privateVanPrice) };
+                        const data = { id: t.id, baseName: t.name, location: loc, type: 'private', vehicle: 'van', name: t.name + ' (Private - Van)', price: ticketPrice, transfer: Number(t.privateVanPrice) };
                         const label = `${t.name} (Private - Van) - Ticket: ${ticketPrice}, Transfer: ${t.privateVanPrice}`;
                         options.push({ data, label, name: t.name, location: loc });
                         addedAny = true;
                     }
                     if (t.privateBusPrice) {
                         const ticketPrice = Number(t.ticketOnlyPrice || 0);
-                        const data = { id: t.id, baseName: t.name, location: loc, type: 'private', name: t.name + ' (Private - Bus)', price: ticketPrice, transfer: Number(t.privateBusPrice) };
+                        const data = { id: t.id, baseName: t.name, location: loc, type: 'private', vehicle: 'bus', name: t.name + ' (Private - Bus)', price: ticketPrice, transfer: Number(t.privateBusPrice) };
                         const label = `${t.name} (Private - Bus) - Ticket: ${ticketPrice}, Transfer: ${t.privateBusPrice}`;
                         options.push({ data, label, name: t.name, location: loc });
                         addedAny = true;
@@ -2552,6 +2552,7 @@
         });
     }
     let currentSelectedModalTourDbId = null;
+    let currentSelectedModalTourVehicle = null;
     let currentSelectedModalTransferDbId = null;
 
     function fillTourFromDb() {
@@ -2564,6 +2565,7 @@
             document.getElementById('newTourTransferPrice').value = data.transfer;
 
             currentSelectedModalTourDbId = data.id || null;
+            currentSelectedModalTourVehicle = data.vehicle || (data.name.toLowerCase().includes('van') ? 'van' : (data.name.toLowerCase().includes('bus') ? 'bus' : 'car'));
             const cityInp = document.getElementById('modalTourMasterCity');
             if (cityInp) cityInp.value = data.location || document.getElementById('tourCityFilter')?.value || '';
             const badge = document.getElementById('modalTourMasterStatusBadge');
@@ -2617,8 +2619,8 @@
             existingTour = (masterDb.tours || []).find(t => (t.name || '').toLowerCase() === cleanBase);
         }
         
-        const isVan = name.toLowerCase().includes('van');
-        const isBus = name.toLowerCase().includes('bus');
+        const isVan = name.toLowerCase().includes('van') || currentSelectedModalTourVehicle === 'van';
+        const isBus = name.toLowerCase().includes('bus') || currentSelectedModalTourVehicle === 'bus';
         if (existingTour) {
             if (transferPrice > 0) {
                 existingTour.ticketOnlyPrice = price;
@@ -2646,6 +2648,25 @@
         
         await saveMasterDatabaseToFirebase(silent);
         populateDbDropdowns();
+
+        // Also register transfer addon with SLW Learning Engine so Excel & Google Sheets auto-place it in Transfer column
+        if (transferPrice > 0 && window.SlwLearningEngine && typeof window.SlwLearningEngine.registerRule === 'function') {
+            try {
+                window.SlwLearningEngine.registerRule({
+                    id: 'rule_transfer_addon_' + name.toLowerCase().replace(/[^a-z0-9]/g, '_'),
+                    type: 'transfer_addon',
+                    category: 'Transfer Addon',
+                    title: `${name} Transfer Addon (${transferPrice} THB)`,
+                    pattern: name.toLowerCase().replace(/\s*\(.*\)/, '').trim(),
+                    city: location || 'Bangkok',
+                    transferPrice: transferPrice,
+                    targetColumn: 'Transfer (Col 7)',
+                    description: `Recorded ${transferPrice} THB transfer addon on "${name}" into Transfer Column for accurate total calculation.`,
+                    learnedFromInq: 'Master DB Update'
+                });
+            } catch (e) {}
+        }
+
         const badge = document.getElementById('modalTourMasterStatusBadge');
         if (badge) {
             badge.innerText = 'Linked & Synced';
@@ -3100,6 +3121,7 @@
         if (modalId === 'tourModal') {
             clearTourDbSearch();
             currentSelectedModalTourDbId = null;
+            currentSelectedModalTourVehicle = null;
             document.getElementById('tourModalTitle').innerText = 'Add New Tour';
             const saveButton = document.getElementById('saveTourButton');
             saveButton.innerText = 'Add Tour';
