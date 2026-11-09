@@ -613,6 +613,14 @@
         const markupChildShare4 = (!isNaN(Number(payload.markupChildShare4)) && payload.markupChildShare4 !== null) ? Number(payload.markupChildShare4) : markup4;
         const buffer = (!isNaN(Number(payload.buffer)) && payload.buffer !== null && payload.buffer !== undefined) ? Number(payload.buffer) : 1000;
 
+        // TPL (Triple Room) Supplement Settings
+        const isTplActive = Boolean(payload.isTplActive);
+        const tplRoomsCount = isTplActive ? Math.max(0, Number(payload.tplRoomsCount) || 1) : 0;
+        const totalRoomsCount = isTplActive ? Math.max(1, Number(payload.totalRoomsCount) || 1) : 1;
+        const tplRate3 = isTplActive ? (Number(payload.tplRate3) >= 0 ? Number(payload.tplRate3) : 800) : 0;
+        const tplRate4 = isTplActive ? (Number(payload.tplRate4) >= 0 ? Number(payload.tplRate4) : 1000) : 0;
+        const tplRate5 = isTplActive ? (Number(payload.tplRate5) >= 0 ? Number(payload.tplRate5) : 1200) : 0;
+
         // Cities, Tours, Transfers & Days
         const cities = payload.cities || [];
         const tours = [...(payload.tours || [])];
@@ -992,13 +1000,31 @@
                 // 2. City & Hotel Rates for this Night (if stay day)
                 const isStayNight = (dayIdx < effectiveNights);
                 let h3Price = 0, h4Price = 0, hMixPrice = 0;
+                let base3 = 0, base4 = 0, baseMix = 0;
+                let curMixTplRate = tplRate3;
                 if (isStayNight) {
                     const curCity = getCityForNight(dayIdx);
-                    h3Price = Number(curCity.hotel3Price) || 1400;
-                    h4Price = Number(curCity.hotel4Price) || (h3Price + 300);
-                    hMixPrice = h4Price;
-                    if (curCity.mixPref === '3') hMixPrice = h3Price;
-                    else if (curCity.mixPref === '5') hMixPrice = Number(curCity.hotel5Price) || h4Price;
+                    base3 = Number(curCity.hotel3Price) || 1400;
+                    base4 = Number(curCity.hotel4Price) || (base3 + 300);
+                    baseMix = base4;
+                    curMixTplRate = tplRate4;
+                    if (curCity.mixPref === '3') {
+                        baseMix = base3;
+                        curMixTplRate = tplRate3;
+                    } else if (curCity.mixPref === '5') {
+                        baseMix = Number(curCity.hotel5Price) || base4;
+                        curMixTplRate = tplRate5;
+                    }
+
+                    if (isTplActive) {
+                        h3Price = (totalRoomsCount * base3) + (tplRoomsCount * tplRate3);
+                        h4Price = (totalRoomsCount * base4) + (tplRoomsCount * tplRate4);
+                        hMixPrice = (totalRoomsCount * baseMix) + (tplRoomsCount * curMixTplRate);
+                    } else {
+                        h3Price = base3;
+                        h4Price = base4;
+                        hMixPrice = baseMix;
+                    }
                 }
 
                 // 3. Render Activities for this Day
@@ -1107,10 +1133,23 @@
                     if (shouldPlaceHotelRate) {
                         hotelCols.forEach(hCol => {
                             let pVal = h3Price;
-                            if (hCol.key === 'hMix') pVal = hMixPrice;
-                            else if (hCol.key === 'h4') pVal = h4Price;
+                            let bPrice = totalRoomsCount * base3;
+                            let sPrice = tplRoomsCount * tplRate3;
+                            if (hCol.key === 'hMix') {
+                                pVal = hMixPrice;
+                                bPrice = totalRoomsCount * baseMix;
+                                sPrice = tplRoomsCount * curMixTplRate;
+                            } else if (hCol.key === 'h4') {
+                                pVal = h4Price;
+                                bPrice = totalRoomsCount * base4;
+                                sPrice = tplRoomsCount * tplRate4;
+                            }
 
-                            row.getCell(hCol.col).value = pVal;
+                            if (isTplActive && sPrice > 0) {
+                                row.getCell(hCol.col).value = { formula: `${bPrice}+${sPrice}`, result: pVal };
+                            } else {
+                                row.getCell(hCol.col).value = pVal;
+                            }
                             row.getCell(hCol.col).font = { name: 'Arial', size: 10 };
                             row.getCell(hCol.col).alignment = { horizontal: 'right' };
                             row.getCell(hCol.col).border = BORDER_THIN;
@@ -1129,10 +1168,23 @@
                     const fRow = ws.getRow(firstActRowIdx);
                     hotelCols.forEach(hCol => {
                         let pVal = h3Price;
-                        if (hCol.key === 'hMix') pVal = hMixPrice;
-                        else if (hCol.key === 'h4') pVal = h4Price;
+                        let bPrice = totalRoomsCount * base3;
+                        let sPrice = tplRoomsCount * tplRate3;
+                        if (hCol.key === 'hMix') {
+                            pVal = hMixPrice;
+                            bPrice = totalRoomsCount * baseMix;
+                            sPrice = tplRoomsCount * curMixTplRate;
+                        } else if (hCol.key === 'h4') {
+                            pVal = h4Price;
+                            bPrice = totalRoomsCount * base4;
+                            sPrice = tplRoomsCount * tplRate4;
+                        }
 
-                        fRow.getCell(hCol.col).value = pVal;
+                        if (isTplActive && sPrice > 0) {
+                            fRow.getCell(hCol.col).value = { formula: `${bPrice}+${sPrice}`, result: pVal };
+                        } else {
+                            fRow.getCell(hCol.col).value = pVal;
+                        }
                         fRow.getCell(hCol.col).font = { name: 'Arial', size: 10 };
                         fRow.getCell(hCol.col).alignment = { horizontal: 'right' };
                     });
@@ -1243,11 +1295,21 @@
                     hotel4Price: 1800
                 };
 
-                const h3Price = Number(curCity.hotel3Price) || 1400;
-                let hMixPrice = Number(curCity.hotel4Price) || 1500;
-                if (curCity.mixPref === '3') hMixPrice = h3Price;
-                else if (curCity.mixPref === '5') hMixPrice = Number(curCity.hotel5Price) || 2000;
-                const h4Price = Number(curCity.hotel4Price) || (h3Price + 300);
+                const base3 = Number(curCity.hotel3Price) || 1400;
+                let baseMix = Number(curCity.hotel4Price) || 1500;
+                let curMixTplRate = tplRate4;
+                if (curCity.mixPref === '3') {
+                    baseMix = base3;
+                    curMixTplRate = tplRate3;
+                } else if (curCity.mixPref === '5') {
+                    baseMix = Number(curCity.hotel5Price) || 2000;
+                    curMixTplRate = tplRate5;
+                }
+                const base4 = Number(curCity.hotel4Price) || (base3 + 300);
+
+                let h3Price = isTplActive ? ((totalRoomsCount * base3) + (tplRoomsCount * tplRate3)) : base3;
+                let h4Price = isTplActive ? ((totalRoomsCount * base4) + (tplRoomsCount * tplRate4)) : base4;
+                let hMixPrice = isTplActive ? ((totalRoomsCount * baseMix) + (tplRoomsCount * curMixTplRate)) : baseMix;
 
                 if (isFirstDay) {
                     const arrTr = remainingTransfers.find(tr => tr.name.toLowerCase().includes('arrival') || tr.name.toLowerCase().includes('airport to'));
@@ -1271,10 +1333,23 @@
 
                     hotelCols.forEach(hCol => {
                         let pVal = h3Price;
-                        if (hCol.key === 'hMix') pVal = hMixPrice;
-                        else if (hCol.key === 'h4') pVal = h4Price;
+                        let bPrice = totalRoomsCount * base3;
+                        let sPrice = tplRoomsCount * tplRate3;
+                        if (hCol.key === 'hMix') {
+                            pVal = hMixPrice;
+                            bPrice = totalRoomsCount * baseMix;
+                            sPrice = tplRoomsCount * curMixTplRate;
+                        } else if (hCol.key === 'h4') {
+                            pVal = h4Price;
+                            bPrice = totalRoomsCount * base4;
+                            sPrice = tplRoomsCount * tplRate4;
+                        }
 
-                        rowArr.getCell(hCol.col).value = pVal;
+                        if (isTplActive && sPrice > 0) {
+                            rowArr.getCell(hCol.col).value = { formula: `${bPrice}+${sPrice}`, result: pVal };
+                        } else {
+                            rowArr.getCell(hCol.col).value = pVal;
+                        }
                         rowArr.getCell(hCol.col).font = { name: 'Arial', size: 10 };
                         rowArr.getCell(hCol.col).alignment = { horizontal: 'right' };
                         rowArr.getCell(hCol.col).border = BORDER_THIN;
@@ -1388,18 +1463,41 @@
                         rowBfast.getCell(4).alignment = { horizontal: 'center' };
                         rowBfast.getCell(4).border = BORDER_THIN;
 
-                        const nextH3 = Number(nextCity.hotel3Price) || 1500;
-                        let nextMix = Number(nextCity.hotel4Price) || 1500;
-                        if (nextCity.mixPref === '3') nextMix = nextH3;
-                        else if (nextCity.mixPref === '5') nextMix = Number(nextCity.hotel5Price) || 2000;
-                        const nextH4 = Number(nextCity.hotel4Price) || 2000;
+                        const nextBase3 = Number(nextCity.hotel3Price) || 1500;
+                        let nextBaseMix = Number(nextCity.hotel4Price) || 1500;
+                        let nextMixTplRate = tplRate4;
+                        if (nextCity.mixPref === '3') {
+                            nextBaseMix = nextBase3;
+                            nextMixTplRate = tplRate3;
+                        } else if (nextCity.mixPref === '5') {
+                            nextBaseMix = Number(nextCity.hotel5Price) || 2000;
+                            nextMixTplRate = tplRate5;
+                        }
+                        const nextBase4 = Number(nextCity.hotel4Price) || 2000;
+
+                        const nextH3 = isTplActive ? ((totalRoomsCount * nextBase3) + (tplRoomsCount * tplRate3)) : nextBase3;
+                        const nextH4 = isTplActive ? ((totalRoomsCount * nextBase4) + (tplRoomsCount * tplRate4)) : nextBase4;
+                        const nextMix = isTplActive ? ((totalRoomsCount * nextBaseMix) + (tplRoomsCount * nextMixTplRate)) : nextBaseMix;
 
                         hotelCols.forEach(hCol => {
                             let pVal = nextH3;
-                            if (hCol.key === 'hMix') pVal = nextMix;
-                            else if (hCol.key === 'h4') pVal = nextH4;
+                            let bPrice = totalRoomsCount * nextBase3;
+                            let sPrice = tplRoomsCount * tplRate3;
+                            if (hCol.key === 'hMix') {
+                                pVal = nextMix;
+                                bPrice = totalRoomsCount * nextBaseMix;
+                                sPrice = tplRoomsCount * nextMixTplRate;
+                            } else if (hCol.key === 'h4') {
+                                pVal = nextH4;
+                                bPrice = totalRoomsCount * nextBase4;
+                                sPrice = tplRoomsCount * tplRate4;
+                            }
 
-                            rowBfast.getCell(hCol.col).value = pVal;
+                            if (isTplActive && sPrice > 0) {
+                                rowBfast.getCell(hCol.col).value = { formula: `${bPrice}+${sPrice}`, result: pVal };
+                            } else {
+                                rowBfast.getCell(hCol.col).value = pVal;
+                            }
                             rowBfast.getCell(hCol.col).font = { name: 'Arial', size: 10 };
                             rowBfast.getCell(hCol.col).alignment = { horizontal: 'right' };
                             rowBfast.getCell(hCol.col).border = BORDER_THIN;
@@ -2169,7 +2267,10 @@
                 const optRowIdx = currentRow++;
                 ws.mergeCells(optRowIdx, 3, optRowIdx, 4);
                 const rOptHotel = ws.getRow(optRowIdx);
-                const optText = hLine.startsWith('With ') ? hLine : `With ${hCol.cardLabel} ${hLine}`;
+                let optText = hLine.startsWith('With ') ? hLine : `With ${hCol.cardLabel} ${hLine}`;
+                if (isTplActive && hIdx === 0) {
+                    optText += ' (Triple Room / TPL Sharing)';
+                }
                 rOptHotel.getCell(3).value = optText;
                 rOptHotel.getCell(3).font = { name: 'Arial', size: 10, italic: true };
                 rOptHotel.getCell(3).alignment = { vertical: 'middle', wrapText: true };
@@ -2206,7 +2307,8 @@
                 });
             }
 
-            const displayPrice = `LKR ${cardPriceVal.toLocaleString('en-US')} Per Person (Minimum ${paxStr})`;
+            const roomSharingSuffix = isTplActive ? ' (Triple Sharing)' : '';
+            const displayPrice = `LKR ${cardPriceVal.toLocaleString('en-US')} Per Person${roomSharingSuffix} (Minimum ${paxStr})`;
 
             rPriceCard.getCell(3).value = displayPrice;
             rPriceCard.getCell(3).font = { name: 'Calibri', size: 11, bold: true };
