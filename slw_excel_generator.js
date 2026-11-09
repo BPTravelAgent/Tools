@@ -92,6 +92,36 @@
     }
 
     /**
+     * Check if a tour name already has a transfer or tour type tag
+     */
+    function hasExistingTourTag(name) {
+        if (!name) return false;
+        const lower = name.toLowerCase();
+        return lower.includes('(join') ||
+               lower.includes('(private') ||
+               lower.includes('join transfer') ||
+               lower.includes('join tour') ||
+               lower.includes('private transfer') ||
+               lower.includes('private van') ||
+               lower.includes('private car') ||
+               lower.includes('ticket only') ||
+               lower.includes('transfer');
+    }
+
+    /**
+     * Clean duplicated tags like (Join Tour) (Join Transfer)
+     */
+    function cleanTourNameTags(name) {
+        if (!name) return '';
+        let s = String(name).trim();
+        const tagPattern = /\s*\((?:join\s+tour|join\s+transfer|private\s+transfer|join|private|ticket\s+only|private\s+tour)\)\s*\((?:join\s+tour|join\s+transfer|private\s+transfer|join|private|ticket\s+only|private\s+tour)\)/gi;
+        while (tagPattern.test(s)) {
+            s = s.replace(tagPattern, (m, p1) => ` (${p1.trim()})`);
+        }
+        return s.trim();
+    }
+
+    /**
      * Smart matcher for tours from itinerary activity text
      */
     function matchAndConsumeTour(actText, tourList) {
@@ -337,11 +367,12 @@
 
                 if (cityTourIdx !== -1) {
                     const cityTour = curCityTours.splice(cityTourIdx, 1)[0];
+                    let cleanName = cleanTourNameTags(cityTour.name);
                     let tag = cityTour.transferPrice > 0 ? '(Private Transfer)' : '(Join Transfer)';
-                    if (cityTour.name.toLowerCase().includes('private') || cityTour.name.toLowerCase().includes('join') || cityTour.name.toLowerCase().includes('transfer')) tag = '';
-                    activities.push(`${cityTour.name}${tag ? ' ' + tag : ''}`.trim());
-                    if (cityTour.name.toLowerCase().includes('lunch')) hasLunch = true;
-                    if (cityTour.name.toLowerCase().includes('dinner')) hasDinner = true;
+                    if (hasExistingTourTag(cleanName)) tag = '';
+                    activities.push(cleanTourNameTags(`${cleanName}${tag ? ' ' + tag : ''}`.trim()));
+                    if (cleanName.toLowerCase().includes('lunch')) hasLunch = true;
+                    if (cleanName.toLowerCase().includes('dinner')) hasDinner = true;
                 }
 
                 activities.push(formatHotelCheckIn(curCity.hotel3Name, curCity, '3*'));
@@ -351,9 +382,10 @@
                     const eveIdx = curCityTours.findIndex(t => t.name.toLowerCase().includes('dinner') || t.name.toLowerCase().includes('cruise'));
                     if (eveIdx !== -1) {
                         const eveTour = curCityTours.splice(eveIdx, 1)[0];
+                        let cleanEveName = cleanTourNameTags(eveTour.name);
                         let tag = eveTour.transferPrice > 0 ? '(Private Transfer)' : '(Join Transfer)';
-                        if (eveTour.name.toLowerCase().includes('private') || eveTour.name.toLowerCase().includes('join') || eveTour.name.toLowerCase().includes('transfer')) tag = '';
-                        activities.push(`${eveTour.name}${tag ? ' ' + tag : ''}`.trim());
+                        if (hasExistingTourTag(cleanEveName)) tag = '';
+                        activities.push(cleanTourNameTags(`${cleanEveName}${tag ? ' ' + tag : ''}`.trim()));
                         hasDinner = true;
                     }
                 }
@@ -456,11 +488,12 @@
 
                     if (trTourIdx !== -1) {
                         const trTour = nextCityTours.splice(trTourIdx, 1)[0];
+                        let cleanTrName = cleanTourNameTags(trTour.name);
                         let tag = trTour.transferPrice > 0 ? '(Private Transfer)' : '(Join Transfer)';
-                        if (trTour.name.toLowerCase().includes('private') || trTour.name.toLowerCase().includes('join') || trTour.name.toLowerCase().includes('transfer')) tag = '';
-                        activities.push(`${trTour.name}${tag ? ' ' + tag : ''}`.trim());
-                        if (trTour.name.toLowerCase().includes('lunch')) hasLunch = true;
-                        if (trTour.name.toLowerCase().includes('dinner') || trTour.name.toLowerCase().includes('cruise')) hasDinner = true;
+                        if (hasExistingTourTag(cleanTrName)) tag = '';
+                        activities.push(cleanTourNameTags(`${cleanTrName}${tag ? ' ' + tag : ''}`.trim()));
+                        if (cleanTrName.toLowerCase().includes('lunch')) hasLunch = true;
+                        if (cleanTrName.toLowerCase().includes('dinner') || cleanTrName.toLowerCase().includes('cruise')) hasDinner = true;
                     }
 
                     activities.push("Overnight at Hotel");
@@ -470,11 +503,12 @@
                     // Regular stay day in curCity
                     if (curCityTours.length > 0) {
                         const tour = curCityTours.shift();
+                        let cleanTourName = cleanTourNameTags(tour.name);
                         let tag = tour.transferPrice > 0 ? '(Private Transfer)' : '(Join Transfer)';
-                        if (tour.name.toLowerCase().includes('private') || tour.name.toLowerCase().includes('join') || tour.name.toLowerCase().includes('transfer')) tag = '';
-                        activities.push(`${tour.name}${tag ? ' ' + tag : ''}`.trim());
-                        if (tour.name.toLowerCase().includes('lunch')) hasLunch = true;
-                        if (tour.name.toLowerCase().includes('dinner') || tour.name.toLowerCase().includes('cruise')) hasDinner = true;
+                        if (hasExistingTourTag(cleanTourName)) tag = '';
+                        activities.push(cleanTourNameTags(`${cleanTourName}${tag ? ' ' + tag : ''}`.trim()));
+                        if (cleanTourName.toLowerCase().includes('lunch')) hasLunch = true;
+                        if (cleanTourName.toLowerCase().includes('dinner') || cleanTourName.toLowerCase().includes('cruise')) hasDinner = true;
                     } else {
                         activities.push("Free For Leisure");
                     }
@@ -581,18 +615,72 @@
      * @param {Object} payload 
      * @returns {Promise<ExcelJS.Workbook>}
      */
-    async function createCostingWorkbook(payload) {
-        const LibExcel = (typeof ExcelJS !== 'undefined' && ExcelJS) || (typeof window !== 'undefined' && window.ExcelJS) || (typeof globalThis !== 'undefined' && globalThis.ExcelJS);
-        if (!LibExcel) {
-            throw new Error('ExcelJS is not available in the current context.');
+    /**
+     * Sanitize and format a worksheet tab name according to Excel rules
+     * (<= 31 chars, no forbidden chars: \ / ? * : [ ], unique within workbook)
+     */
+    function sanitizeSheetName(rawName, existingNames = new Set()) {
+        let clean = String(rawName || 'Option')
+            .replace(/[\\\/\?\*\:\[\]]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+        if (clean.length > 28) clean = clean.substring(0, 28).trim();
+        if (!clean) clean = 'Tour Costing';
+
+        let uniqueName = clean;
+        let counter = 1;
+        while (existingNames.has(uniqueName.toLowerCase())) {
+            const suffix = ` (${counter})`;
+            uniqueName = clean.substring(0, 31 - suffix.length).trim() + suffix;
+            counter++;
         }
+        existingNames.add(uniqueName.toLowerCase());
+        return uniqueName;
+    }
 
-        const wb = new LibExcel.Workbook();
-        wb.creator = 'Sun Leisure World - Tour Costing System';
-        wb.lastModifiedBy = 'Sun Leisure World';
-        wb.created = new Date();
-        wb.modified = new Date();
+    function normalizePackagePayload(parentDoc, pkg, idx = 0) {
+        const costing = pkg.costing || {};
+        return {
+            ...parentDoc,
+            ...costing,
+            ...pkg,
+            inq: parentDoc.inq || pkg.inq,
+            clientName: parentDoc.clientName || pkg.clientName,
+            clientPhone: parentDoc.clientPhone || pkg.clientPhone,
+            travelMonth: parentDoc.travelMonth || pkg.travelMonth,
+            travelYear: parentDoc.travelYear || pkg.travelYear,
+            travelMonthDate: parentDoc.travelMonthDate || pkg.travelMonthDate || parentDoc.date,
+            monthDate: parentDoc.travelMonthDate || pkg.travelMonthDate || parentDoc.date,
+            date: parentDoc.date || pkg.date,
+            quotationDate: parentDoc.quotationDate || pkg.quotationDate || parentDoc.date,
+            title: pkg.title || parentDoc.title || 'Tour Quotation',
+            packageName: pkg.packageName || (`Option ${idx + 1}`),
+            pax: pkg.pax || parentDoc.pax,
+            paxText: pkg.paxText || parentDoc.paxText,
+            transferPax: pkg.transferPax || costing.transferPax || parentDoc.transferPax || parentDoc.pax,
+            hotelDivisor: pkg.hotelDivisor || costing.hotelDivisor || parentDoc.hotelDivisor || 2,
+            cities: costing.availableCities || pkg.cities || parentDoc.cities || [],
+            tours: costing.availableTours || pkg.tours || parentDoc.tours || [],
+            transfers: costing.availableTransfers || pkg.transfers || parentDoc.transfers || [],
+            days: pkg.itinerary?.days || costing.days || pkg.days || null,
+            itinerary: pkg.itinerary || parentDoc.itinerary,
+            rates: pkg.rates || parentDoc.rates,
+            pricingAdj: costing.pricingAdj || pkg.pricingAdj || parentDoc.pricingAdj,
+            pricingSummary: pkg.pricingSummary || parentDoc.pricingSummary,
+            hasMix: costing.hasMix !== undefined ? costing.hasMix : (pkg.hasMix !== undefined ? pkg.hasMix : parentDoc.hasMix),
+            isTplActive: costing.isTplActive !== undefined ? costing.isTplActive : (pkg.isTplActive !== undefined ? pkg.isTplActive : parentDoc.isTplActive),
+            tplRoomsCount: costing.tplRoomsCount !== undefined ? costing.tplRoomsCount : (pkg.tplRoomsCount !== undefined ? pkg.tplRoomsCount : parentDoc.tplRoomsCount),
+            totalRoomsCount: costing.totalRoomsCount !== undefined ? costing.totalRoomsCount : (pkg.totalRoomsCount !== undefined ? pkg.totalRoomsCount : parentDoc.totalRoomsCount),
+            tplRate3: costing.tplRate3 !== undefined ? costing.tplRate3 : (pkg.tplRate3 !== undefined ? pkg.tplRate3 : parentDoc.tplRate3),
+            tplRate4: costing.tplRate4 !== undefined ? costing.tplRate4 : (pkg.tplRate4 !== undefined ? pkg.tplRate4 : parentDoc.tplRate4),
+            tplRate5: costing.tplRate5 !== undefined ? costing.tplRate5 : (pkg.tplRate5 !== undefined ? pkg.tplRate5 : parentDoc.tplRate5)
+        };
+    }
 
+    /**
+     * Add a complete costing worksheet to an existing workbook
+     */
+    async function addCostingWorksheetToWorkbook(wb, payload, tabName = null, existingSheetNames = new Set()) {
         // 1. Parse & Normalize Inputs
         const transferPax = Math.max(1, Number(payload.transferPax) || Number(payload.pax) || 2);
         const hotelDivisor = Math.max(1, Number(payload.hotelDivisor) || 2);
@@ -836,7 +924,8 @@
         }
 
         // Sheet Setup
-        const sheetTitle = (tourTitle.length > 28 ? tourTitle.substring(0, 28) : tourTitle) || 'Tour Costing';
+        const defaultTitle = (tourTitle.length > 28 ? tourTitle.substring(0, 28) : tourTitle) || 'Tour Costing';
+        const sheetTitle = tabName ? sanitizeSheetName(tabName, existingSheetNames) : sanitizeSheetName(payload.packageName || defaultTitle, existingSheetNames);
         const ws = wb.addWorksheet(sheetTitle, {
             views: [{ showGridLines: true }]
         });
@@ -1002,23 +1091,30 @@
                 let h3Price = 0, h4Price = 0, hMixPrice = 0;
                 let base3 = 0, base4 = 0, baseMix = 0;
                 let curMixTplRate = tplRate3;
+                let cityTpl3 = tplRate3;
+                let cityTpl4 = tplRate4;
+                let cityTpl5 = tplRate5;
+
                 if (isStayNight) {
                     const curCity = getCityForNight(dayIdx);
                     base3 = Number(curCity.hotel3Price) || 1400;
                     base4 = Number(curCity.hotel4Price) || (base3 + 300);
                     baseMix = base4;
-                    curMixTplRate = tplRate4;
+                    cityTpl3 = (curCity.hotel3Tpl !== undefined && curCity.hotel3Tpl !== null) ? Number(curCity.hotel3Tpl) : tplRate3;
+                    cityTpl4 = (curCity.hotel4Tpl !== undefined && curCity.hotel4Tpl !== null) ? Number(curCity.hotel4Tpl) : tplRate4;
+                    cityTpl5 = (curCity.hotel5Tpl !== undefined && curCity.hotel5Tpl !== null) ? Number(curCity.hotel5Tpl) : tplRate5;
+                    curMixTplRate = cityTpl4;
                     if (curCity.mixPref === '3') {
                         baseMix = base3;
-                        curMixTplRate = tplRate3;
+                        curMixTplRate = cityTpl3;
                     } else if (curCity.mixPref === '5') {
                         baseMix = Number(curCity.hotel5Price) || base4;
-                        curMixTplRate = tplRate5;
+                        curMixTplRate = cityTpl5;
                     }
 
                     if (isTplActive) {
-                        h3Price = (totalRoomsCount * base3) + (tplRoomsCount * tplRate3);
-                        h4Price = (totalRoomsCount * base4) + (tplRoomsCount * tplRate4);
+                        h3Price = (totalRoomsCount * base3) + (tplRoomsCount * cityTpl3);
+                        h4Price = (totalRoomsCount * base4) + (tplRoomsCount * cityTpl4);
                         hMixPrice = (totalRoomsCount * baseMix) + (tplRoomsCount * curMixTplRate);
                     } else {
                         h3Price = base3;
@@ -1028,12 +1124,18 @@
                 }
 
                 // 3. Render Activities for this Day
-                const rawActs = Array.isArray(dayObj.activities) && dayObj.activities.length > 0 
-                    ? dayObj.activities 
+                let rawActs = Array.isArray(dayObj.activities) && dayObj.activities.length > 0 
+                    ? [...dayObj.activities] 
                     : [isFirstDay ? 'Arrival and Transfer to Hotel' : (isLastDay ? 'Check out and Departure Transfer' : 'Free For Leisure')];
                 
+                // If this is a stay night with TPL room supplement enabled, guarantee at least 2 rows
+                if (isStayNight && isTplActive && tplRoomsCount > 0 && rawActs.length < 2) {
+                    rawActs.push('Overnight at Hotel');
+                }
+                
                 let mealPlaced = false;
-                let hotelRatePlaced = false;
+                let hotelBaseRatePlaced = false;
+                let hotelTplRatePlaced = false;
 
                 rawActs.forEach((actText, actIdx) => {
                     const cleanAct = stripHtml(actText);
@@ -1129,32 +1231,40 @@
                     row.getCell(7).border = BORDER_THIN;
 
                     // Place Hotel Rates on designated row for overnight stay
-                    const shouldPlaceHotelRate = isStayNight && !hotelRatePlaced && (actIdx === 0 || actText.toLowerCase().includes('arrival') || actText.toLowerCase().includes('breakfast'));
-                    if (shouldPlaceHotelRate) {
+                    const shouldPlaceBaseHotelRate = isStayNight && !hotelBaseRatePlaced && (actIdx === 0 || actText.toLowerCase().includes('arrival') || actText.toLowerCase().includes('breakfast'));
+                    if (shouldPlaceBaseHotelRate) {
                         hotelCols.forEach(hCol => {
-                            let pVal = h3Price;
                             let bPrice = totalRoomsCount * base3;
-                            let sPrice = tplRoomsCount * tplRate3;
                             if (hCol.key === 'hMix') {
-                                pVal = hMixPrice;
                                 bPrice = totalRoomsCount * baseMix;
-                                sPrice = tplRoomsCount * curMixTplRate;
                             } else if (hCol.key === 'h4') {
-                                pVal = h4Price;
                                 bPrice = totalRoomsCount * base4;
-                                sPrice = tplRoomsCount * tplRate4;
                             }
 
-                            if (isTplActive && sPrice > 0) {
-                                row.getCell(hCol.col).value = { formula: `${bPrice}+${sPrice}`, result: pVal };
-                            } else {
-                                row.getCell(hCol.col).value = pVal;
+                            row.getCell(hCol.col).value = bPrice;
+                            row.getCell(hCol.col).font = { name: 'Arial', size: 10 };
+                            row.getCell(hCol.col).alignment = { horizontal: 'right' };
+                            row.getCell(hCol.col).border = BORDER_THIN;
+                        });
+                        hotelBaseRatePlaced = true;
+                    } else if (isStayNight && isTplActive && tplRoomsCount > 0 && hotelBaseRatePlaced && !hotelTplRatePlaced) {
+                        // Place TPL Room Supplement on Row 2 directly under Base Rate (matches agency standard & Screenshot 2)
+                        hotelCols.forEach(hCol => {
+                            let sPrice = tplRoomsCount * cityTpl3;
+                            if (hCol.key === 'hMix') {
+                                sPrice = tplRoomsCount * curMixTplRate;
+                            } else if (hCol.key === 'h4') {
+                                sPrice = tplRoomsCount * cityTpl4;
+                            }
+
+                            if (sPrice > 0) {
+                                row.getCell(hCol.col).value = sPrice;
                             }
                             row.getCell(hCol.col).font = { name: 'Arial', size: 10 };
                             row.getCell(hCol.col).alignment = { horizontal: 'right' };
                             row.getCell(hCol.col).border = BORDER_THIN;
                         });
-                        hotelRatePlaced = true;
+                        hotelTplRatePlaced = true;
                     } else {
                         hotelCols.forEach(hCol => {
                             row.getCell(hCol.col).border = BORDER_THIN;
@@ -1162,31 +1272,32 @@
                     }
                 });
 
-                // Safety: if hotel rate was not placed on any activity of a stay day, put it on first activity row
-                if (isStayNight && !hotelRatePlaced) {
+                // Safety: if hotel base rate was not placed on any activity of a stay day, put it on first activity row
+                if (isStayNight && !hotelBaseRatePlaced) {
                     const firstActRowIdx = currentRow - rawActs.length;
                     const fRow = ws.getRow(firstActRowIdx);
                     hotelCols.forEach(hCol => {
-                        let pVal = h3Price;
                         let bPrice = totalRoomsCount * base3;
-                        let sPrice = tplRoomsCount * tplRate3;
-                        if (hCol.key === 'hMix') {
-                            pVal = hMixPrice;
-                            bPrice = totalRoomsCount * baseMix;
-                            sPrice = tplRoomsCount * curMixTplRate;
-                        } else if (hCol.key === 'h4') {
-                            pVal = h4Price;
-                            bPrice = totalRoomsCount * base4;
-                            sPrice = tplRoomsCount * tplRate4;
-                        }
-
-                        if (isTplActive && sPrice > 0) {
-                            fRow.getCell(hCol.col).value = { formula: `${bPrice}+${sPrice}`, result: pVal };
-                        } else {
-                            fRow.getCell(hCol.col).value = pVal;
-                        }
+                        if (hCol.key === 'hMix') bPrice = totalRoomsCount * baseMix;
+                        else if (hCol.key === 'h4') bPrice = totalRoomsCount * base4;
+                        fRow.getCell(hCol.col).value = bPrice;
                         fRow.getCell(hCol.col).font = { name: 'Arial', size: 10 };
                         fRow.getCell(hCol.col).alignment = { horizontal: 'right' };
+                    });
+                }
+                // Safety: if TPL supplement rate was not placed on any activity of a stay day, put it on second activity row
+                if (isStayNight && isTplActive && tplRoomsCount > 0 && !hotelTplRatePlaced && rawActs.length >= 2) {
+                    const secondActRowIdx = currentRow - rawActs.length + 1;
+                    const sRow = ws.getRow(secondActRowIdx);
+                    hotelCols.forEach(hCol => {
+                        let sPrice = tplRoomsCount * cityTpl3;
+                        if (hCol.key === 'hMix') sPrice = tplRoomsCount * curMixTplRate;
+                        else if (hCol.key === 'h4') sPrice = tplRoomsCount * cityTpl4;
+                        if (sPrice > 0) {
+                            sRow.getCell(hCol.col).value = sPrice;
+                            sRow.getCell(hCol.col).font = { name: 'Arial', size: 10 };
+                            sRow.getCell(hCol.col).alignment = { horizontal: 'right' };
+                        }
                     });
                 }
 
@@ -1332,24 +1443,14 @@
                     rowArr.getCell(7).border = BORDER_THIN;
 
                     hotelCols.forEach(hCol => {
-                        let pVal = h3Price;
                         let bPrice = totalRoomsCount * base3;
-                        let sPrice = tplRoomsCount * tplRate3;
                         if (hCol.key === 'hMix') {
-                            pVal = hMixPrice;
                             bPrice = totalRoomsCount * baseMix;
-                            sPrice = tplRoomsCount * curMixTplRate;
                         } else if (hCol.key === 'h4') {
-                            pVal = h4Price;
                             bPrice = totalRoomsCount * base4;
-                            sPrice = tplRoomsCount * tplRate4;
                         }
 
-                        if (isTplActive && sPrice > 0) {
-                            rowArr.getCell(hCol.col).value = { formula: `${bPrice}+${sPrice}`, result: pVal };
-                        } else {
-                            rowArr.getCell(hCol.col).value = pVal;
-                        }
+                        rowArr.getCell(hCol.col).value = bPrice;
                         rowArr.getCell(hCol.col).font = { name: 'Arial', size: 10 };
                         rowArr.getCell(hCol.col).alignment = { horizontal: 'right' };
                         rowArr.getCell(hCol.col).border = BORDER_THIN;
@@ -1359,6 +1460,23 @@
                     rowCheckin.getCell(3).value = `02.00pm Check in at ${curCity.name} Hotel`;
                     rowCheckin.getCell(3).font = { name: 'Arial', size: 10 };
                     rowCheckin.getCell(3).border = BORDER_THIN;
+
+                    if (isTplActive && tplRoomsCount > 0) {
+                        hotelCols.forEach(hCol => {
+                            let sPrice = tplRoomsCount * cityTpl3;
+                            if (hCol.key === 'hMix') {
+                                sPrice = tplRoomsCount * curMixTplRate;
+                            } else if (hCol.key === 'h4') {
+                                sPrice = tplRoomsCount * cityTpl4;
+                            }
+                            if (sPrice > 0) {
+                                rowCheckin.getCell(hCol.col).value = sPrice;
+                                rowCheckin.getCell(hCol.col).font = { name: 'Arial', size: 10 };
+                                rowCheckin.getCell(hCol.col).alignment = { horizontal: 'right' };
+                            }
+                            rowCheckin.getCell(hCol.col).border = BORDER_THIN;
+                        });
+                    }
 
                     const eveIdx = remainingTours.findIndex(t => t.name.toLowerCase().includes('dinner') || t.name.toLowerCase().includes('cruise'));
                     if (eveIdx !== -1) {
@@ -1480,24 +1598,14 @@
                         const nextMix = isTplActive ? ((totalRoomsCount * nextBaseMix) + (tplRoomsCount * nextMixTplRate)) : nextBaseMix;
 
                         hotelCols.forEach(hCol => {
-                            let pVal = nextH3;
                             let bPrice = totalRoomsCount * nextBase3;
-                            let sPrice = tplRoomsCount * tplRate3;
                             if (hCol.key === 'hMix') {
-                                pVal = nextMix;
                                 bPrice = totalRoomsCount * nextBaseMix;
-                                sPrice = tplRoomsCount * nextMixTplRate;
                             } else if (hCol.key === 'h4') {
-                                pVal = nextH4;
                                 bPrice = totalRoomsCount * nextBase4;
-                                sPrice = tplRoomsCount * tplRate4;
                             }
 
-                            if (isTplActive && sPrice > 0) {
-                                rowBfast.getCell(hCol.col).value = { formula: `${bPrice}+${sPrice}`, result: pVal };
-                            } else {
-                                rowBfast.getCell(hCol.col).value = pVal;
-                            }
+                            rowBfast.getCell(hCol.col).value = bPrice;
                             rowBfast.getCell(hCol.col).font = { name: 'Arial', size: 10 };
                             rowBfast.getCell(hCol.col).alignment = { horizontal: 'right' };
                             rowBfast.getCell(hCol.col).border = BORDER_THIN;
@@ -1526,6 +1634,20 @@
                         rowCheckinNext.getCell(3).font = { name: 'Arial', size: 10 };
                         rowCheckinNext.getCell(3).border = BORDER_THIN;
 
+                        if (isTplActive && tplRoomsCount > 0) {
+                            hotelCols.forEach(hCol => {
+                                let sPrice = tplRoomsCount * cityTpl3;
+                                if (hCol.key === 'hMix') sPrice = tplRoomsCount * curMixTplRate;
+                                else if (hCol.key === 'h4') sPrice = tplRoomsCount * cityTpl4;
+                                if (sPrice > 0) {
+                                    rowCheckinNext.getCell(hCol.col).value = sPrice;
+                                    rowCheckinNext.getCell(hCol.col).font = { name: 'Arial', size: 10 };
+                                    rowCheckinNext.getCell(hCol.col).alignment = { horizontal: 'right' };
+                                }
+                                rowCheckinNext.getCell(hCol.col).border = BORDER_THIN;
+                            });
+                        }
+
                     } else {
                         rowBfast.getCell(4).value = '(B/L/--)';
                         rowBfast.getCell(4).font = { name: 'Arial', size: 10 };
@@ -1533,17 +1655,18 @@
                         rowBfast.getCell(4).border = BORDER_THIN;
 
                         hotelCols.forEach(hCol => {
-                            let pVal = h3Price;
-                            if (hCol.key === 'hMix') pVal = hMixPrice;
-                            else if (hCol.key === 'h4') pVal = h4Price;
+                            let bPrice = totalRoomsCount * base3;
+                            if (hCol.key === 'hMix') bPrice = totalRoomsCount * baseMix;
+                            else if (hCol.key === 'h4') bPrice = totalRoomsCount * base4;
 
-                            rowBfast.getCell(hCol.col).value = pVal;
+                            rowBfast.getCell(hCol.col).value = bPrice;
                             rowBfast.getCell(hCol.col).font = { name: 'Arial', size: 10 };
                             rowBfast.getCell(hCol.col).alignment = { horizontal: 'right' };
                             rowBfast.getCell(hCol.col).border = BORDER_THIN;
                         });
                     }
 
+                    let secondDayRow = null;
                     if (remainingTours.length > 0) {
                         const dayTour = remainingTours.shift();
                         const rowTour = ws.getRow(currentRow++);
@@ -1555,11 +1678,27 @@
                         rowTour.getCell(6).font = { name: 'Arial', size: 10 };
                         rowTour.getCell(6).alignment = { horizontal: 'right' };
                         rowTour.getCell(6).border = BORDER_THIN;
+                        secondDayRow = rowTour;
                     } else {
                         const rowFree = ws.getRow(currentRow++);
                         rowFree.getCell(3).value = 'Free For Leisure';
                         rowFree.getCell(3).font = { name: 'Arial', size: 10 };
                         rowFree.getCell(3).border = BORDER_THIN;
+                        secondDayRow = rowFree;
+                    }
+
+                    if (isTplActive && tplRoomsCount > 0 && secondDayRow) {
+                        hotelCols.forEach(hCol => {
+                            let sPrice = tplRoomsCount * cityTpl3;
+                            if (hCol.key === 'hMix') sPrice = tplRoomsCount * curMixTplRate;
+                            else if (hCol.key === 'h4') sPrice = tplRoomsCount * cityTpl4;
+                            if (sPrice > 0) {
+                                secondDayRow.getCell(hCol.col).value = sPrice;
+                                secondDayRow.getCell(hCol.col).font = { name: 'Arial', size: 10 };
+                                secondDayRow.getCell(hCol.col).alignment = { horizontal: 'right' };
+                            }
+                            secondDayRow.getCell(hCol.col).border = BORDER_THIN;
+                        });
                     }
 
                     const rowOver = ws.getRow(currentRow++);
@@ -1719,6 +1858,9 @@
         rPax.getCell(3).font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
         rPax.getCell(3).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.TOUR_END_GREEN } };
         rPax.getCell(3).border = BORDER_THIN;
+        rPax.getCell(4).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.TOUR_END_GREEN } };
+        rPax.getCell(4).border = BORDER_THIN;
+        try { ws.mergeCells(perPaxRowIdx, 3, perPaxRowIdx, 4); } catch (e) {}
 
         rPax.getCell(6).value = { formula: `SUM(F2:F${lastActivityRow})`, result: tourSum };
         rPax.getCell(6).font = { name: 'Arial', size: 10, bold: true };
@@ -1736,8 +1878,13 @@
         });
         currentRow++;
 
-        // Star Category marker
+        // Star Category marker & Rate Validity Row
         const rStar = ws.getRow(currentRow++);
+        rStar.getCell(3).value = 'This Rate Valid for 07 days';
+        rStar.getCell(3).font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFF0000' } };
+        rStar.getCell(3).alignment = { horizontal: 'center', vertical: 'middle' };
+        try { ws.mergeCells(rStar.number, 3, rStar.number, 4); } catch (e) {}
+
         rStar.getCell(6).value = '3*';
         rStar.getCell(6).font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
         rStar.getCell(6).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.TOUR_END_GREEN } };
@@ -1824,30 +1971,48 @@
         currentRow++;
 
         // 4. Inclusions Breakdown Lines
-        const cleanInclusions = (Array.isArray(payload.inclusions) ? payload.inclusions : [])
-            .map(i => stripHtml(i))
-            .filter(Boolean);
+        let allInclusionLines = [];
+        if (Array.isArray(payload.inclusions) && payload.inclusions.length > 0) {
+            allInclusionLines = payload.inclusions
+                .map(i => cleanTourNameTags(stripHtml(i)))
+                .filter(Boolean);
+        } else {
+            // Build fresh clean inclusions list if not provided
+            const accLine = cities.length > 0 
+                ? cities.map(c => `${c.numberOfNights}N ${c.name}`).join(' ') + ' 3* Hotel Accommdation with Breakfast'
+                : `${stripHtml(tourTitle)} Hotel Accomodation with Breakfast`;
+            allInclusionLines.push(accLine);
+            allInclusionLines.push('Private Transfer from Airport - Hotel - Airport');
+            allInclusionLines.push('Tour by air-conditioned vehicles');
 
-        // Separate normal inclusions from meal summary items
-        const normalInclusions = cleanInclusions.filter(i => {
-            const lower = i.toLowerCase();
-            return !lower.startsWith('meal') && !lower.includes('breakfast /') && !lower.includes('breakfast/');
-        });
-        const customMealItem = cleanInclusions.find(i => {
-            const lower = i.toLowerCase();
-            return lower.startsWith('meal') || lower.includes('breakfast /') || lower.includes('breakfast/');
+            tours.forEach(t => {
+                let nameWithTag = cleanTourNameTags(stripHtml(t.name).trim());
+                if (!hasExistingTourTag(nameWithTag)) {
+                    nameWithTag += t.transferPrice > 0 ? ' (Private Transfer)' : ' (Join Transfer)';
+                }
+                allInclusionLines.push(cleanTourNameTags(nameWithTag));
+            });
+        }
+
+        // Ensure meal summary is included exactly once at the end of inclusions
+        const mealItemIdx = allInclusionLines.findIndex(i => {
+            const l = i.toLowerCase();
+            return l.startsWith('meal') || l.includes('breakfast /') || l.includes('breakfast/');
         });
 
-        // Default fallbacks if normalInclusions has few items
-        const defaultNormalInclusions = [
-            cities.length > 0 ? cities.map(c => `${c.numberOfNights}N ${c.name}`).join(' ') + ' Hotel Accomodation with Breakfast' : `${stripHtml(tourTitle)} Hotel Accomodation with Breakfast`,
-            'Airport - Hotel - Airport Transfer Pvt Basis ',
-            'Tour by air-conditioned vehicles',
-            'All admisson fees & Transfers as mentioned in the above program',
-            tours[0] ? stripHtml(tours[0].name) : 'Sightseeing Tours as mentioned',
-            tours[1] ? stripHtml(tours[1].name) : 'Attraction Tickets & Guide Assistance',
-            tours[2] ? stripHtml(tours[2].name) : 'Sightseeing Activities'
-        ];
+        let mealLine = '';
+        if (mealItemIdx !== -1) {
+            mealLine = allInclusionLines.splice(mealItemIdx, 1)[0];
+        } else {
+            let breakfastCount = Math.max(0, (days ? days.length : totalNights + 1) - 1);
+            let lunchCount = tours.filter(t => (t.name || '').toLowerCase().includes('lunch')).length;
+            let dinnerCount = tours.filter(t => (t.name || '').toLowerCase().includes('dinner') || (t.name || '').toLowerCase().includes('cruise')).length;
+            const bStr = String(breakfastCount).padStart(2, '0') + ' Breakfast';
+            const lStr = String(lunchCount).padStart(2, '0') + ' Lunch';
+            const dStr = String(dinnerCount).padStart(2, '0') + ' Dinner';
+            mealLine = `Meals (${bStr} / ${lStr} / ${dStr})`;
+        }
+        allInclusionLines.push(mealLine);
 
         function isTourOrMealInclusion(text) {
             if (!text) return false;
@@ -1862,24 +2027,22 @@
             return true;
         }
 
-        function getInclusionFont(text) {
-            return isTourOrMealInclusion(text) ? FONT_INC_BLUE : FONT_INC_BLACK;
-        }
-
-        function getNormalInc(idx, fallback) {
-            return normalInclusions[idx] || fallback;
+        function setIncCell(row, idx) {
+            const val = allInclusionLines[idx] || '';
+            row.getCell(3).value = val;
+            if (val) {
+                row.getCell(3).font = isTourOrMealInclusion(val) ? FONT_INC_BLUE : FONT_INC_BLACK;
+            }
         }
 
         // Inc 1: City Stay
         const rInc1 = ws.getRow(currentRow++);
-        rInc1.getCell(3).value = getNormalInc(0, defaultNormalInclusions[0]);
-        rInc1.getCell(3).font = getInclusionFont(rInc1.getCell(3).value);
+        setIncCell(rInc1, 0);
 
         // Inc 2: Transfers & Markup Row
         const markupRowIdx = currentRow;
         const rInc2 = ws.getRow(markupRowIdx);
-        rInc2.getCell(3).value = getNormalInc(1, defaultNormalInclusions[1]);
-        rInc2.getCell(3).font = getInclusionFont(rInc2.getCell(3).value);
+        setIncCell(rInc2, 1);
 
         rInc2.getCell(7).value = `${hotelCols[0].markup}%`;
         rInc2.getCell(7).font = { name: 'Calibri', size: 11, bold: true };
@@ -1930,8 +2093,7 @@
         // Inc 3: Different / Profit Margin
         const profitRowIdx = currentRow;
         const rInc3 = ws.getRow(profitRowIdx);
-        rInc3.getCell(3).value = getNormalInc(2, defaultNormalInclusions[2]);
-        rInc3.getCell(3).font = getInclusionFont(rInc3.getCell(3).value);
+        setIncCell(rInc3, 2);
 
         rInc3.getCell(7).value = 'Different';
         rInc3.getCell(7).font = { name: 'Arial', size: 10, bold: true };
@@ -1979,16 +2141,14 @@
         }
         currentRow++;
 
-        // Inc 4: Admissions
+        // Inc 4: Admissions / Tour
         const rInc4 = ws.getRow(currentRow++);
-        rInc4.getCell(3).value = getNormalInc(3, defaultNormalInclusions[3]);
-        rInc4.getCell(3).font = getInclusionFont(rInc4.getCell(3).value);
+        setIncCell(rInc4, 3);
 
         // Inc 5: THB Label Row
         const thbRowIdx = currentRow;
         const rInc5 = ws.getRow(thbRowIdx);
-        rInc5.getCell(3).value = getNormalInc(4, defaultNormalInclusions[4]);
-        rInc5.getCell(3).font = getInclusionFont(rInc5.getCell(3).value);
+        setIncCell(rInc5, 4);
 
         rInc5.getCell(7).value = 'THB';
         rInc5.getCell(7).font = { name: 'Calibri', size: 11, bold: true };
@@ -2038,14 +2198,12 @@
 
         // Inc 6: Tour 2 (if any)
         const rInc6 = ws.getRow(currentRow++);
-        rInc6.getCell(3).value = getNormalInc(5, defaultNormalInclusions[5]);
-        rInc6.getCell(3).font = getInclusionFont(rInc6.getCell(3).value);
+        setIncCell(rInc6, 5);
 
         // Inc 7: LKR Currency Row
         const lkrRowIdx = currentRow;
         const rInc7 = ws.getRow(lkrRowIdx);
-        rInc7.getCell(3).value = getNormalInc(6, defaultNormalInclusions[6]);
-        rInc7.getCell(3).font = getInclusionFont(rInc7.getCell(3).value);
+        setIncCell(rInc7, 6);
 
         rInc7.getCell(7).value = 'LKR';
         rInc7.getCell(7).font = { name: 'Calibri', size: 11, bold: true };
@@ -2090,21 +2248,11 @@
         }
         currentRow++;
 
-        // Inc 8: Meals Summary (Rendered EXACTLY ONCE here!)
-        const rInc8 = ws.getRow(currentRow++);
-        let breakfastCount = Math.max(0, (days ? days.length : totalNights + 1) - 1);
-        let lunchCount = tours.filter(t => (t.name || '').toLowerCase().includes('lunch')).length;
-        let dinnerCount = tours.filter(t => (t.name || '').toLowerCase().includes('dinner') || (t.name || '').toLowerCase().includes('cruise')).length;
-        const defaultMealSummary = `Meals (${String(breakfastCount).padStart(2, '0')} Breakfast / ${String(lunchCount).padStart(2, '0')} Lunch / ${String(dinnerCount).padStart(2, '0')} Dinner)`;
-        rInc8.getCell(3).value = customMealItem || defaultMealSummary;
-        rInc8.getCell(3).font = FONT_INC_BLUE;
-
-        // Extra inclusions if any (beyond index 6, excluding meals)
-        if (normalInclusions.length > 7) {
-            for (let incIdx = 7; incIdx < normalInclusions.length; incIdx++) {
+        // Extra inclusions if any (beyond index 6)
+        if (allInclusionLines.length > 7) {
+            for (let incIdx = 7; incIdx < allInclusionLines.length; incIdx++) {
                 const rExtraInc = ws.getRow(currentRow++);
-                rExtraInc.getCell(3).value = normalInclusions[incIdx];
-                rExtraInc.getCell(3).font = getInclusionFont(rExtraInc.getCell(3).value);
+                setIncCell(rExtraInc, incIdx);
             }
         }
 
@@ -2215,9 +2363,6 @@
             rExc.getCell(3).font = { name: 'Arial', size: 10 };
         });
 
-        const rVal = ws.getRow(currentRow++);
-        rVal.getCell(3).value = '              This Rate Valid for 07 days ';
-        rVal.getCell(3).font = { name: 'Arial', size: 10, italic: true };
         currentRow += 1;
 
         // 6. Summary Client Quotation Cards (Dynamic based on hotelCols)
@@ -2408,7 +2553,54 @@
             currentRow++; // 1 empty row spacing between cards (matches sample excel)
         });
 
+        return ws;
+    }
+
+    /**
+     * Generate Excel Workbook (supports single package or multi-package INQs with separate tabs)
+     * @param {Object} payload 
+     * @returns {Promise<ExcelJS.Workbook>}
+     */
+    async function createCostingWorkbook(payload) {
+        const LibExcel = (typeof ExcelJS !== 'undefined' && ExcelJS) || (typeof window !== 'undefined' && window.ExcelJS) || (typeof globalThis !== 'undefined' && globalThis.ExcelJS);
+        if (!LibExcel) {
+            throw new Error('ExcelJS is not available in the current context.');
+        }
+
+        const wb = new LibExcel.Workbook();
+        wb.creator = 'Sun Leisure World - Tour Costing System';
+        wb.lastModifiedBy = 'Sun Leisure World';
+        wb.created = new Date();
+        wb.modified = new Date();
+
+        const existingSheetNames = new Set();
+
+        // Multi-Package Support: If packages array has multiple options, create a separate native tab for each option!
+        if (payload && payload.packages && Array.isArray(payload.packages) && payload.packages.length > 1) {
+            for (let i = 0; i < payload.packages.length; i++) {
+                const pkg = payload.packages[i];
+                const pkgPayload = normalizePackagePayload(payload, pkg, i);
+                const tabLabel = pkg.packageName || (`Option ${i + 1} - ` + (pkg.title || 'Tour'));
+                await addCostingWorksheetToWorkbook(wb, pkgPayload, tabLabel, existingSheetNames);
+            }
+        } else {
+            await addCostingWorksheetToWorkbook(wb, payload, payload.packageName || null, existingSheetNames);
+        }
+
         return wb;
+    }
+
+    async function createMultiPackageWorkbook(packagesPayloads, options = {}) {
+        return await createCostingWorkbook({
+            ...options,
+            packages: packagesPayloads
+        });
+    }
+
+    async function downloadMultiPackageCostingExcel(packagesPayloads, customFilename = null) {
+        return await downloadCostingExcel({
+            packages: packagesPayloads
+        }, customFilename);
     }
 
     /**
@@ -2523,6 +2715,9 @@
 
     return {
         createCostingWorkbook,
+        addCostingWorksheetToWorkbook,
+        createMultiPackageWorkbook,
+        downloadMultiPackageCostingExcel,
         downloadCostingExcel,
         generateCostingExcelBase64,
         exportToGoogleSheets,

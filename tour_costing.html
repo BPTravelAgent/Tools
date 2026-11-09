@@ -1061,7 +1061,7 @@
             <input type="checkbox" id="modalSyncTourToDbCheckbox" class="mr-1.5 h-4 w-4 text-purple-600 rounded">
             <span>Also save/update in Master DB & Cloud (All PCs)</span>
         </label>
-        <button type="button" onclick="quickSaveModalTourToMasterDb()" class="py-1 px-2.5 bg-purple-600 hover:bg-purple-700 text-white text-[11px] font-bold rounded shadow transition flex items-center gap-1" title="Save changes directly to Master DB now">
+        <button id="btnTourSaveToCloud" type="button" onclick="quickSaveModalTourToMasterDb(false, true)" class="py-1 px-2.5 bg-purple-600 hover:bg-purple-700 text-white text-[11px] font-bold rounded shadow transition flex items-center gap-1" title="Save changes directly to Master DB & Cloud and update Costing now">
             <i class="fas fa-save"></i> <span>Save to Cloud</span>
         </button>
     </div>
@@ -1104,7 +1104,7 @@
             <input type="checkbox" id="modalSyncTransferToDbCheckbox" class="mr-1.5 h-4 w-4 text-orange-600 rounded">
             <span>Also save/update in Master DB & Cloud (All PCs)</span>
         </label>
-        <button type="button" onclick="quickSaveModalTransferToMasterDb()" class="py-1 px-2.5 bg-orange-600 hover:bg-orange-700 text-white text-[11px] font-bold rounded shadow transition flex items-center gap-1" title="Save changes directly to Master DB now">
+        <button id="btnTransferSaveToCloud" type="button" onclick="quickSaveModalTransferToMasterDb(false, true)" class="py-1 px-2.5 bg-orange-600 hover:bg-orange-700 text-white text-[11px] font-bold rounded shadow transition flex items-center gap-1" title="Save changes directly to Master DB & Cloud and update Costing now">
             <i class="fas fa-save"></i> <span>Save to Cloud</span>
         </button>
     </div>
@@ -1142,9 +1142,19 @@
         </select>
         <input type="text" id="newCity3StarName" placeholder="3* Hotel Name" class="w-full p-2 border rounded-md mb-2">
         <input type="number" id="newCity3StarNights" placeholder="Nights in 3* (if split)" class="w-full p-2 border rounded-md mb-2 hidden split-night-input">
-        <div class="flex gap-2">
-            <input type="number" id="newCity3StarPrice" placeholder="Hotel Price/Night (THB)" class="w-full p-2 border rounded-md">
-            <input type="number" id="newCity3StarMeal" placeholder="Child Meal Price/Night (THB)" class="w-full p-2 border rounded-md">
+        <div class="grid grid-cols-3 gap-2">
+            <div>
+                <label class="block text-[10px] font-bold text-gray-600 mb-0.5">Room / Night (THB)</label>
+                <input type="number" id="newCity3StarPrice" placeholder="e.g. 1500" class="w-full p-2 border rounded-md text-xs font-semibold">
+            </div>
+            <div>
+                <label class="block text-[10px] font-bold text-gray-600 mb-0.5">Child Meal (THB)</label>
+                <input type="number" id="newCity3StarMeal" placeholder="350" class="w-full p-2 border rounded-md text-xs">
+            </div>
+            <div>
+                <label class="block text-[10px] font-bold text-blue-800 mb-0.5">TPL Room (THB)</label>
+                <input type="number" id="newCity3StarTpl" placeholder="800" value="800" class="w-full p-2 border border-blue-300 rounded-md text-xs font-bold bg-blue-50/50 text-blue-900" title="Triple Room (TPL) Supplement / Extra Bed per night">
+            </div>
         </div>
     </div>
     <div class="border p-3 rounded-md bg-amber-50">
@@ -1158,9 +1168,19 @@
         </select>
         <input type="text" id="newCity4StarName" placeholder="4* Hotel Name" class="w-full p-2 border rounded-md mb-2">
         <input type="number" id="newCity4StarNights" placeholder="Nights in 4* (if split)" class="w-full p-2 border rounded-md mb-2 hidden split-night-input">
-        <div class="flex gap-2">
-            <input type="number" id="newCity4StarPrice" placeholder="Hotel Price/Night (THB)" class="w-full p-2 border rounded-md">
-            <input type="number" id="newCity4StarMeal" placeholder="Child Meal Price/Night (THB)" class="w-full p-2 border rounded-md">
+        <div class="grid grid-cols-3 gap-2">
+            <div>
+                <label class="block text-[10px] font-bold text-gray-600 mb-0.5">Room / Night (THB)</label>
+                <input type="number" id="newCity4StarPrice" placeholder="e.g. 1900" class="w-full p-2 border rounded-md text-xs font-semibold">
+            </div>
+            <div>
+                <label class="block text-[10px] font-bold text-gray-600 mb-0.5">Child Meal (THB)</label>
+                <input type="number" id="newCity4StarMeal" placeholder="450" class="w-full p-2 border rounded-md text-xs">
+            </div>
+            <div>
+                <label class="block text-[10px] font-bold text-amber-800 mb-0.5">TPL Room (THB)</label>
+                <input type="number" id="newCity4StarTpl" placeholder="1000" value="1000" class="w-full p-2 border border-amber-300 rounded-md text-xs font-bold bg-amber-50/50 text-amber-900" title="Triple Room (TPL) Supplement / Extra Bed per night">
+            </div>
         </div>
     </div>
     <div class="border p-3 rounded-md bg-purple-50">
@@ -1174,9 +1194,19 @@
         </select>
         <input type="text" id="newCity5StarName" placeholder="5* Hotel Name" class="w-full p-2 border rounded-md mb-2">
         <input type="number" id="newCity5StarNights" placeholder="Nights in 5* (if split)" class="w-full p-2 border rounded-md mb-2 hidden split-night-input">
-        <div class="flex gap-2">
-            <input type="number" id="newCity5StarPrice" placeholder="Hotel Price/Night (THB)" class="w-full p-2 border rounded-md">
-            <input type="number" id="newCity5StarMeal" placeholder="Child Meal Price/Night (THB)" class="w-full p-2 border rounded-md">
+        <div class="grid grid-cols-3 gap-2">
+            <div>
+                <label class="block text-[10px] font-bold text-gray-600 mb-0.5">Room / Night (THB)</label>
+                <input type="number" id="newCity5StarPrice" placeholder="Hotel Price/Night (THB)" class="w-full p-2 border rounded-md text-xs font-semibold">
+            </div>
+            <div>
+                <label class="block text-[10px] font-bold text-gray-600 mb-0.5">Child Meal (THB)</label>
+                <input type="number" id="newCity5StarMeal" placeholder="Child Meal (THB)" class="w-full p-2 border rounded-md text-xs">
+            </div>
+            <div>
+                <label class="block text-[10px] font-bold text-purple-800 mb-0.5">TPL Room (THB)</label>
+                <input type="number" id="newCity5StarTpl" placeholder="1200" value="1200" class="w-full p-2 border border-purple-300 rounded-md text-xs font-bold bg-purple-50/50 text-purple-900" title="Triple Room (TPL) Supplement / Extra Bed per night">
+            </div>
         </div>
     </div>
     <div class="border p-3 rounded-md bg-gray-50" id="mixPrefContainer">
@@ -1194,8 +1224,8 @@
             <input type="checkbox" id="modalSyncHotelsToDbCheckbox" class="mr-2 h-4 w-4 text-blue-600 rounded">
             <span>Also save/update newly entered Hotels to Master DB & Cloud (All PCs)</span>
         </label>
-        <button type="button" onclick="quickSaveModalHotelsToMasterDb()" class="py-1 px-3 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded shadow transition">
-            Save Hotels
+        <button id="btnHotelSaveToCloud" type="button" onclick="quickSaveModalHotelsToMasterDb(false, true)" class="py-1 px-3 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded shadow transition flex items-center gap-1" title="Save changes directly to Master DB & Cloud and update Costing now">
+            <i class="fas fa-save"></i> <span>Save Hotels to Cloud</span>
         </button>
     </div>
 </div><div class="flex gap-4 mt-6"><button id="saveCityButton" onclick="saveCity()" class="flex-1 py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700">Add City</button><button onclick="closeModal('cityModal')" class="flex-1 py-2 px-4 bg-gray-300 rounded-md hover:bg-gray-400">Cancel</button></div></div></div>
@@ -1501,7 +1531,7 @@
                 <div class="flex gap-2">
                     <div class="relative flex-1">
                         <span class="absolute left-3 top-2.5 text-xs font-bold text-indigo-400">#</span>
-                        <input type="text" id="saveQuotationInqInput" required placeholder="e.g. INQ-58291 or 58291" class="w-full pl-7 pr-3 py-2.5 border-2 border-indigo-200 focus:border-indigo-500 rounded-lg text-sm font-extrabold text-indigo-950 uppercase tracking-wider focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-indigo-50/20">
+                        <input type="text" id="saveQuotationInqInput" required oninput="checkSaveQuotationInqPackages(this.value)" placeholder="e.g. INQ-58291 or 58291" class="w-full pl-7 pr-3 py-2.5 border-2 border-indigo-200 focus:border-indigo-500 rounded-lg text-sm font-extrabold text-indigo-950 uppercase tracking-wider focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-indigo-50/20">
                     </div>
                     <button type="button" onclick="generateNewInqNumber()" class="py-2 px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg text-xs font-bold transition flex items-center gap-1.5" title="Generate new random 5-digit INQ #">
                         <i class="fas fa-dice"></i> <span>Randomize</span>
@@ -1526,6 +1556,45 @@
             <div>
                 <label class="block text-xs font-bold text-gray-700 mb-1">Package Title / Destination <span class="text-red-500">*</span></label>
                 <input type="text" id="saveQuotationTitleInput" required placeholder="e.g. 05D 04N Bangkok &amp; Pattaya Tour" class="w-full p-2.5 border rounded-lg text-sm font-bold text-gray-800 focus:ring-2 focus:ring-indigo-500">
+            </div>
+
+            <!-- Multi-Package Option Section (Multiple Itineraries per INQ #) -->
+            <div id="saveQuotationPackageSection" class="p-3 bg-gradient-to-r from-amber-50/90 via-orange-50/60 to-amber-50/90 border-2 border-amber-300 rounded-xl space-y-2">
+                <div class="flex items-center justify-between">
+                    <label class="block text-xs font-black text-amber-950 flex items-center gap-1.5">
+                        <i class="fas fa-boxes text-amber-600"></i> Tour Package Option (Multiple Packages per INQ)
+                    </label>
+                    <span id="saveQuotationPackageCountBadge" class="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-200 text-amber-900 border border-amber-300">
+                        Option 1
+                    </span>
+                </div>
+
+                <div>
+                    <label class="block text-[11px] font-bold text-gray-700 mb-0.5">Package Option Name (for Excel & Google Sheet Tab)</label>
+                    <input type="text" id="saveQuotationPackageNameInput" placeholder="e.g. Option 1: Bangkok Only, Option 2: Bangkok & Pattaya" class="w-full p-2 bg-white border border-amber-300 rounded-lg text-xs font-bold text-gray-800 focus:ring-2 focus:ring-amber-500">
+                </div>
+
+                <!-- Multi-package choice if this INQ already has saved packages -->
+                <div id="saveQuotationExistingPackagesBox" style="display: none;" class="pt-1.5 border-t border-amber-200">
+                    <div class="text-[11px] font-semibold text-amber-900 mb-1.5 flex items-center gap-1">
+                        <i class="fas fa-layer-group text-amber-600"></i> Packages already saved under this INQ:
+                    </div>
+                    <div class="flex flex-col sm:flex-row gap-2 mb-2">
+                        <label class="flex items-center text-xs font-bold text-indigo-900 cursor-pointer bg-white px-2.5 py-1.5 rounded-lg border border-indigo-200 hover:bg-indigo-50 flex-1">
+                            <input type="radio" name="savePackageMode" id="savePackageModeNew" value="new_option" checked onchange="toggleSavePackageMode()" class="mr-1.5 text-indigo-600">
+                            <span>➕ Add as NEW Package Option</span>
+                        </label>
+                        <label class="flex items-center text-xs font-bold text-gray-800 cursor-pointer bg-white px-2.5 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 flex-1">
+                            <input type="radio" name="savePackageMode" id="savePackageModeOverwrite" value="overwrite_option" onchange="toggleSavePackageMode()" class="mr-1.5 text-amber-600">
+                            <span>✏️ Overwrite Selected Option</span>
+                        </label>
+                    </div>
+                    <div id="saveQuotationOverwriteDropdownRow" style="display: none;">
+                        <label class="block text-[10px] font-bold text-amber-800 mb-0.5">Select Option to Overwrite:</label>
+                        <select id="saveQuotationSelectExistingPackage" onchange="onSelectExistingPackageToOverwrite()" class="w-full p-2 bg-white border border-amber-400 rounded-lg text-xs font-bold text-gray-800">
+                        </select>
+                    </div>
+                </div>
             </div>
 
             <!-- Date & Pax -->
@@ -2484,26 +2553,10 @@
 
     async function loadMasterDatabase(forceReload = false) {
         let fetchedDb = { hotels: [], tours: [], transfers: [], extras: [] };
-        
-        try {
-            if (typeof db !== 'undefined' && db) {
-                const doc = await db.collection('slw_settings').doc('master_inventory').get();
-                if (doc.exists) {
-                    masterDb = sanitizeDb(doc.data());
-                    localStorage.setItem('SLW_Master_Inventory', JSON.stringify(masterDb));
-                    console.log(`Master database loaded from Firebase: ${masterDb.tours.length} tours, ${masterDb.hotels.length} hotels, ${masterDb.transfers.length} transfers.`);
-                    populateDbDropdowns();
-                    updateCloudSyncStatus('cloud', masterDb.tours.length, masterDb.hotels.length);
-                    if (forceReload) {
-                        alert(`Successfully synced ${masterDb.tours.length} tours and ${masterDb.hotels.length} hotels from Firebase Cloud!`);
-                    }
-                    return;
-                }
-            }
-        } catch(e) {
-            console.error("Firebase fetch error:", e);
-        }
+        let cloudDb = null;
+        let localDb = null;
 
+        // 1. Fetch bundled master_db.json (base 183 tours, 55 hotels, 7 transfers)
         try {
             const response = await fetch('./master_db.json?t=' + new Date().getTime());
             if (response.ok) {
@@ -2514,23 +2567,52 @@
             console.log("master_db.json not found via fetch.");
         }
 
+        // 2. Fetch from Firebase Cloud
+        try {
+            if (typeof db !== 'undefined' && db) {
+                const doc = await db.collection('slw_settings').doc('master_inventory').get();
+                if (doc.exists) {
+                    cloudDb = sanitizeDb(doc.data());
+                    console.log(`Cloud Master DB fetched: ${cloudDb.tours.length} tours, ${cloudDb.hotels.length} hotels, ${cloudDb.transfers.length} transfers.`);
+                }
+            }
+        } catch(e) {
+            console.error("Firebase fetch error:", e);
+        }
+
+        // 3. Local Cache
         const saved = localStorage.getItem('SLW_Master_Inventory');
         if (saved) {
             try {
-                const localDb = JSON.parse(saved);
-                masterDb = sanitizeDb(localDb);
+                localDb = sanitizeDb(JSON.parse(saved));
             } catch(e) {
                 console.error('Failed to parse local database');
-                masterDb = fetchedDb;
             }
-        } else {
-            masterDb = fetchedDb;
         }
-        
+
+        // 4. Merge all together: base + local + cloud, prioritized & deduplicated
+        const mergedRaw = {
+            tours: [...(fetchedDb.tours || []), ...(localDb?.tours || []), ...(cloudDb?.tours || [])],
+            hotels: [...(fetchedDb.hotels || []), ...(localDb?.hotels || []), ...(cloudDb?.hotels || [])],
+            transfers: [...(fetchedDb.transfers || []), ...(localDb?.transfers || []), ...(cloudDb?.transfers || [])],
+            extras: [...(fetchedDb.extras || []), ...(localDb?.extras || []), ...(cloudDb?.extras || [])]
+        };
+
+        masterDb = deduplicateMasterDatabase(mergedRaw);
+        localStorage.setItem('SLW_Master_Inventory', JSON.stringify(masterDb));
+        console.log(`Master database active: ${masterDb.tours.length} tours, ${masterDb.hotels.length} hotels, ${masterDb.transfers.length} transfers.`);
+
+        // If cloud had fewer items than the merged total, silently push full master inventory to cloud
+        if (cloudDb && masterDb.tours.length > cloudDb.tours.length && typeof db !== 'undefined' && db) {
+            try {
+                db.collection('slw_settings').doc('master_inventory').set(masterDb).catch(() => {});
+            } catch(e) {}
+        }
+
         populateDbDropdowns();
-        updateCloudSyncStatus('local', masterDb.tours.length, masterDb.hotels.length);
+        updateCloudSyncStatus(cloudDb ? 'cloud' : 'local', masterDb.tours.length, masterDb.hotels.length);
         if (forceReload) {
-            alert(`Loaded database: ${masterDb.tours.length} tours, ${masterDb.hotels.length} hotels.`);
+            showNotification(`☁️ Successfully synced ${masterDb.tours.length} tours and ${masterDb.hotels.length} hotels with Cloud!`, false);
         }
     }
 
@@ -2655,6 +2737,7 @@
             );
         }
 
+        const prevTourVal = tourSelect.value;
         const placeholder = searchVal 
             ? `-- Found ${options.length} Tour(s) matching "${searchVal}" --`
             : '-- Select from Master Database --';
@@ -2663,6 +2746,22 @@
             html += `<option value='${JSON.stringify(opt.data)}'>${opt.label}</option>`;
         });
         tourSelect.innerHTML = html;
+
+        // Restore previous selection if possible
+        if (prevTourVal) {
+            try {
+                const prevData = JSON.parse(prevTourVal);
+                for (let i = 0; i < tourSelect.options.length; i++) {
+                    try {
+                        const optData = JSON.parse(tourSelect.options[i].value);
+                        if ((prevData.id && optData.id === prevData.id) || optData.name === prevData.name) {
+                            tourSelect.selectedIndex = i;
+                            break;
+                        }
+                    } catch(e) {}
+                }
+            } catch(e) {}
+        }
     }
 
     function clearTourDbSearch() {
@@ -2727,6 +2826,7 @@
             );
         }
 
+        const prevTrVal = transferSelect.value;
         const placeholder = searchVal 
             ? `-- Found ${options.length} Transfer(s) matching "${searchVal}" --`
             : '-- Select from Master Database --';
@@ -2735,6 +2835,22 @@
             html += `<option value='${JSON.stringify(opt.data)}'>${opt.label}</option>`;
         });
         transferSelect.innerHTML = html;
+
+        // Restore previous selection if possible
+        if (prevTrVal) {
+            try {
+                const prevData = JSON.parse(prevTrVal);
+                for (let i = 0; i < transferSelect.options.length; i++) {
+                    try {
+                        const optData = JSON.parse(transferSelect.options[i].value);
+                        if ((prevData.id && optData.id === prevData.id) || optData.name === prevData.name) {
+                            transferSelect.selectedIndex = i;
+                            break;
+                        }
+                    } catch(e) {}
+                }
+            } catch(e) {}
+        }
     }
 
     function clearTransferDbSearch() {
@@ -2763,7 +2879,7 @@
             : `-- Search ${star}* Database --`;
         let html = `<option value="">${placeholder}</option>`;
         hotels.forEach(h => {
-            const data = { name: h.name, price: h.price, meal: h.mealPrice || 0 };
+            const data = { name: h.name, price: h.price, meal: h.mealPrice || 0, tplPrice: h.tplPrice || (star === 4 ? 1000 : (star === 5 ? 1200 : 800)) };
             const locText = h.location ? ` [${h.location}]` : '';
             html += `<option value='${JSON.stringify(data)}'>${h.name}${locText} - ${h.price} THB</option>`;
         });
@@ -2912,13 +3028,21 @@
         } catch(e) {}
     }
 
-    async function quickSaveModalTourToMasterDb(silent = false, applyToPackage = true) {
+    async function quickSaveModalTourToMasterDb(silent = false, applyToPackage = false) {
+        const btn = document.getElementById('btnTourSaveToCloud');
+        const origBtnHtml = btn ? btn.innerHTML : '';
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> <span>Saving...</span>';
+        }
+
         const name = document.getElementById('newTourName')?.value.trim();
         const price = parseFloat(document.getElementById('newTourPrice')?.value) || 0;
         const transferPrice = parseFloat(document.getElementById('newTourTransferPrice')?.value) || 0;
         const location = document.getElementById('modalTourMasterCity')?.value.trim() || document.getElementById('tourCityFilter')?.value.trim() || '';
         
         if (!name) {
+            if (btn) { btn.disabled = false; btn.innerHTML = origBtnHtml; }
             if (!silent) showNotification("Please enter a Tour Name.", true);
             return false;
         }
@@ -2943,15 +3067,22 @@
         const isVan = name.toLowerCase().includes('van') || currentSelectedModalTourVehicle === 'van';
         const isBus = name.toLowerCase().includes('bus') || currentSelectedModalTourVehicle === 'bus';
         if (existingTour) {
+            existingTour.name = stripTourTags(name) || name;
             if (transferPrice > 0) {
                 existingTour.ticketOnlyPrice = price;
-                if (isVan) existingTour.privateVanPrice = transferPrice;
-                else if (isBus) existingTour.privateBusPrice = transferPrice;
-                else existingTour.privateCarPrice = transferPrice;
+                if (isVan) {
+                    existingTour.privateVanPrice = transferPrice;
+                } else if (isBus) {
+                    existingTour.privateBusPrice = transferPrice;
+                } else {
+                    existingTour.privateCarPrice = transferPrice;
+                    if (!existingTour.privateVanPrice) existingTour.privateVanPrice = transferPrice;
+                }
             } else {
                 existingTour.joinPrice = price;
             }
             if (location) existingTour.location = location;
+            currentSelectedModalTourDbId = existingTour.id;
         } else {
             const newTourObj = {
                 id: 't_' + Date.now(),
@@ -2960,7 +3091,7 @@
                 joinPrice: transferPrice === 0 ? price : null,
                 ticketOnlyPrice: transferPrice > 0 ? price : null,
                 privateCarPrice: !isVan && !isBus && transferPrice > 0 ? transferPrice : null,
-                privateVanPrice: isVan ? transferPrice : null,
+                privateVanPrice: isVan || (!isBus && transferPrice > 0) ? transferPrice : null,
                 privateBusPrice: isBus ? transferPrice : null
             };
             (masterDb.tours = masterDb.tours || []).push(newTourObj);
@@ -2990,25 +3121,47 @@
 
         const badge = document.getElementById('modalTourMasterStatusBadge');
         if (badge) {
-            badge.innerText = 'Linked & Synced';
-            badge.className = 'text-[10px] font-semibold px-2 py-0.5 rounded bg-green-100 text-green-800';
+            badge.innerText = '✅ Synced to Cloud';
+            badge.className = 'text-[10px] font-bold px-2 py-0.5 rounded bg-green-100 text-green-800 border border-green-300';
+        }
+
+        if (btn) {
+            btn.innerHTML = '<i class="fas fa-check"></i> <span>Saved to Cloud!</span>';
+            btn.classList.remove('bg-purple-600', 'hover:bg-purple-700');
+            btn.classList.add('bg-green-600', 'hover:bg-green-700');
+            setTimeout(() => {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = origBtnHtml;
+                    btn.classList.remove('bg-green-600', 'hover:bg-green-700');
+                    btn.classList.add('bg-purple-600', 'hover:bg-purple-700');
+                }
+            }, 2500);
         }
         
         if (applyToPackage) {
             saveTour(currentEditingTourIndex, false);
             if (!silent) showNotification(`✅ Tour "${name}" saved to Package & synced to Cloud!`, false);
         } else if (!silent) {
-            showNotification(`✅ Tour "${name}" synced to Master DB & Cloud!`, false);
+            showNotification(`☁️ Tour "${name}" successfully saved & synced to Master DB Cloud! (All PCs updated)`, false);
         }
         return true;
     }
 
-    async function quickSaveModalTransferToMasterDb(silent = false, applyToPackage = true) {
+    async function quickSaveModalTransferToMasterDb(silent = false, applyToPackage = false) {
+        const btn = document.getElementById('btnTransferSaveToCloud');
+        const origBtnHtml = btn ? btn.innerHTML : '';
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> <span>Saving...</span>';
+        }
+
         const name = document.getElementById('newTransferName')?.value.trim();
         const price = parseFloat(document.getElementById('newTransferPrice')?.value) || 0;
         const location = document.getElementById('modalTransferMasterCity')?.value.trim() || document.getElementById('transferCityFilter')?.value.trim() || '';
         
         if (!name) {
+            if (btn) { btn.disabled = false; btn.innerHTML = origBtnHtml; }
             if (!silent) showNotification("Please enter a Transfer Name.", true);
             return false;
         }
@@ -3035,20 +3188,30 @@
         
         const isVan = name.toLowerCase().includes('van');
         const isBus = name.toLowerCase().includes('bus');
+        const isCar = name.toLowerCase().includes('car');
         if (existingTr) {
+            const cleanTrName = name.replace(/\s*\((Car|Van|Bus|Private.*)\)/i, '').replace(/\s*\([^\)]*$/gi, '').trim();
+            existingTr.name = cleanTrName || name;
             if (isVan) existingTr.vanPrice = price;
             else if (isBus) existingTr.busPrice = price;
-            else existingTr.carPrice = price;
+            else if (isCar) existingTr.carPrice = price;
+            else {
+                existingTr.price = price;
+                if (!existingTr.carPrice || existingTr.carPrice === existingTr.price) existingTr.carPrice = price;
+                if (!existingTr.vanPrice || existingTr.vanPrice === existingTr.price) existingTr.vanPrice = price;
+            }
             existingTr.price = price;
             if (location) existingTr.location = location;
+            currentSelectedModalTransferDbId = existingTr.id;
         } else {
+            const cleanName = name.replace(/\s*\((Car|Van|Bus|Private.*)\)/i, '').replace(/\s*\([^\)]*$/gi, '').trim();
             const newTrObj = {
                 id: 'tr_' + Date.now(),
-                name: name.replace(/\s*\((Car|Van|Bus)\)/i, '').trim(),
+                name: cleanName || name,
                 location: location,
                 price: price,
-                carPrice: !isVan && !isBus ? price : null,
-                vanPrice: isVan ? price : null,
+                carPrice: isCar || (!isVan && !isBus) ? price : null,
+                vanPrice: isVan || (!isCar && !isBus) ? price : null,
                 busPrice: isBus ? price : null
             };
             (masterDb.transfers = masterDb.transfers || []).push(newTrObj);
@@ -3059,33 +3222,56 @@
         populateDbDropdowns();
         const badge = document.getElementById('modalTransferMasterStatusBadge');
         if (badge) {
-            badge.innerText = 'Linked & Synced';
-            badge.className = 'text-[10px] font-semibold px-2 py-0.5 rounded bg-green-100 text-green-800';
+            badge.innerText = '✅ Synced to Cloud';
+            badge.className = 'text-[10px] font-bold px-2 py-0.5 rounded bg-green-100 text-green-800 border border-green-300';
+        }
+
+        if (btn) {
+            btn.innerHTML = '<i class="fas fa-check"></i> <span>Saved to Cloud!</span>';
+            btn.classList.remove('bg-orange-600', 'hover:bg-orange-700');
+            btn.classList.add('bg-green-600', 'hover:bg-green-700');
+            setTimeout(() => {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = origBtnHtml;
+                    btn.classList.remove('bg-green-600', 'hover:bg-green-700');
+                    btn.classList.add('bg-orange-600', 'hover:bg-orange-700');
+                }
+            }, 2500);
         }
 
         if (applyToPackage) {
             saveTransfer(currentEditingTransferIndex, false);
             if (!silent) showNotification(`✅ Transfer "${name}" saved to Package & synced to Cloud!`, false);
         } else if (!silent) {
-            showNotification(`✅ Transfer "${name}" synced to Master DB & Cloud!`, false);
+            showNotification(`☁️ Transfer "${name}" successfully saved & synced to Master DB Cloud! (All PCs updated)`, false);
         }
         return true;
     }
 
-    async function quickSaveModalHotelsToMasterDb(silent = false, applyToPackage = true) {
+    async function quickSaveModalHotelsToMasterDb(silent = false, applyToPackage = false) {
+        const btn = document.getElementById('btnHotelSaveToCloud');
+        const origBtnHtml = btn ? btn.innerHTML : '';
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> <span>Saving...</span>';
+        }
+
         const cityName = document.getElementById('newCityName')?.value.trim() || '';
         let updatedCount = 0;
         
-        const checkAndSaveHotel = (star, nameId, priceId, mealId) => {
+        const checkAndSaveHotel = (star, nameId, priceId, mealId, tplId) => {
             const name = document.getElementById(nameId)?.value.trim();
             const price = parseFloat(document.getElementById(priceId)?.value) || 0;
             const meal = parseFloat(document.getElementById(mealId)?.value) || 0;
+            const tpl = parseFloat(document.getElementById(tplId)?.value) || (star === 4 ? 1000 : (star === 5 ? 1200 : 800));
             if (!name || price <= 0) return;
             
             let existingH = (masterDb.hotels || []).find(h => (h.name || '').toLowerCase() === name.toLowerCase());
             if (existingH) {
                 existingH.price = price;
                 existingH.mealPrice = meal;
+                existingH.tplPrice = tpl;
                 if (cityName) existingH.location = cityName;
                 existingH.star = String(star);
             } else {
@@ -3095,26 +3281,42 @@
                     location: cityName,
                     star: String(star),
                     price: price,
-                    mealPrice: meal
+                    mealPrice: meal,
+                    tplPrice: tpl
                 };
                 (masterDb.hotels = masterDb.hotels || []).push(newH);
             }
             updatedCount++;
         };
         
-        checkAndSaveHotel(3, 'newCity3StarName', 'newCity3StarPrice', 'newCity3StarMeal');
-        checkAndSaveHotel(4, 'newCity4StarName', 'newCity4StarPrice', 'newCity4StarMeal');
-        checkAndSaveHotel(5, 'newCity5StarName', 'newCity5StarPrice', 'newCity5StarMeal');
+        checkAndSaveHotel(3, 'newCity3StarName', 'newCity3StarPrice', 'newCity3StarMeal', 'newCity3StarTpl');
+        checkAndSaveHotel(4, 'newCity4StarName', 'newCity4StarPrice', 'newCity4StarMeal', 'newCity4StarTpl');
+        checkAndSaveHotel(5, 'newCity5StarName', 'newCity5StarPrice', 'newCity5StarMeal', 'newCity5StarTpl');
         
         if (updatedCount > 0) {
             await saveMasterDatabaseToFirebase(silent);
+            if (btn) {
+                btn.innerHTML = '<i class="fas fa-check"></i> <span>Hotels Saved to Cloud!</span>';
+                btn.classList.remove('bg-blue-600', 'hover:bg-blue-700');
+                btn.classList.add('bg-green-600', 'hover:bg-green-700');
+                setTimeout(() => {
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerHTML = origBtnHtml;
+                        btn.classList.remove('bg-green-600', 'hover:bg-green-700');
+                        btn.classList.add('bg-blue-600', 'hover:bg-blue-700');
+                    }
+                }, 2500);
+            }
+
             if (applyToPackage) {
                 saveCity(currentEditingCityIndex, false);
                 if (!silent) showNotification(`✅ City stay saved to Package & synced to Cloud!`, false);
             } else if (!silent) {
-                showNotification(`✅ Synced ${updatedCount} Hotel(s) to Master DB & Cloud!`, false);
+                showNotification(`☁️ Successfully synced ${updatedCount} Hotel(s) to Master DB & Cloud! (All PCs updated)`, false);
             }
         } else {
+            if (btn) { btn.disabled = false; btn.innerHTML = origBtnHtml; }
             if (!silent) showNotification("Please enter at least one hotel name and price.", true);
         }
     }
@@ -3127,6 +3329,11 @@
             document.getElementById('newCity' + star + 'StarName').value = data.name;
             document.getElementById('newCity' + star + 'StarPrice').value = data.price;
             document.getElementById('newCity' + star + 'StarMeal').value = data.meal;
+            if (data.tplPrice !== undefined && data.tplPrice !== null) {
+                document.getElementById('newCity' + star + 'StarTpl').value = data.tplPrice;
+            } else {
+                document.getElementById('newCity' + star + 'StarTpl').value = (star === 4 ? 1000 : (star === 5 ? 1200 : 800));
+            }
         } catch(e) {}
     }
 
@@ -3370,6 +3577,7 @@
                                 ${city.hotel3Price} THB/nt × ${n3}N = <span class="text-blue-900">${total3.toLocaleString()} THB</span>
                             </span>
                             ${city.hotel3Meal ? `<span class="text-[11px] font-semibold text-gray-500 whitespace-nowrap" title="Meal: ${city.hotel3Meal} x ${n3}N">(Meal: ${total3Meal} THB)</span>` : ''}
+                            ${city.hotel3Tpl !== undefined ? `<span class="text-[10px] font-semibold text-blue-700 bg-blue-100/70 px-1.5 py-0.5 rounded whitespace-nowrap" title="Triple Room (TPL) Supplement: ${city.hotel3Tpl} THB/night">TPL: ${city.hotel3Tpl} THB</span>` : ''}
                         </div>
                     </div>
                 `;
@@ -3387,6 +3595,7 @@
                                 ${city.hotel4Price} THB/nt × ${n4}N = <span class="text-amber-900">${total4.toLocaleString()} THB</span>
                             </span>
                             ${city.hotel4Meal ? `<span class="text-[11px] font-semibold text-gray-500 whitespace-nowrap" title="Meal: ${city.hotel4Meal} x ${n4}N">(Meal: ${total4Meal} THB)</span>` : ''}
+                            ${city.hotel4Tpl !== undefined ? `<span class="text-[10px] font-semibold text-amber-700 bg-amber-100/70 px-1.5 py-0.5 rounded whitespace-nowrap" title="Triple Room (TPL) Supplement: ${city.hotel4Tpl} THB/night">TPL: ${city.hotel4Tpl} THB</span>` : ''}
                         </div>
                     </div>
                 `;
@@ -3404,6 +3613,7 @@
                                 ${city.hotel5Price} THB/nt × ${n5}N = <span class="text-purple-900">${total5.toLocaleString()} THB</span>
                             </span>
                             ${city.hotel5Meal ? `<span class="text-[11px] font-semibold text-gray-500 whitespace-nowrap" title="Meal: ${city.hotel5Meal} x ${n5}N">(Meal: ${total5Meal} THB)</span>` : ''}
+                            ${city.hotel5Tpl !== undefined ? `<span class="text-[10px] font-semibold text-purple-700 bg-purple-100/70 px-1.5 py-0.5 rounded whitespace-nowrap" title="Triple Room (TPL) Supplement: ${city.hotel5Tpl} THB/night">TPL: ${city.hotel5Tpl} THB</span>` : ''}
                         </div>
                     </div>
                 `;
@@ -3519,12 +3729,15 @@
             document.getElementById('newCity3StarName').value = '';
             document.getElementById('newCity3StarPrice').value = '';
             document.getElementById('newCity3StarMeal').value = '';
+            document.getElementById('newCity3StarTpl').value = '800';
             document.getElementById('newCity4StarName').value = '';
             document.getElementById('newCity4StarPrice').value = '';
             document.getElementById('newCity4StarMeal').value = '';
+            document.getElementById('newCity4StarTpl').value = '1000';
             document.getElementById('newCity5StarName').value = '';
             document.getElementById('newCity5StarPrice').value = '';
             document.getElementById('newCity5StarMeal').value = '';
+            document.getElementById('newCity5StarTpl').value = '1200';
             document.getElementById('newCityMixPref').value = '3';
             const syncHChk = document.getElementById('modalSyncHotelsToDbCheckbox');
             if (syncHChk) syncHChk.checked = false;
@@ -3591,12 +3804,15 @@
             document.getElementById('newCity3StarName').value = city.hotel3Name;
             document.getElementById('newCity3StarPrice').value = city.hotel3Price;
             document.getElementById('newCity3StarMeal').value = city.hotel3Meal;
+            document.getElementById('newCity3StarTpl').value = (city.hotel3Tpl !== undefined && city.hotel3Tpl !== null) ? city.hotel3Tpl : 800;
             document.getElementById('newCity4StarName').value = city.hotel4Name;
             document.getElementById('newCity4StarPrice').value = city.hotel4Price;
             document.getElementById('newCity4StarMeal').value = city.hotel4Meal;
+            document.getElementById('newCity4StarTpl').value = (city.hotel4Tpl !== undefined && city.hotel4Tpl !== null) ? city.hotel4Tpl : 1000;
             document.getElementById('newCity5StarName').value = city.hotel5Name || '';
             document.getElementById('newCity5StarPrice').value = city.hotel5Price || '';
             document.getElementById('newCity5StarMeal').value = city.hotel5Meal || '';
+            document.getElementById('newCity5StarTpl').value = (city.hotel5Tpl !== undefined && city.hotel5Tpl !== null) ? city.hotel5Tpl : 1200;
             document.getElementById('cityModalTitle').innerText = 'Edit City Stay';
             const saveButton = document.getElementById('saveCityButton');
             saveButton.innerText = 'Save Changes';
@@ -3625,8 +3841,18 @@
             tourData.selected = availableTours[index] ? availableTours[index].selected : true;
             availableTours[index] = tourData;
         } else {
-            tourData.selected = true;
-            availableTours.push(tourData);
+            const cleanNew = name.toLowerCase().replace(/\s*\([^\)]*$/gi, '').replace(/\s*\((Join Tour|Join Transfer|Private Transfer|Private - Van|Private - Bus|Private.*|Ticket Only|Join)\)/gi, '').trim();
+            const existingIdx = availableTours.findIndex(t => {
+                const cleanT = (t.name || '').toLowerCase().replace(/\s*\([^\)]*$/gi, '').replace(/\s*\((Join Tour|Join Transfer|Private Transfer|Private - Van|Private - Bus|Private.*|Ticket Only|Join)\)/gi, '').trim();
+                return cleanT === cleanNew;
+            });
+            if (existingIdx !== -1) {
+                tourData.selected = availableTours[existingIdx].selected;
+                availableTours[existingIdx] = tourData;
+            } else {
+                tourData.selected = true;
+                availableTours.push(tourData);
+            }
         }
 
         const syncCheckbox = document.getElementById('modalSyncTourToDbCheckbox');
@@ -3663,8 +3889,18 @@
             transferData.selected = availableTransfers[index] ? availableTransfers[index].selected : true;
             availableTransfers[index] = transferData;
         } else {
-            transferData.selected = true;
-            availableTransfers.push(transferData);
+            const cleanNew = name.toLowerCase().replace(/\s*\([^\)]*$/gi, '').replace(/\s*\((Car|Van|Bus|Private.*)\)/gi, '').replace(/\bpvt\s+basis\b/gi, '').replace(/\bprivate\b/gi, '').trim();
+            const existingIdx = availableTransfers.findIndex(t => {
+                const cleanT = (t.name || '').toLowerCase().replace(/\s*\([^\)]*$/gi, '').replace(/\s*\((Car|Van|Bus|Private.*)\)/gi, '').replace(/\bpvt\s+basis\b/gi, '').replace(/\bprivate\b/gi, '').trim();
+                return cleanT === cleanNew;
+            });
+            if (existingIdx !== -1) {
+                transferData.selected = availableTransfers[existingIdx].selected;
+                availableTransfers[existingIdx] = transferData;
+            } else {
+                transferData.selected = true;
+                availableTransfers.push(transferData);
+            }
         }
 
         const syncCheckbox = document.getElementById('modalSyncTransferToDbCheckbox');
@@ -3707,12 +3943,17 @@
         const hotel3Name = (document.getElementById('newCity3StarName').value || '').trim();
         const hotel3Price = parseFloat(document.getElementById('newCity3StarPrice').value) || 0;
         const hotel3Meal = parseFloat(document.getElementById('newCity3StarMeal').value) || 0;
+        const hotel3Tpl = parseFloat(document.getElementById('newCity3StarTpl')?.value) || 800;
+
         const hotel4Name = (document.getElementById('newCity4StarName').value || '').trim();
         const hotel4Price = parseFloat(document.getElementById('newCity4StarPrice').value) || 0;
         const hotel4Meal = parseFloat(document.getElementById('newCity4StarMeal').value) || 0;
+        const hotel4Tpl = parseFloat(document.getElementById('newCity4StarTpl')?.value) || 1000;
+
         const hotel5Name = (document.getElementById('newCity5StarName').value || '').trim();
         const hotel5Price = parseFloat(document.getElementById('newCity5StarPrice').value) || 0;
         const hotel5Meal = parseFloat(document.getElementById('newCity5StarMeal').value) || 0;
+        const hotel5Tpl = parseFloat(document.getElementById('newCity5StarTpl')?.value) || 1200;
         
         if (!name || numberOfNights <= 0) {
             showNotification("Please provide a City Name and at least 1 Night total.", true);
@@ -3724,14 +3965,21 @@
             return;
         }
         
-        const cityData = { name, isSplit, numberOfNights, hotel3Nights, hotel4Nights, hotel5Nights, hotel3Name, hotel3Price, hotel3Meal, hotel4Name, hotel4Price, hotel4Meal, hotel5Name, hotel5Price, hotel5Meal, mixPref };
+        const cityData = { name, isSplit, numberOfNights, hotel3Nights, hotel4Nights, hotel5Nights, hotel3Name, hotel3Price, hotel3Meal, hotel3Tpl, hotel4Name, hotel4Price, hotel4Meal, hotel4Tpl, hotel5Name, hotel5Price, hotel5Meal, hotel5Tpl, mixPref };
         
         if (index !== null) {
             cityData.selected = availableCities[index] ? availableCities[index].selected : true;
             availableCities[index] = cityData;
         } else {
-            cityData.selected = true;
-            availableCities.push(cityData);
+            const cleanNew = name.toLowerCase().trim();
+            const existingIdx = availableCities.findIndex(c => (c.name || '').toLowerCase().trim() === cleanNew);
+            if (existingIdx !== -1) {
+                cityData.selected = availableCities[existingIdx].selected;
+                availableCities[existingIdx] = cityData;
+            } else {
+                cityData.selected = true;
+                availableCities.push(cityData);
+            }
         }
 
         const syncHotelsCheckbox = document.getElementById('modalSyncHotelsToDbCheckbox');
@@ -3742,6 +3990,11 @@
         currentEditingCityIndex = null;
         closeModal('cityModal');
         renderCities();
+
+        const resultsEl = document.getElementById('results');
+        if (resultsEl && resultsEl.style.display !== 'none' && typeof calculate === 'function') {
+            calculate();
+        }
 
         const resultsEl = document.getElementById('results');
         if (resultsEl && resultsEl.style.display !== 'none' && typeof calculate === 'function') {
@@ -4123,13 +4376,38 @@
                 html += `<div class="flex items-center gap-1.5"><i class="fas fa-car text-orange-500 text-[11px]"></i> <span>${tr.name}</span></div>`;
             });
             selectedTours.forEach(t => {
-                const trTag = t.transferPrice > 0 ? '(Private Transfer)' : '(Join Transfer)';
-                html += `<div class="flex items-center gap-1.5"><i class="fas fa-map-pin text-purple-500 text-[11px]"></i> <span>${t.name} <strong class="text-teal-700">${trTag}</strong></span></div>`;
+                const cleanName = cleanTourNameTags(t.name);
+                const trTag = hasExistingTourTag(cleanName) ? '' : (t.transferPrice > 0 ? '(Private Transfer)' : '(Join Transfer)');
+                html += `<div class="flex items-center gap-1.5"><i class="fas fa-map-pin text-purple-500 text-[11px]"></i> <span>${cleanName} ${trTag ? `<strong class="text-teal-700">${trTag}</strong>` : ''}</span></div>`;
             });
             previewList.innerHTML = html || '<div class="text-gray-400">No items selected</div>';
         }
 
         openModal('itineraryExportModal');
+    }
+
+    function hasExistingTourTag(name) {
+        if (!name) return false;
+        const lower = name.toLowerCase();
+        return lower.includes('(join') ||
+               lower.includes('(private') ||
+               lower.includes('join transfer') ||
+               lower.includes('join tour') ||
+               lower.includes('private transfer') ||
+               lower.includes('private van') ||
+               lower.includes('private car') ||
+               lower.includes('ticket only') ||
+               lower.includes('transfer');
+    }
+
+    function cleanTourNameTags(name) {
+        if (!name) return '';
+        let s = String(name).trim();
+        const tagPattern = /\s*\((?:join\s+tour|join\s+transfer|private\s+transfer|join|private|ticket\s+only|private\s+tour)\)\s*\((?:join\s+tour|join\s+transfer|private\s+transfer|join|private|ticket\s+only|private\s+tour)\)/gi;
+        while (tagPattern.test(s)) {
+            s = s.replace(tagPattern, (m, p1) => ` (${p1.trim()})`);
+        }
+        return s.trim();
     }
 
     function detectTourCity(tourName, availableCities = []) {
@@ -4240,9 +4518,9 @@
 
         selectedTours.forEach(t => {
             const lower = t.name.toLowerCase();
-            let nameWithTag = t.name.trim();
+            let nameWithTag = cleanTourNameTags(t.name.trim());
 
-            if (!nameWithTag.toLowerCase().includes('transfer') && !nameWithTag.toLowerCase().includes('ticket only')) {
+            if (!hasExistingTourTag(nameWithTag)) {
                 nameWithTag += t.transferPrice > 0 ? ' (Private Transfer)' : ' (Join Transfer)';
             }
 
@@ -4352,12 +4630,13 @@
 
                 if (cityTourIdx !== -1) {
                     const cityTour = curCityTours.splice(cityTourIdx, 1)[0];
+                    const cleanName = cleanTourNameTags(cityTour.name);
                     let tag = cityTour.transferPrice > 0 ? '(Private Transfer)' : '(Join Transfer)';
-                    if (cityTour.name.toLowerCase().includes('private') || cityTour.name.toLowerCase().includes('join') || cityTour.name.toLowerCase().includes('transfer')) tag = '';
-                    activities.push(`${cityTour.name}${tag ? ' ' + tag : ''}`.trim());
-                    dayImages = getTourImages(cityTour.name);
-                    if (cityTour.name.toLowerCase().includes('lunch')) hasLunch = true;
-                    if (cityTour.name.toLowerCase().includes('dinner')) hasDinner = true;
+                    if (hasExistingTourTag(cleanName)) tag = '';
+                    activities.push(`${cleanName}${tag ? ' ' + tag : ''}`.trim());
+                    dayImages = getTourImages(cleanName);
+                    if (cleanName.toLowerCase().includes('lunch')) hasLunch = true;
+                    if (cleanName.toLowerCase().includes('dinner')) hasDinner = true;
                 }
 
                 activities.push(formatHotelCheckIn(curCity.hotel3Name, curCity, '3*'));
@@ -4367,10 +4646,11 @@
                     const eveIdx = curCityTours.findIndex(t => t.name.toLowerCase().includes('dinner') || t.name.toLowerCase().includes('cruise'));
                     if (eveIdx !== -1) {
                         const eveTour = curCityTours.splice(eveIdx, 1)[0];
+                        const cleanEveName = cleanTourNameTags(eveTour.name);
                         let tag = eveTour.transferPrice > 0 ? '(Private Transfer)' : '(Join Transfer)';
-                        if (eveTour.name.toLowerCase().includes('private') || eveTour.name.toLowerCase().includes('join') || eveTour.name.toLowerCase().includes('transfer')) tag = '';
-                        activities.push(`${eveTour.name}${tag ? ' ' + tag : ''}`.trim());
-                        dayImages = getTourImages(eveTour.name);
+                        if (hasExistingTourTag(cleanEveName)) tag = '';
+                        activities.push(`${cleanEveName}${tag ? ' ' + tag : ''}`.trim());
+                        dayImages = getTourImages(cleanEveName);
                         hasDinner = true;
                     }
                 }
@@ -4473,12 +4753,13 @@
 
                     if (trTourIdx !== -1) {
                         const trTour = nextCityTours.splice(trTourIdx, 1)[0];
+                        const cleanTrName = cleanTourNameTags(trTour.name);
                         let tag = trTour.transferPrice > 0 ? '(Private Transfer)' : '(Join Transfer)';
-                        if (trTour.name.toLowerCase().includes('private') || trTour.name.toLowerCase().includes('join') || trTour.name.toLowerCase().includes('transfer')) tag = '';
-                        activities.push(`${trTour.name}${tag ? ' ' + tag : ''}`.trim());
-                        dayImages = getTourImages(trTour.name);
-                        if (trTour.name.toLowerCase().includes('lunch')) hasLunch = true;
-                        if (trTour.name.toLowerCase().includes('dinner') || trTour.name.toLowerCase().includes('cruise')) hasDinner = true;
+                        if (hasExistingTourTag(cleanTrName)) tag = '';
+                        activities.push(`${cleanTrName}${tag ? ' ' + tag : ''}`.trim());
+                        dayImages = getTourImages(cleanTrName);
+                        if (cleanTrName.toLowerCase().includes('lunch')) hasLunch = true;
+                        if (cleanTrName.toLowerCase().includes('dinner') || cleanTrName.toLowerCase().includes('cruise')) hasDinner = true;
                     }
 
                     activities.push("Overnight at Hotel");
@@ -4488,12 +4769,13 @@
                     // Regular stay day in curCity
                     if (curCityTours.length > 0) {
                         const tour = curCityTours.shift();
+                        const cleanTourName = cleanTourNameTags(tour.name);
                         let tag = tour.transferPrice > 0 ? '(Private Transfer)' : '(Join Transfer)';
-                        if (tour.name.toLowerCase().includes('private') || tour.name.toLowerCase().includes('join') || tour.name.toLowerCase().includes('transfer')) tag = '';
-                        activities.push(`${tour.name}${tag ? ' ' + tag : ''}`.trim());
-                        dayImages = getTourImages(tour.name);
-                        if (tour.name.toLowerCase().includes('lunch')) hasLunch = true;
-                        if (tour.name.toLowerCase().includes('dinner') || tour.name.toLowerCase().includes('cruise')) hasDinner = true;
+                        if (hasExistingTourTag(cleanTourName)) tag = '';
+                        activities.push(`${cleanTourName}${tag ? ' ' + tag : ''}`.trim());
+                        dayImages = getTourImages(cleanTourName);
+                        if (cleanTourName.toLowerCase().includes('lunch')) hasLunch = true;
+                        if (cleanTourName.toLowerCase().includes('dinner') || cleanTourName.toLowerCase().includes('cruise')) hasDinner = true;
                     } else {
                         activities.push("Free For Leisure");
                     }
@@ -5190,53 +5472,65 @@
         const tplRate5 = isTplActive ? (parseFloat(document.getElementById('tpl_rate_5star')?.value) || 1200) : 0;
 
         const hotelCost3 = selectedCities.reduce((sum, c) => {
+            const h3Tpl = (c.hotel3Tpl !== undefined && c.hotel3Tpl !== null) ? Number(c.hotel3Tpl) : tplRate3;
+            const h4Tpl = (c.hotel4Tpl !== undefined && c.hotel4Tpl !== null) ? Number(c.hotel4Tpl) : tplRate4;
+            const h5Tpl = (c.hotel5Tpl !== undefined && c.hotel5Tpl !== null) ? Number(c.hotel5Tpl) : tplRate5;
             if (c.isSplit) {
-                const c3 = (totalRoomsCount * (c.hotel3Price || 0) + tplRoomsCount * tplRate3) * (c.hotel3Nights || 0);
-                const c4 = (totalRoomsCount * (c.hotel4Price || 0) + tplRoomsCount * tplRate4) * (c.hotel4Nights || 0);
-                const c5 = (totalRoomsCount * (c.hotel5Price || 0) + tplRoomsCount * tplRate5) * (c.hotel5Nights || 0);
+                const c3 = (totalRoomsCount * (c.hotel3Price || 0) + tplRoomsCount * h3Tpl) * (c.hotel3Nights || 0);
+                const c4 = (totalRoomsCount * (c.hotel4Price || 0) + tplRoomsCount * h4Tpl) * (c.hotel4Nights || 0);
+                const c5 = (totalRoomsCount * (c.hotel5Price || 0) + tplRoomsCount * h5Tpl) * (c.hotel5Nights || 0);
                 return sum + c3 + c4 + c5;
             }
-            const roomPrice = (totalRoomsCount * (c.hotel3Price || 0)) + (tplRoomsCount * tplRate3);
+            const roomPrice = (totalRoomsCount * (c.hotel3Price || 0)) + (tplRoomsCount * h3Tpl);
             return sum + (roomPrice * (c.numberOfNights || 0));
         }, 0) / numPeopleHotel;
 
         const hotelCost4 = selectedCities.reduce((sum, c) => {
+            const h3Tpl = (c.hotel3Tpl !== undefined && c.hotel3Tpl !== null) ? Number(c.hotel3Tpl) : tplRate3;
+            const h4Tpl = (c.hotel4Tpl !== undefined && c.hotel4Tpl !== null) ? Number(c.hotel4Tpl) : tplRate4;
+            const h5Tpl = (c.hotel5Tpl !== undefined && c.hotel5Tpl !== null) ? Number(c.hotel5Tpl) : tplRate5;
             if (c.isSplit) {
-                const c3 = (totalRoomsCount * (c.hotel3Price || 0) + tplRoomsCount * tplRate3) * (c.hotel3Nights || 0);
-                const c4 = (totalRoomsCount * (c.hotel4Price || 0) + tplRoomsCount * tplRate4) * (c.hotel4Nights || 0);
-                const c5 = (totalRoomsCount * (c.hotel5Price || 0) + tplRoomsCount * tplRate5) * (c.hotel5Nights || 0);
+                const c3 = (totalRoomsCount * (c.hotel3Price || 0) + tplRoomsCount * h3Tpl) * (c.hotel3Nights || 0);
+                const c4 = (totalRoomsCount * (c.hotel4Price || 0) + tplRoomsCount * h4Tpl) * (c.hotel4Nights || 0);
+                const c5 = (totalRoomsCount * (c.hotel5Price || 0) + tplRoomsCount * h5Tpl) * (c.hotel5Nights || 0);
                 return sum + c3 + c4 + c5;
             }
-            const roomPrice = (totalRoomsCount * (c.hotel4Price || 0)) + (tplRoomsCount * tplRate4);
+            const roomPrice = (totalRoomsCount * (c.hotel4Price || 0)) + (tplRoomsCount * h4Tpl);
             return sum + (roomPrice * (c.numberOfNights || 0));
         }, 0) / numPeopleHotel;
 
         const hotelCost5 = selectedCities.reduce((sum, c) => {
+            const h3Tpl = (c.hotel3Tpl !== undefined && c.hotel3Tpl !== null) ? Number(c.hotel3Tpl) : tplRate3;
+            const h4Tpl = (c.hotel4Tpl !== undefined && c.hotel4Tpl !== null) ? Number(c.hotel4Tpl) : tplRate4;
+            const h5Tpl = (c.hotel5Tpl !== undefined && c.hotel5Tpl !== null) ? Number(c.hotel5Tpl) : tplRate5;
             if (c.isSplit) {
-                const c3 = (totalRoomsCount * (c.hotel3Price || 0) + tplRoomsCount * tplRate3) * (c.hotel3Nights || 0);
-                const c4 = (totalRoomsCount * (c.hotel4Price || 0) + tplRoomsCount * tplRate4) * (c.hotel4Nights || 0);
-                const c5 = (totalRoomsCount * (c.hotel5Price || 0) + tplRoomsCount * tplRate5) * (c.hotel5Nights || 0);
+                const c3 = (totalRoomsCount * (c.hotel3Price || 0) + tplRoomsCount * h3Tpl) * (c.hotel3Nights || 0);
+                const c4 = (totalRoomsCount * (c.hotel4Price || 0) + tplRoomsCount * h4Tpl) * (c.hotel4Nights || 0);
+                const c5 = (totalRoomsCount * (c.hotel5Price || 0) + tplRoomsCount * h5Tpl) * (c.hotel5Nights || 0);
                 return sum + c3 + c4 + c5;
             }
-            const roomPrice = (totalRoomsCount * (c.hotel5Price || 0)) + (tplRoomsCount * tplRate5);
+            const roomPrice = (totalRoomsCount * (c.hotel5Price || 0)) + (tplRoomsCount * h5Tpl);
             return sum + (roomPrice * (c.numberOfNights || 0));
         }, 0) / numPeopleHotel;
 
         const hotelCostMix = selectedCities.reduce((sum, c) => {
+            const h3Tpl = (c.hotel3Tpl !== undefined && c.hotel3Tpl !== null) ? Number(c.hotel3Tpl) : tplRate3;
+            const h4Tpl = (c.hotel4Tpl !== undefined && c.hotel4Tpl !== null) ? Number(c.hotel4Tpl) : tplRate4;
+            const h5Tpl = (c.hotel5Tpl !== undefined && c.hotel5Tpl !== null) ? Number(c.hotel5Tpl) : tplRate5;
             if (c.isSplit) {
-                const c3 = (totalRoomsCount * (c.hotel3Price || 0) + tplRoomsCount * tplRate3) * (c.hotel3Nights || 0);
-                const c4 = (totalRoomsCount * (c.hotel4Price || 0) + tplRoomsCount * tplRate4) * (c.hotel4Nights || 0);
-                const c5 = (totalRoomsCount * (c.hotel5Price || 0) + tplRoomsCount * tplRate5) * (c.hotel5Nights || 0);
+                const c3 = (totalRoomsCount * (c.hotel3Price || 0) + tplRoomsCount * h3Tpl) * (c.hotel3Nights || 0);
+                const c4 = (totalRoomsCount * (c.hotel4Price || 0) + tplRoomsCount * h4Tpl) * (c.hotel4Nights || 0);
+                const c5 = (totalRoomsCount * (c.hotel5Price || 0) + tplRoomsCount * h5Tpl) * (c.hotel5Nights || 0);
                 return sum + c3 + c4 + c5;
             }
             let preferredPrice = c.hotel3Price || 0;
-            let preferredTplRate = tplRate3;
+            let preferredTplRate = h3Tpl;
             if (c.mixPref === "4") {
                 preferredPrice = c.hotel4Price || 0;
-                preferredTplRate = tplRate4;
+                preferredTplRate = h4Tpl;
             } else if (c.mixPref === "5") {
                 preferredPrice = c.hotel5Price || 0;
-                preferredTplRate = tplRate5;
+                preferredTplRate = h5Tpl;
             }
             const roomPrice = (totalRoomsCount * preferredPrice) + (tplRoomsCount * preferredTplRate);
             return sum + (roomPrice * (c.numberOfNights || 0));
@@ -6449,6 +6743,8 @@
     let activeHubFilterCategory = 'all';
     let activeLoadedInqKey = null;
     let activeLoadedInqData = null;
+    let activeLoadedPackageId = null;
+    let activeLoadedPackageName = null;
 
     function updateActiveInqBanner() {
         const banner = document.getElementById('activeInqEditBanner');
@@ -6462,7 +6758,45 @@
             if (keyEl) keyEl.innerText = activeLoadedInqKey;
             if (clientEl) clientEl.innerText = activeLoadedInqData.clientName || 'Client';
             if (paxEl) paxEl.innerText = activeLoadedInqData.paxText || '2 Pax';
-            if (titleEl) titleEl.innerText = (activeLoadedInqData.title ? activeLoadedInqData.title + ' • ' : '') + 'Modify prices or services below. Click "Update Quotation" to save changes.';
+            
+            let statusText = (activeLoadedInqData.title ? activeLoadedInqData.title + ' • ' : '') + 'Modify prices or services below. Click "Update Quotation" to save changes.';
+            if (activeLoadedPackageName) {
+                statusText = `📦 Current Active Option: [${activeLoadedPackageName}] • ` + statusText;
+            }
+            if (titleEl) titleEl.innerText = statusText;
+
+            // Render package switcher pills if multi-package
+            let pkgRow = document.getElementById('activeInqBannerPackagesList');
+            if (!pkgRow) {
+                pkgRow = document.createElement('div');
+                pkgRow.id = 'activeInqBannerPackagesList';
+                pkgRow.className = 'flex items-center gap-1.5 mt-2 flex-wrap';
+                const textContainer = keyEl ? keyEl.closest('.min-w-0') : null;
+                if (textContainer) textContainer.appendChild(pkgRow);
+            }
+
+            const pkgs = Array.isArray(activeLoadedInqData.packages) ? activeLoadedInqData.packages : [];
+            if (pkgs.length > 1) {
+                pkgRow.style.display = 'flex';
+                pkgRow.innerHTML = `
+                    <span class="text-[11px] font-black text-amber-300 flex items-center gap-1"><i class="fas fa-boxes"></i> Package Options (${pkgs.length}):</span>
+                    ${pkgs.map((p, idx) => {
+                        const isCur = (p.id === activeLoadedPackageId) || (!activeLoadedPackageId && idx === 0);
+                        const pName = p.packageName || ('Option ' + (idx + 1));
+                        return `
+                            <button onclick="loadInqQuotationIntoCosting('${activeLoadedInqKey}', '${p.id}')" class="px-2.5 py-0.5 rounded-full text-xs font-bold transition flex items-center gap-1 ${isCur ? 'bg-amber-400 text-indigo-950 shadow-sm ring-2 ring-white/60 font-black' : 'bg-indigo-900/80 hover:bg-indigo-800 text-indigo-200 hover:text-white border border-indigo-400/40'}">
+                                ${isCur ? '<i class="fas fa-check-circle text-[10px]"></i>' : '<span>📦</span>'}
+                                <span class="truncate max-w-[150px]">${pName}</span>
+                            </button>
+                        `;
+                    }).join('')}
+                    <button onclick="openSaveQuotationModal()" class="px-2 py-0.5 rounded-full text-xs font-bold bg-white/20 hover:bg-white/30 text-amber-200 border border-amber-300/50 transition flex items-center gap-1" title="Add another package option under this INQ">
+                        <i class="fas fa-plus text-[10px]"></i> Add Option
+                    </button>
+                `;
+            } else if (pkgRow) {
+                pkgRow.style.display = 'none';
+            }
         } else {
             banner.classList.add('hidden');
         }
@@ -6471,6 +6805,8 @@
     function clearActiveLoadedInq() {
         activeLoadedInqKey = null;
         activeLoadedInqData = null;
+        activeLoadedPackageId = null;
+        activeLoadedPackageName = null;
         updateActiveInqBanner();
         showNotification('ℹ️ Exited quotation editing mode. You can now create a new quotation.', false);
     }
@@ -6478,6 +6814,8 @@
     function switchToNewInqMode() {
         activeLoadedInqKey = null;
         activeLoadedInqData = null;
+        activeLoadedPackageId = null;
+        activeLoadedPackageName = null;
         updateActiveInqBanner();
 
         const titleEl = document.getElementById('saveQuotationModalTitle');
@@ -6662,7 +7000,10 @@
     function generateNewInqNumber() {
         const rand5 = Math.floor(10000 + Math.random() * 90000);
         const inp = document.getElementById('saveQuotationInqInput');
-        if (inp) inp.value = 'INQ-' + rand5;
+        if (inp) {
+            inp.value = 'INQ-' + rand5;
+            checkSaveQuotationInqPackages(inp.value);
+        }
     }
 
     function parseTravelMonthYear(str) {
@@ -6708,6 +7049,82 @@
         const exportDateInp = document.getElementById('exportItineraryDate');
         if (exportDateInp) exportDateInp.value = combined;
         return combined;
+    }
+
+    function checkSaveQuotationInqPackages(rawInq) {
+        const inqKey = (rawInq || '').trim().toUpperCase().replace(/\s+/g, '-');
+        const existingBox = document.getElementById('saveQuotationExistingPackagesBox');
+        const badge = document.getElementById('saveQuotationPackageCountBadge');
+        const nameInput = document.getElementById('saveQuotationPackageNameInput');
+        const selectExisting = document.getElementById('saveQuotationSelectExistingPackage');
+        const radioNew = document.getElementById('savePackageModeNew');
+        const titleInput = document.getElementById('saveQuotationTitleInput');
+
+        const defaultTitle = titleInput?.value.trim() || 'Tour Option';
+
+        let existingDoc = null;
+        try {
+            const raw = localStorage.getItem(SLW_INQ_DOC_PREFIX + inqKey);
+            if (raw) existingDoc = JSON.parse(raw);
+        } catch(e) {}
+
+        let pkgs = [];
+        if (existingDoc) {
+            if (Array.isArray(existingDoc.packages) && existingDoc.packages.length > 0) {
+                pkgs = existingDoc.packages;
+            } else if (existingDoc.costing) {
+                pkgs = [{
+                    id: 'pkg_1',
+                    packageName: existingDoc.packageName || ('Option 1: ' + (existingDoc.title || 'Standard Package')),
+                    title: existingDoc.title || 'Standard Package'
+                }];
+            }
+        }
+
+        if (pkgs.length > 0) {
+            if (existingBox) existingBox.style.display = 'block';
+            if (badge) badge.innerText = `Option ${pkgs.length + 1} (${pkgs.length} saved)`;
+            if (radioNew) radioNew.checked = true;
+            toggleSavePackageMode();
+
+            // Populate overwrite dropdown
+            if (selectExisting) {
+                selectExisting.innerHTML = pkgs.map((p, idx) => 
+                    `<option value="${p.id || ('pkg_' + (idx + 1))}">${p.packageName || ('Option ' + (idx + 1) + ': ' + (p.title || 'Tour'))}</option>`
+                ).join('');
+            }
+
+            if (nameInput) {
+                nameInput.value = `Option ${pkgs.length + 1}: ${defaultTitle}`;
+            }
+        } else {
+            if (existingBox) existingBox.style.display = 'none';
+            if (badge) badge.innerText = 'Option 1';
+            if (nameInput) {
+                nameInput.value = `Option 1: ${defaultTitle}`;
+            }
+        }
+    }
+
+    function toggleSavePackageMode() {
+        const isOverwrite = document.getElementById('savePackageModeOverwrite')?.checked;
+        const row = document.getElementById('saveQuotationOverwriteDropdownRow');
+        const nameInput = document.getElementById('saveQuotationPackageNameInput');
+        const selectExisting = document.getElementById('saveQuotationSelectExistingPackage');
+
+        if (row) row.style.display = isOverwrite ? 'block' : 'none';
+        if (isOverwrite && selectExisting && selectExisting.options.length > 0) {
+            const selectedText = selectExisting.options[selectExisting.selectedIndex].text;
+            if (nameInput) nameInput.value = selectedText;
+        }
+    }
+
+    function onSelectExistingPackageToOverwrite() {
+        const selectExisting = document.getElementById('saveQuotationSelectExistingPackage');
+        const nameInput = document.getElementById('saveQuotationPackageNameInput');
+        if (selectExisting && nameInput && selectExisting.options.length > 0) {
+            nameInput.value = selectExisting.options[selectExisting.selectedIndex].text;
+        }
     }
 
     function openSaveQuotationModal(fromExport = false) {
@@ -6827,6 +7244,9 @@
             closeModal('itineraryExportModal');
         }
 
+        // 5. Initialize Multi-Package detection for this INQ
+        checkSaveQuotationInqPackages(inqInput ? inqInput.value : '');
+
         openModal('saveQuotationModal');
         setTimeout(() => {
             const clientInp = document.getElementById('saveQuotationClientInput');
@@ -6845,6 +7265,11 @@
         const travelMonthDate = updateTravelMonthYearPreview();
         const paxText = (document.getElementById('saveQuotationPaxInput')?.value || '').trim() || '02 Pax';
         const syncCloud = document.getElementById('saveQuotationCloudSyncCheck')?.checked ?? true;
+
+        // Multi-package options
+        const packageName = (document.getElementById('saveQuotationPackageNameInput')?.value || '').trim() || title || 'Package Option';
+        const isOverwriteMode = Boolean(document.getElementById('savePackageModeOverwrite')?.checked);
+        const selectedExistingPkgId = (document.getElementById('saveQuotationSelectExistingPackage')?.value || '').trim();
 
         if (!inqRaw) {
             alert("Please enter a valid Inquiry Reference (e.g. 58291 or INQ-58291).");
@@ -6882,6 +7307,7 @@
             itineraryPayload.inq = inqKey;
             itineraryPayload.clientName = clientName;
             itineraryPayload.title = title;
+            itineraryPayload.packageName = packageName;
             itineraryPayload.date = travelMonthDate;
             itineraryPayload.quotationDate = date;
             itineraryPayload.travelMonth = travelMonth;
@@ -6916,26 +7342,126 @@
             const citiesSummary = availableCities.map(c => (c.numberOfNights || 1) + 'N ' + c.name).join(' + ');
             const fullSummary = citiesSummary + ' • ' + availableTours.length + ' Tours • ' + availableTransfers.length + ' Transfers';
 
-            // 2. Build full document payload
             const nowIso = new Date().toISOString();
 
-            // Check for existing document to preserve createdAt and googleSheetUrl
+            // 2. Read existing document if available to preserve createdAt, sheetUrl, and packages
             let existingCreatedAt = nowIso;
             let existingSheetUrl = null;
+            let existingPackages = [];
+
             try {
-                const existingRaw = localStorage.getItem(SLW_INQ_DOC_PREFIX + inqKey);
+                let existingRaw = localStorage.getItem(SLW_INQ_DOC_PREFIX + inqKey);
+                if (!existingRaw && inqRaw !== inqKey) {
+                    existingRaw = localStorage.getItem(SLW_INQ_DOC_PREFIX + inqRaw);
+                }
                 if (existingRaw) {
                     const parsedExisting = JSON.parse(existingRaw);
                     if (parsedExisting.createdAt) existingCreatedAt = parsedExisting.createdAt;
                     if (parsedExisting.googleSheetUrl) existingSheetUrl = parsedExisting.googleSheetUrl;
+
+                    if (Array.isArray(parsedExisting.packages) && parsedExisting.packages.length > 0) {
+                        existingPackages = [...parsedExisting.packages];
+                    } else if (parsedExisting.costing) {
+                        // Migrate legacy single package doc into packages array
+                        existingPackages = [{
+                            id: parsedExisting.activePackageId || 'pkg_1',
+                            packageName: parsedExisting.packageName || ('Option 1: ' + (parsedExisting.title || 'Standard Package')),
+                            title: parsedExisting.title || 'Standard Package',
+                            cities: parsedExisting.cities || '',
+                            summary: parsedExisting.summary || '',
+                            rates: parsedExisting.rates || {},
+                            costing: parsedExisting.costing,
+                            itinerary: parsedExisting.itinerary,
+                            pricingSummary: parsedExisting.pricingSummary,
+                            pax: parsedExisting.pax || 2,
+                            transferPax: parsedExisting.transferPax || 2,
+                            hotelDivisor: parsedExisting.hotelDivisor || 2,
+                            paxText: parsedExisting.paxText || '02 Pax',
+                            isTplActive: Boolean(parsedExisting.isTplActive),
+                            tplRoomsCount: parsedExisting.tplRoomsCount || 1,
+                            totalRoomsCount: parsedExisting.totalRoomsCount || 1,
+                            tplRate3: parsedExisting.tplRate3 || 800,
+                            tplRate4: parsedExisting.tplRate4 || 1000,
+                            tplRate5: parsedExisting.tplRate5 || 1200,
+                            hasChildPrices: parsedExisting.hasChildPrices,
+                            includeChildExtraBed: parsedExisting.includeChildExtraBed,
+                            includeChildSharingBed: parsedExisting.includeChildSharingBed,
+                            updatedAt: parsedExisting.updatedAt || existingCreatedAt
+                        }];
+                    }
                 }
             } catch(e) {}
 
+            // Current package snapshot
+            const currentPackageId = (isOverwriteMode && selectedExistingPkgId)
+                ? selectedExistingPkgId
+                : ('pkg_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6));
+
+            const currentCostingSnapshot = {
+                hasMix: Boolean(document.getElementById('result_card_mix')?.style.display !== 'none'),
+                hasChildPrices: hasChildPrices,
+                includeChildExtraBed: includeChildExtraBed,
+                includeChildSharingBed: includeChildSharingBed,
+                isTplActive: Boolean(document.getElementById('check_tpl_room')?.checked),
+                tplRoomsCount: Number(document.getElementById('tpl_rooms_count')?.value) || 1,
+                totalRoomsCount: Number(document.getElementById('total_hotel_rooms')?.value) || 1,
+                tplRate3: Number(document.getElementById('tpl_rate_3star')?.value) || 800,
+                tplRate4: Number(document.getElementById('tpl_rate_4star')?.value) || 1000,
+                tplRate5: Number(document.getElementById('tpl_rate_5star')?.value) || 1200,
+                availableCities: JSON.parse(JSON.stringify(availableCities)),
+                availableTours: JSON.parse(JSON.stringify(availableTours)),
+                availableTransfers: JSON.parse(JSON.stringify(availableTransfers)),
+                pricingAdj: pricingAdj
+            };
+
+            const currentPackageSnapshot = {
+                id: currentPackageId,
+                packageName: packageName,
+                title: title,
+                cities: citiesSummary,
+                summary: fullSummary,
+                rates: rates,
+                pax: Number(document.getElementById('num_people_transfer')?.value) || 2,
+                transferPax: Number(document.getElementById('num_people_transfer')?.value) || 2,
+                hotelDivisor: Number(document.getElementById('num_people_hotel')?.value) || 2,
+                paxText: paxText,
+                isTplActive: Boolean(document.getElementById('check_tpl_room')?.checked),
+                tplRoomsCount: Number(document.getElementById('tpl_rooms_count')?.value) || 1,
+                totalRoomsCount: Number(document.getElementById('total_hotel_rooms')?.value) || 1,
+                tplRate3: Number(document.getElementById('tpl_rate_3star')?.value) || 800,
+                tplRate4: Number(document.getElementById('tpl_rate_4star')?.value) || 1000,
+                tplRate5: Number(document.getElementById('tpl_rate_5star')?.value) || 1200,
+                hasChildPrices: hasChildPrices,
+                includeChildExtraBed: includeChildExtraBed,
+                includeChildSharingBed: includeChildSharingBed,
+                childExtraLabel: document.getElementById('exportChildExtraBedLabel')?.value.trim() || 'Per Child (With Extra Bed)',
+                childShareLabel: document.getElementById('exportChildSharingBedLabel')?.value.trim() || 'Per Child (Sharing Bed)',
+                costing: currentCostingSnapshot,
+                itinerary: itineraryPayload,
+                pricingSummary: pricingSummary,
+                updatedAt: nowIso
+            };
+
+            if (isOverwriteMode && selectedExistingPkgId) {
+                const foundIdx = existingPackages.findIndex(p => p.id === selectedExistingPkgId);
+                if (foundIdx !== -1) {
+                    existingPackages[foundIdx] = currentPackageSnapshot;
+                } else {
+                    existingPackages.push(currentPackageSnapshot);
+                }
+            } else {
+                existingPackages.push(currentPackageSnapshot);
+            }
+
+            // 3. Build Full Document
             const fullDoc = {
                 inq: inqKey,
                 clientName: clientName,
                 clientPhone: clientPhone,
                 title: title,
+                packageName: packageName,
+                activePackageId: currentPackageId,
+                packages: existingPackages,
                 date: date,
                 quotationDate: date,
                 travelMonth: travelMonth,
@@ -6957,22 +7483,7 @@
                 hasChildPrices: hasChildPrices,
                 includeChildExtraBed: includeChildExtraBed,
                 includeChildSharingBed: includeChildSharingBed,
-                costing: {
-                    hasMix: Boolean(document.getElementById('result_card_mix')?.style.display !== 'none'),
-                    hasChildPrices: hasChildPrices,
-                    includeChildExtraBed: includeChildExtraBed,
-                    includeChildSharingBed: includeChildSharingBed,
-                    isTplActive: Boolean(document.getElementById('check_tpl_room')?.checked),
-                    tplRoomsCount: Number(document.getElementById('tpl_rooms_count')?.value) || 1,
-                    totalRoomsCount: Number(document.getElementById('total_hotel_rooms')?.value) || 1,
-                    tplRate3: Number(document.getElementById('tpl_rate_3star')?.value) || 800,
-                    tplRate4: Number(document.getElementById('tpl_rate_4star')?.value) || 1000,
-                    tplRate5: Number(document.getElementById('tpl_rate_5star')?.value) || 1200,
-                    availableCities: JSON.parse(JSON.stringify(availableCities)),
-                    availableTours: JSON.parse(JSON.stringify(availableTours)),
-                    availableTransfers: JSON.parse(JSON.stringify(availableTransfers)),
-                    pricingAdj: pricingAdj
-                },
+                costing: currentCostingSnapshot,
                 itinerary: itineraryPayload,
                 pricingSummary: pricingSummary,
                 updatedAt: nowIso,
@@ -6985,7 +7496,7 @@
             // Calculate byte size
             const sizeBytes = new Blob([JSON.stringify(fullDoc)]).size;
 
-            // 3. Save full doc to LocalStorage (both normalized and raw for cross-app compatibility)
+            // 4. Save full doc to LocalStorage (both normalized and raw for cross-app compatibility)
             localStorage.setItem(SLW_INQ_DOC_PREFIX + inqKey, JSON.stringify(fullDoc));
             if (inqRaw && inqRaw !== inqKey) {
                 localStorage.setItem(SLW_INQ_DOC_PREFIX + inqRaw, JSON.stringify(fullDoc));
@@ -6993,9 +7504,10 @@
             localStorage.setItem('SLW_ACTIVE_INQ', inqKey);
             localStorage.setItem('SLW_ACTIVE_INQ_CLIENT', clientName || '');
             localStorage.setItem('SLW_ACTIVE_INQ_TITLE', title || '');
+            localStorage.setItem('SLW_ACTIVE_INQ_PACKAGE_ID', currentPackageId);
             localStorage.setItem('SLW_PENDING_COSTING_DATA', JSON.stringify(fullDoc.costing));
 
-            // 4. Update Index
+            // 5. Update Index (with packages metadata for fast card & modal rendering)
             const indexItem = {
                 inq: inqKey,
                 clientName: clientName,
@@ -7010,7 +7522,16 @@
                 cities: citiesSummary,
                 rates: rates,
                 sizeBytes: sizeBytes,
-                updatedAt: nowIso
+                updatedAt: nowIso,
+                googleSheetUrl: fullDoc.googleSheetUrl || null,
+                packagesCount: existingPackages.length,
+                packages: existingPackages.map((p, idx) => ({
+                    id: p.id || ('pkg_' + (idx + 1)),
+                    packageName: p.packageName || ('Option ' + (idx + 1)),
+                    title: p.title || title,
+                    cities: p.cities || citiesSummary,
+                    rates: p.rates || rates
+                }))
             };
 
             // Remove existing index item with same inq
@@ -7022,7 +7543,7 @@
             updateQuotationHubCountBadge();
             updateQuotationStorageStats();
 
-            // 5. Cloud Sync if enabled
+            // 6. Cloud Sync if enabled
             if (syncCloud && typeof db !== 'undefined' && db) {
                 // Save doc in slw_quotations collection
                 await db.collection('slw_quotations').doc(inqKey).set(fullDoc);
@@ -7034,7 +7555,7 @@
                 });
 
                 if (window.slwLogActivity) {
-                    window.slwLogActivity('Saved Quotation ' + inqKey + ' for ' + clientName);
+                    window.slwLogActivity('Saved Quotation ' + inqKey + ' (' + existingPackages.length + ' package' + (existingPackages.length > 1 ? 's' : '') + ') for ' + clientName);
                 }
             }
 
@@ -7043,7 +7564,7 @@
             if (document.getElementById('exportItineraryClient')) document.getElementById('exportItineraryClient').value = clientName;
             if (document.getElementById('exportItineraryTitle')) document.getElementById('exportItineraryTitle').value = title;
 
-            // 6. Continuous Self-Study & Pattern Learning
+            // 7. Continuous Self-Study & Pattern Learning
             if (window.SlwLearningEngine && typeof window.SlwLearningEngine.learnFromQuotation === 'function') {
                 try {
                     window.SlwLearningEngine.learnFromQuotation(inqKey, fullDoc.costing, fullDoc.itinerary);
@@ -7055,14 +7576,21 @@
             closeModal('saveQuotationModal');
             activeLoadedInqKey = inqKey;
             activeLoadedInqData = fullDoc;
+            activeLoadedPackageId = currentPackageId;
+            activeLoadedPackageName = packageName;
             updateActiveInqBanner();
-            showNotification('✅ Successfully saved Quotation [' + inqKey + '] for ' + clientName + ' to Cloud & Local Storage!', false);
+
+            const pkgSuccessMsg = existingPackages.length > 1 
+                ? `Saved as "${packageName}" (${existingPackages.length} options under ${inqKey})!` 
+                : `Successfully saved Quotation [${inqKey}]!`;
+            showNotification('✅ ' + pkgSuccessMsg, false);
 
             // If user clicked "Save & Open Itinerary"
             if (andOpenItinerary) {
                 localStorage.setItem('SLW_ACTIVE_INQ', inqKey);
                 localStorage.setItem('SLW_ACTIVE_INQ_CLIENT', clientName || '');
                 localStorage.setItem('SLW_ACTIVE_INQ_TITLE', title || '');
+                localStorage.setItem('SLW_ACTIVE_INQ_PACKAGE_ID', currentPackageId);
                 localStorage.setItem('SLW_PENDING_COSTING_ITINERARY', JSON.stringify(fullDoc.itinerary));
                 localStorage.setItem('SLW_LATEST_COSTING_PRICES', JSON.stringify(fullDoc.pricingSummary));
                 window.open('archives/Itinerary_Builder_App New.html', '_blank');
@@ -7079,7 +7607,7 @@
         }
     }
 
-    async function loadInqQuotationIntoCosting(inqKey) {
+    async function loadInqQuotationIntoCosting(inqKey, targetPackageId = null) {
         if (!inqKey) return;
 
         let docData = null;
@@ -7120,49 +7648,103 @@
             return;
         }
 
+        // Determine which package to load
+        let targetPackage = null;
+        if (Array.isArray(docData.packages) && docData.packages.length > 0) {
+            if (targetPackageId) {
+                targetPackage = docData.packages.find(p => p.id === targetPackageId);
+            }
+            if (!targetPackage && docData.activePackageId) {
+                targetPackage = docData.packages.find(p => p.id === docData.activePackageId);
+            }
+            if (!targetPackage) {
+                targetPackage = docData.packages[0];
+            }
+        }
+
+        const pkgLabel = targetPackage ? ` - [${targetPackage.packageName || targetPackage.title}]` : '';
+
         // 3. Confirm loading
-        if (!confirm('Load quotation "' + docData.inq + '" for ' + (docData.clientName || 'Client') + '?\n\nThis will restore all cities, hotels, tours, transfers, pax, markup settings, and price overrides into this calculator.')) {
+        if (!confirm('Load quotation "' + docData.inq + '"' + pkgLabel + ' for ' + (docData.clientName || 'Client') + '?\n\nThis will restore all cities, hotels, tours, transfers, pax, markup settings, and price overrides into this calculator.')) {
             return;
         }
 
         // 4. Restore Costing State
-        if (docData.costing) {
-            availableCities = JSON.parse(JSON.stringify(docData.costing.availableCities || []));
-            availableTours = JSON.parse(JSON.stringify(docData.costing.availableTours || []));
-            availableTransfers = JSON.parse(JSON.stringify(docData.costing.availableTransfers || []));
+        const costingToRestore = (targetPackage && targetPackage.costing) ? targetPackage.costing : (docData.costing || {});
+        if (costingToRestore) {
+            availableCities = JSON.parse(JSON.stringify(costingToRestore.availableCities || []));
+            availableTours = JSON.parse(JSON.stringify(costingToRestore.availableTours || []));
+            availableTransfers = JSON.parse(JSON.stringify(costingToRestore.availableTransfers || []));
 
-            if (docData.costing.pricingAdj) {
-                restoreAllPricingAdjustments(docData.costing.pricingAdj);
+            if (costingToRestore.pricingAdj) {
+                restoreAllPricingAdjustments(costingToRestore.pricingAdj);
             }
+        }
+
+        // Restore Pax & Divisor
+        const paxVal = (targetPackage ? targetPackage.transferPax : null) ?? docData.transferPax ?? docData.pax;
+        if (paxVal && document.getElementById('num_people_transfer')) {
+            document.getElementById('num_people_transfer').value = paxVal;
+        }
+        const divisorVal = (targetPackage ? targetPackage.hotelDivisor : null) ?? docData.hotelDivisor;
+        if (divisorVal && document.getElementById('num_people_hotel')) {
+            document.getElementById('num_people_hotel').value = divisorVal;
+        }
+
+        // Restore TPL
+        const isTpl = Boolean((targetPackage ? targetPackage.isTplActive : null) ?? docData.isTplActive);
+        const chkTpl = document.getElementById('check_tpl_room');
+        if (chkTpl) {
+            chkTpl.checked = isTpl;
+            if (typeof onTplCheckboxChange === 'function') onTplCheckboxChange();
+        }
+        if (document.getElementById('tpl_rooms_count')) {
+            document.getElementById('tpl_rooms_count').value = (targetPackage ? targetPackage.tplRoomsCount : null) ?? docData.tplRoomsCount ?? 1;
+        }
+        if (document.getElementById('total_hotel_rooms')) {
+            document.getElementById('total_hotel_rooms').value = (targetPackage ? targetPackage.totalRoomsCount : null) ?? docData.totalRoomsCount ?? 1;
+        }
+        if (document.getElementById('tpl_rate_3star')) {
+            document.getElementById('tpl_rate_3star').value = (targetPackage ? targetPackage.tplRate3 : null) ?? docData.tplRate3 ?? 800;
+        }
+        if (document.getElementById('tpl_rate_4star')) {
+            document.getElementById('tpl_rate_4star').value = (targetPackage ? targetPackage.tplRate4 : null) ?? docData.tplRate4 ?? 1000;
+        }
+        if (document.getElementById('tpl_rate_5star')) {
+            document.getElementById('tpl_rate_5star').value = (targetPackage ? targetPackage.tplRate5 : null) ?? docData.tplRate5 ?? 1200;
         }
 
         renderAll();
         calculate();
 
         // 5. Update Export inputs & active INQ state
-        localStorage.setItem('SLW_ACTIVE_INQ', docData.inq || inqKey);
-        localStorage.setItem('SLW_ACTIVE_INQ_CLIENT', docData.clientName || '');
-        localStorage.setItem('SLW_ACTIVE_INQ_TITLE', docData.title || '');
+        activeLoadedInqKey = docData.inq || inqKey;
+        activeLoadedInqData = docData;
+        activeLoadedPackageId = targetPackage ? targetPackage.id : (docData.activePackageId || null);
+        activeLoadedPackageName = targetPackage ? (targetPackage.packageName || targetPackage.title) : (docData.packageName || null);
 
-        if (document.getElementById('exportItineraryTitle')) document.getElementById('exportItineraryTitle').value = docData.title || '';
+        localStorage.setItem('SLW_ACTIVE_INQ', activeLoadedInqKey);
+        localStorage.setItem('SLW_ACTIVE_INQ_CLIENT', docData.clientName || '');
+        localStorage.setItem('SLW_ACTIVE_INQ_TITLE', (targetPackage ? targetPackage.title : docData.title) || '');
+        if (activeLoadedPackageId) {
+            localStorage.setItem('SLW_ACTIVE_INQ_PACKAGE_ID', activeLoadedPackageId);
+        }
+
+        if (document.getElementById('exportItineraryTitle')) document.getElementById('exportItineraryTitle').value = (targetPackage ? targetPackage.title : docData.title) || '';
         if (document.getElementById('exportItineraryClient')) document.getElementById('exportItineraryClient').value = docData.clientName || '';
         if (document.getElementById('exportItineraryInq')) document.getElementById('exportItineraryInq').value = docData.inq || '';
-        if (document.getElementById('exportItineraryPax')) document.getElementById('exportItineraryPax').value = docData.paxText || '';
+        if (document.getElementById('exportItineraryPax')) document.getElementById('exportItineraryPax').value = (targetPackage ? targetPackage.paxText : docData.paxText) || '';
         if (document.getElementById('exportItineraryDate')) {
             document.getElementById('exportItineraryDate').value = docData.travelMonthDate || (docData.travelMonth && docData.travelYear ? `${docData.travelMonth}-${docData.travelYear}` : (docData.date || ''));
         }
 
-        // Set active loaded quotation state for banner and re-saving
-        activeLoadedInqKey = docData.inq || inqKey;
-        activeLoadedInqData = docData;
         updateActiveInqBanner();
-
         closeModal('quotationHubModal');
-        showNotification('⚡ Loaded Quotation [' + docData.inq + '] (' + docData.clientName + ') into Costing! All prices restored.', false);
+        showNotification('⚡ Loaded ' + (activeLoadedPackageName ? `[${activeLoadedPackageName}] of ` : '') + 'Quotation [' + docData.inq + ']! All prices restored.', false);
         document.getElementById('results')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
-    async function openInqQuotationItinerary(inqKey) {
+    async function openInqQuotationItinerary(inqKey, targetPackageId = null) {
         if (!inqKey) return;
 
         let docData = null;
@@ -7190,26 +7772,49 @@
             return;
         }
 
+        // Determine target package
+        let targetPkg = null;
+        if (Array.isArray(docData.packages) && docData.packages.length > 0) {
+            if (targetPackageId) {
+                targetPkg = docData.packages.find(p => p.id === targetPackageId);
+            }
+            if (!targetPkg && activeLoadedPackageId) {
+                targetPkg = docData.packages.find(p => p.id === activeLoadedPackageId);
+            }
+            if (!targetPkg && docData.activePackageId) {
+                targetPkg = docData.packages.find(p => p.id === docData.activePackageId);
+            }
+            if (!targetPkg) {
+                targetPkg = docData.packages[0];
+            }
+        }
+
         // Set active INQ and pending itinerary and latest prices in localStorage
         localStorage.setItem('SLW_ACTIVE_INQ', docData.inq || inqKey);
         localStorage.setItem('SLW_ACTIVE_INQ_CLIENT', docData.clientName || '');
-        localStorage.setItem('SLW_ACTIVE_INQ_TITLE', docData.title || '');
+        localStorage.setItem('SLW_ACTIVE_INQ_TITLE', (targetPkg?.title || docData.title) || '');
+        if (targetPkg?.id) {
+            localStorage.setItem('SLW_ACTIVE_INQ_PACKAGE_ID', targetPkg.id);
+        }
 
         const allowChildExtra = Boolean(docData.includeChildExtraBed ?? (docData.costing?.includeChildExtraBed ?? (docData.rates?.childExtra3 || false)));
         const allowChildShare = Boolean(docData.includeChildSharingBed ?? (docData.costing?.includeChildSharingBed ?? (docData.rates?.childShare3 || false)));
         const hasChildPrices = Boolean(docData.hasChildPrices ?? (allowChildExtra || allowChildShare));
 
-        if (docData.itinerary) {
+        const itToUse = (targetPkg && targetPkg.itinerary) ? targetPkg.itinerary : docData.itinerary;
+        const pricesToUse = (targetPkg && targetPkg.pricingSummary) ? targetPkg.pricingSummary : docData.pricingSummary;
+
+        if (itToUse) {
             if (docData.travelMonthDate) {
-                docData.itinerary.date = docData.travelMonthDate;
+                itToUse.date = docData.travelMonthDate;
             } else if (docData.travelMonth && docData.travelYear) {
-                docData.itinerary.date = `${docData.travelMonth}-${docData.travelYear}`;
+                itToUse.date = `${docData.travelMonth}-${docData.travelYear}`;
             }
-            docData.itinerary.hasChildPrices = hasChildPrices;
-            docData.itinerary.includeChildExtraBed = allowChildExtra;
-            docData.itinerary.includeChildSharingBed = allowChildShare;
-            if (Array.isArray(docData.itinerary.options)) {
-                docData.itinerary.options.forEach(opt => {
+            itToUse.hasChildPrices = hasChildPrices;
+            itToUse.includeChildExtraBed = allowChildExtra;
+            itToUse.includeChildSharingBed = allowChildShare;
+            if (Array.isArray(itToUse.options)) {
+                itToUse.options.forEach(opt => {
                     (opt.hotels || []).forEach(h => {
                         if (Array.isArray(h.prices)) {
                             h.prices = h.prices.filter(p => {
@@ -7223,28 +7828,28 @@
                     });
                 });
             }
-            localStorage.setItem('SLW_PENDING_COSTING_ITINERARY', JSON.stringify(docData.itinerary));
+            localStorage.setItem('SLW_PENDING_COSTING_ITINERARY', JSON.stringify(itToUse));
         }
-        if (docData.pricingSummary) {
-            docData.pricingSummary.hasChildPrices = hasChildPrices;
-            docData.pricingSummary.includeChildExtraBed = allowChildExtra;
-            docData.pricingSummary.includeChildSharingBed = allowChildShare;
+        if (pricesToUse) {
+            pricesToUse.hasChildPrices = hasChildPrices;
+            pricesToUse.includeChildExtraBed = allowChildExtra;
+            pricesToUse.includeChildSharingBed = allowChildShare;
             if (!allowChildExtra) {
-                if (docData.pricingSummary.prices3Star) docData.pricingSummary.prices3Star.childExtra = null;
-                if (docData.pricingSummary.prices4Star) docData.pricingSummary.prices4Star.childExtra = null;
-                if (docData.pricingSummary.pricesMix) docData.pricingSummary.pricesMix.childExtra = null;
-                if (docData.pricingSummary.prices5Star) docData.pricingSummary.prices5Star.childExtra = null;
+                if (pricesToUse.prices3Star) pricesToUse.prices3Star.childExtra = null;
+                if (pricesToUse.prices4Star) pricesToUse.prices4Star.childExtra = null;
+                if (pricesToUse.pricesMix) pricesToUse.pricesMix.childExtra = null;
+                if (pricesToUse.prices5Star) pricesToUse.prices5Star.childExtra = null;
             }
             if (!allowChildShare) {
-                if (docData.pricingSummary.prices3Star) docData.pricingSummary.prices3Star.childShare = null;
-                if (docData.pricingSummary.prices4Star) docData.pricingSummary.prices4Star.childShare = null;
-                if (docData.pricingSummary.pricesMix) docData.pricingSummary.pricesMix.childShare = null;
-                if (docData.pricingSummary.prices5Star) docData.pricingSummary.prices5Star.childShare = null;
+                if (pricesToUse.prices3Star) pricesToUse.prices3Star.childShare = null;
+                if (pricesToUse.prices4Star) pricesToUse.prices4Star.childShare = null;
+                if (pricesToUse.pricesMix) pricesToUse.pricesMix.childShare = null;
+                if (pricesToUse.prices5Star) pricesToUse.prices5Star.childShare = null;
             }
-            localStorage.setItem('SLW_LATEST_COSTING_PRICES', JSON.stringify(docData.pricingSummary));
+            localStorage.setItem('SLW_LATEST_COSTING_PRICES', JSON.stringify(pricesToUse));
         }
 
-        showNotification('🚀 Opening Tour Itinerary Builder for [' + docData.inq + ']...', false);
+        showNotification('🚀 Opening Tour Itinerary Builder for [' + docData.inq + ']' + (targetPkg ? ` (${targetPkg.packageName})` : '') + '...', false);
         window.open('archives/Itinerary_Builder_App New.html', '_blank');
     }
 
@@ -7354,6 +7959,7 @@
                             <button onclick="copyInqNumber('${item.inq}')" class="text-gray-400 hover:text-indigo-600 text-xs p-1" title="Copy INQ #">
                                 <i class="fas fa-copy"></i>
                             </button>
+                            ${(item.packages && item.packages.length > 1) ? `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300" title="${item.packages.length} Saved Package Options"><i class="fas fa-boxes text-[9px] text-amber-600"></i> ${item.packages.length} Options</span>` : ''}
                         </div>
                         <div class="flex items-center gap-1.5">
                             ${travelStr ? `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200" title="Travel Period"><i class="fas fa-plane-departure text-[9px] text-amber-600"></i> ${travelStr}</span>` : ''}
@@ -7386,6 +7992,22 @@
                             ${item.cities || item.summary || ''}
                         </p>
                     </div>
+
+                    ${(item.packages && item.packages.length > 1) ? `
+                    <div class="pt-1.5 pb-0.5 border-t border-dashed border-gray-200">
+                        <div class="flex items-center justify-between text-[10px] font-bold text-amber-900 mb-1">
+                            <span class="flex items-center gap-1"><i class="fas fa-boxes text-amber-600"></i> Package Options (${item.packages.length}):</span>
+                            <span class="text-[9px] text-gray-400 font-normal">Click to load option</span>
+                        </div>
+                        <div class="flex flex-wrap gap-1">
+                            ${item.packages.map((pkg, pIdx) => `
+                                <button onclick="loadInqQuotationIntoCosting('${item.inq}', '${pkg.id}')" class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 transition flex items-center gap-1 shadow-2xs" title="Load ${pkg.packageName || ('Option ' + (pIdx + 1))} into Costing">
+                                    <span>📦</span> <span class="truncate max-w-[120px]">${pkg.packageName || ('Option ' + (pIdx + 1))}</span>
+                                </button>
+                            `).join('')}
+                        </div>
+                    </div>
+                    ` : ''}
 
                     <!-- Pricing Rates Grid -->
                     <div class="grid grid-cols-3 gap-1.5 text-center text-[11px] bg-gray-50 p-2 rounded-lg border border-gray-100">
@@ -7680,7 +8302,7 @@
 
         const itineraryPayload = buildItineraryJsonPayload();
 
-        return {
+        const costingPayload = {
             title: title,
             pax: transferPax,
             transferPax: transferPax,
@@ -7730,6 +8352,12 @@
                 childShare4: cShare4
             }
         };
+
+        if (activeLoadedInqData && Array.isArray(activeLoadedInqData.packages) && activeLoadedInqData.packages.length > 1) {
+            costingPayload.packages = activeLoadedInqData.packages;
+        }
+
+        return costingPayload;
     }
 
     async function downloadCurrentCostingExcel() {
@@ -7948,8 +8576,12 @@
                 }
             };
 
+            if (Array.isArray(docData.packages) && docData.packages.length > 1) {
+                payload.packages = docData.packages;
+            }
+
             const webhookUrl = getGoogleSheetsWebhookUrl();
-            showNotification('🟢 Converting ' + inqKey + ' to Google Sheet in Google Drive...', false);
+            showNotification('🟢 Converting ' + inqKey + (payload.packages ? ` (${payload.packages.length} Packages)` : '') + ' to Google Sheet in Google Drive...', false);
             const result = await window.SlwExcelGenerator.exportToGoogleSheets(payload, webhookUrl);
 
             if (result && result.sheetUrl) {
@@ -8095,8 +8727,12 @@
                 }
             };
 
+            if (Array.isArray(docData.packages) && docData.packages.length > 1) {
+                payload.packages = docData.packages;
+            }
+
             if (window.SlwExcelGenerator) {
-                showNotification('📊 Generating Excel for ' + inqKey + '...', false);
+                showNotification('📊 Generating Excel for ' + inqKey + (payload.packages ? ` (${payload.packages.length} Packages)` : '') + '...', false);
                 await window.SlwExcelGenerator.downloadCostingExcel(payload);
                 showNotification('✅ Excel for ' + inqKey + ' downloaded!', false);
             }

@@ -1883,11 +1883,42 @@ function slwGoHome() {
         }
 
         if (inq) {
+            let activePackages = window.__slwActivePackages || [];
+            if (activePackages.length === 0 && inq) {
+                try {
+                    const raw = localStorage.getItem(SLW_INQ_DOC_PREFIX + inq);
+                    if (raw) {
+                        const parsed = JSON.parse(raw);
+                        if (Array.isArray(parsed.packages)) activePackages = parsed.packages;
+                    }
+                } catch(e) {}
+            }
+
+            let packageDropdownHtml = '';
+            if (activePackages.length > 1) {
+                const curPkgId = window.__slwActivePackageId || localStorage.getItem('SLW_ACTIVE_INQ_PACKAGE_ID') || (activePackages[0] && activePackages[0].id);
+                packageDropdownHtml = `
+                    <div style="display:flex;align-items:center;gap:4px;background:#0f172a;padding:2px 8px;border-radius:10px;border:1px solid #f59e0b;">
+                        <span style="font-size:11px;color:#fcd34d;font-weight:700;">📦 Option:</span>
+                        <select onchange="window.slwSwitchPackage(this.value)" style="background:transparent;color:#fde047;border:none;font-size:11px;font-weight:700;cursor:pointer;outline:none;">
+                            ${activePackages.map((p, idx) => `
+                                <option value="${p.id}" ${p.id === curPkgId ? 'selected' : ''} style="background:#1e293b;color:white;">
+                                    ${p.packageName || ('Option ' + (idx + 1))}
+                                </option>
+                            `).join('')}
+                        </select>
+                    </div>
+                `;
+            } else if (window.__slwActivePackageName) {
+                packageDropdownHtml = `<span style="background:rgba(245,158,11,0.2);color:#fde047;font-size:11px;padding:2px 8px;border-radius:12px;font-weight:700;border:1px solid rgba(245,158,11,0.35);">📦 ${window.__slwActivePackageName}</span>`;
+            }
+
             topBar.innerHTML = `
                 <span style="font-size:14px;">🏷️</span>
                 <span style="font-weight:700;color:#38bdf8;letter-spacing:0.3px;">${inq}</span>
                 ${client ? `<span style="color:#94a3b8;font-size:12px;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${client}">| ${client}</span>` : ''}
                 <span style="background:rgba(16,185,129,0.2);color:#34d399;font-size:11px;padding:2px 8px;border-radius:12px;font-weight:700;border:1px solid rgba(16,185,129,0.35);">● Cloud Linked</span>
+                ${packageDropdownHtml}
                 <button onclick="window.slwSaveItineraryToInqCloud()" style="background:linear-gradient(135deg, #059669, #047857);color:white;border:none;padding:5px 12px;border-radius:12px;font-weight:700;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:4px;box-shadow:0 2px 6px rgba(5,150,105,0.4);" title="Save current itinerary directly to this INQ in Firebase Cloud">
                     💾 Save to INQ Cloud
                 </button>
@@ -1973,13 +2004,38 @@ function slwGoHome() {
         exportBtn.click();
     };
 
-    window.slwLoadItineraryFromInq = async function(inqKey) {
+    window.slwSwitchPackage = function(targetPackageId) {
+        if (!targetPackageId) return;
+        const inq = window.__slwActiveInq || localStorage.getItem('SLW_ACTIVE_INQ');
+        if (!inq) return;
+
+        let activePackages = window.__slwActivePackages || [];
+        if (activePackages.length === 0) {
+            try {
+                const raw = localStorage.getItem(SLW_INQ_DOC_PREFIX + inq);
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    if (Array.isArray(parsed.packages)) activePackages = parsed.packages;
+                }
+            } catch(e) {}
+        }
+
+        const selectedPkg = activePackages.find(p => p.id === targetPackageId);
+        const pkgName = selectedPkg ? (selectedPkg.packageName || selectedPkg.title) : 'this package option';
+
+        if (confirm(`Switch to package option "${pkgName}" under [${inq}]?\n\nThis will load its itinerary and pricing into the editor.`)) {
+            window.__slwActivePackageId = targetPackageId;
+            localStorage.setItem('SLW_ACTIVE_INQ_PACKAGE_ID', targetPackageId);
+            slwLoadItineraryFromInq(inq, targetPackageId);
+        } else {
+            slwUpdateInqBadges();
+        }
+    };
+
+    window.slwLoadItineraryFromInq = async function(inqKey, targetPackageId = null) {
         if (!inqKey) inqKey = window.__slwActiveInq || localStorage.getItem('SLW_ACTIVE_INQ');
         if (!inqKey) return;
-
-        if (!confirm(`Quotation [${inqKey}] සඳහා Cloud / Local Storage හි සුරකින ලද Itinerary එක Editor එකට Load කිරීමට අවශ්‍යද?\n\nදැනට Editor හි ඇති වෙනස්කම් ප්‍රතිස්ථාපනය වේ.`)) {
-            return;
-        }
+        if (!targetPackageId) targetPackageId = window.__slwActivePackageId || localStorage.getItem('SLW_ACTIVE_INQ_PACKAGE_ID');
 
         let docData = null;
         try {
@@ -2001,8 +2057,35 @@ function slwGoHome() {
             }
         }
 
-        if (!docData || !docData.itinerary) {
-            alert(`Quotation [${inqKey}] හි සුරැකි Itinerary එකක් හමු නොවීය.`);
+        if (!docData) {
+            alert(`Quotation [${inqKey}] දත්ත හමු නොවීය.`);
+            return;
+        }
+
+        // Determine target package if multi-package
+        let targetPackage = null;
+        if (Array.isArray(docData.packages) && docData.packages.length > 0) {
+            if (targetPackageId) {
+                targetPackage = docData.packages.find(p => p.id === targetPackageId);
+            }
+            if (!targetPackage && docData.activePackageId) {
+                targetPackage = docData.packages.find(p => p.id === docData.activePackageId);
+            }
+            if (!targetPackage) targetPackage = docData.packages[0];
+            window.__slwActivePackages = docData.packages;
+        }
+
+        const itToLoad = (targetPackage && targetPackage.itinerary) ? targetPackage.itinerary : docData.itinerary;
+        const pricesToLoad = (targetPackage && targetPackage.pricingSummary) ? targetPackage.pricingSummary : docData.pricingSummary;
+        const pkgName = targetPackage ? (targetPackage.packageName || targetPackage.title) : '';
+        const pkgPrompt = pkgName ? ` (${pkgName})` : '';
+
+        if (!confirm(`Quotation [${inqKey}]${pkgPrompt} සඳහා Cloud / Local Storage හි සුරකින ලද Itinerary එක Editor එකට Load කිරීමට අවශ්‍යද?\n\nදැනට Editor හි ඇති වෙනස්කම් ප්‍රතිස්ථාපනය වේ.`)) {
+            return;
+        }
+
+        if (!itToLoad) {
+            alert(`Quotation [${inqKey}]${pkgPrompt} හි සුරැකි Itinerary එකක් හමු නොවීය.`);
             return;
         }
 
@@ -2011,30 +2094,30 @@ function slwGoHome() {
         const allowChildShare = Boolean(docData.includeChildSharingBed ?? (docData.costing?.includeChildSharingBed ?? (docData.rates?.childShare3 || false)));
         const hasChildPrices = Boolean(docData.hasChildPrices ?? (allowChildExtra || allowChildShare));
 
-        if (docData.pricingSummary) {
-            docData.pricingSummary.hasChildPrices = hasChildPrices;
-            docData.pricingSummary.includeChildExtraBed = allowChildExtra;
-            docData.pricingSummary.includeChildSharingBed = allowChildShare;
+        if (pricesToLoad) {
+            pricesToLoad.hasChildPrices = hasChildPrices;
+            pricesToLoad.includeChildExtraBed = allowChildExtra;
+            pricesToLoad.includeChildSharingBed = allowChildShare;
             if (!allowChildExtra) {
-                if (docData.pricingSummary.prices3Star) docData.pricingSummary.prices3Star.childExtra = null;
-                if (docData.pricingSummary.prices4Star) docData.pricingSummary.prices4Star.childExtra = null;
-                if (docData.pricingSummary.pricesMix) docData.pricingSummary.pricesMix.childExtra = null;
-                if (docData.pricingSummary.prices5Star) docData.pricingSummary.prices5Star.childExtra = null;
+                if (pricesToLoad.prices3Star) pricesToLoad.prices3Star.childExtra = null;
+                if (pricesToLoad.prices4Star) pricesToLoad.prices4Star.childExtra = null;
+                if (pricesToLoad.pricesMix) pricesToLoad.pricesMix.childExtra = null;
+                if (pricesToLoad.prices5Star) pricesToLoad.prices5Star.childExtra = null;
             }
             if (!allowChildShare) {
-                if (docData.pricingSummary.prices3Star) docData.pricingSummary.prices3Star.childShare = null;
-                if (docData.pricingSummary.prices4Star) docData.pricingSummary.prices4Star.childShare = null;
-                if (docData.pricingSummary.pricesMix) docData.pricingSummary.pricesMix.childShare = null;
-                if (docData.pricingSummary.prices5Star) docData.pricingSummary.prices5Star.childShare = null;
+                if (pricesToLoad.prices3Star) pricesToLoad.prices3Star.childShare = null;
+                if (pricesToLoad.prices4Star) pricesToLoad.prices4Star.childShare = null;
+                if (pricesToLoad.pricesMix) pricesToLoad.pricesMix.childShare = null;
+                if (pricesToLoad.prices5Star) pricesToLoad.prices5Star.childShare = null;
             }
-            localStorage.setItem('SLW_LATEST_COSTING_PRICES', JSON.stringify(docData.pricingSummary));
+            localStorage.setItem('SLW_LATEST_COSTING_PRICES', JSON.stringify(pricesToLoad));
         }
 
-        if (docData.itinerary && Array.isArray(docData.itinerary.options)) {
-            docData.itinerary.hasChildPrices = hasChildPrices;
-            docData.itinerary.includeChildExtraBed = allowChildExtra;
-            docData.itinerary.includeChildSharingBed = allowChildShare;
-            docData.itinerary.options.forEach(opt => {
+        if (itToLoad && Array.isArray(itToLoad.options)) {
+            itToLoad.hasChildPrices = hasChildPrices;
+            itToLoad.includeChildExtraBed = allowChildExtra;
+            itToLoad.includeChildSharingBed = allowChildShare;
+            itToLoad.options.forEach(opt => {
                 (opt.hotels || []).forEach(h => {
                     if (Array.isArray(h.prices)) {
                         h.prices = h.prices.filter(p => {
@@ -2049,16 +2132,23 @@ function slwGoHome() {
             });
         }
 
-        slwInjectItineraryIntoReact(docData.itinerary, inqKey + '.json');
+        slwInjectItineraryIntoReact(itToLoad, inqKey + (targetPackage ? `_${targetPackage.id}` : '') + '.json');
         window.__slwActiveInq = inqKey;
         window.__slwActiveInqClient = docData.clientName || '';
-        window.__slwActiveInqTitle = docData.title || '';
+        window.__slwActiveInqTitle = (targetPackage ? targetPackage.title : docData.title) || '';
+        window.__slwActivePackageId = targetPackage ? targetPackage.id : null;
+        window.__slwActivePackageName = pkgName;
+
         localStorage.setItem('SLW_ACTIVE_INQ', inqKey);
         localStorage.setItem('SLW_ACTIVE_INQ_CLIENT', window.__slwActiveInqClient);
         localStorage.setItem('SLW_ACTIVE_INQ_TITLE', window.__slwActiveInqTitle);
+        if (window.__slwActivePackageId) {
+            localStorage.setItem('SLW_ACTIVE_INQ_PACKAGE_ID', window.__slwActivePackageId);
+        }
+
         slwUpdateInqBadges();
 
-        slwShowSuccess("✅ Itinerary Loaded!", `Quotation [${inqKey}] හි Itinerary එක Editor එකට සාර්ථකව Load කරන ලදී.`);
+        slwShowSuccess("✅ Itinerary Loaded!", `Quotation [${inqKey}]${pkgPrompt} හි Itinerary එක Editor එකට සාර්ථකව Load කරන ලදී.`);
     };
 
     window.slwOpenLinkInqModal = function() {
@@ -2089,26 +2179,43 @@ function slwGoHome() {
                 listContainer.innerHTML = inqIndex.slice(0, 15).map(item => {
                     const isCur = (item.inq === window.__slwActiveInq);
                     const sizeStr = item.sizeBytes ? `${(item.sizeBytes / 1024).toFixed(1)} KB` : '';
+                    const pkgs = Array.isArray(item.packages) ? item.packages : [];
+
                     return `
-                        <div style="padding:10px 14px;border:1px solid ${isCur ? '#0284c7' : '#e2e8f0'};background:${isCur ? '#f0f9ff' : '#ffffff'};border-radius:10px;display:flex;align-items:center;justify-content:space-between;gap:10px;transition:all 0.2s;">
-                            <div style="flex:1;min-width:0;">
-                                <div style="display:flex;align-items:center;gap:6px;">
-                                    <span style="font-weight:700;color:#0284c7;font-size:13.5px;">${item.inq}</span>
-                                    <span style="font-weight:600;color:#0f172a;font-size:13px;">${item.clientName || 'Client'}</span>
-                                    ${isCur ? '<span style="background:#0284c7;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;">CURRENT</span>' : ''}
+                        <div style="padding:10px 14px;border:1px solid ${isCur ? '#0284c7' : '#e2e8f0'};background:${isCur ? '#f0f9ff' : '#ffffff'};border-radius:10px;display:flex;flex-direction:column;gap:6px;transition:all 0.2s;">
+                            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+                                <div style="flex:1;min-width:0;">
+                                    <div style="display:flex;align-items:center;gap:6px;">
+                                        <span style="font-weight:700;color:#0284c7;font-size:13.5px;">${item.inq}</span>
+                                        <span style="font-weight:600;color:#0f172a;font-size:13px;">${item.clientName || 'Client'}</span>
+                                        ${isCur ? '<span style="background:#0284c7;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;">CURRENT</span>' : ''}
+                                        ${pkgs.length > 1 ? `<span style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d;font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;">${pkgs.length} Packages</span>` : ''}
+                                    </div>
+                                    <div style="font-size:11.5px;color:#64748b;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                                        ${item.title || 'Tour Quotation'} ${item.date ? '• ' + item.date : ''} ${sizeStr ? '• ' + sizeStr : ''}
+                                    </div>
                                 </div>
-                                <div style="font-size:11.5px;color:#64748b;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
-                                    ${item.title || 'Tour Quotation'} ${item.date ? '• ' + item.date : ''} ${sizeStr ? '• ' + sizeStr : ''}
+                                <div style="display:flex;gap:6px;shrink:0;">
+                                    <button onclick="window.slwSetLinkedInq('${item.inq}', '${(item.clientName || '').replace(/'/g, "\'")}', '${(item.title || '').replace(/'/g, "\'")}', true)" style="background:#059669;color:white;border:none;padding:5px 10px;border-radius:6px;font-size:11.5px;font-weight:700;cursor:pointer;" title="Link and load itinerary into editor">
+                                        📥 Link & Load
+                                    </button>
+                                    <button onclick="window.slwSetLinkedInq('${item.inq}', '${(item.clientName || '').replace(/'/g, "\'")}', '${(item.title || '').replace(/'/g, "\'")}', false)" style="background:#f1f5f9;color:#334155;border:1px solid #cbd5e1;padding:5px 10px;border-radius:6px;font-size:11.5px;font-weight:600;cursor:pointer;" title="Link to this inquiry without overwriting editor">
+                                        🔗 Link Only
+                                    </button>
                                 </div>
                             </div>
-                            <div style="display:flex;gap:6px;shrink:0;">
-                                <button onclick="window.slwSetLinkedInq('${item.inq}', '${(item.clientName || '').replace(/'/g, "\'")}', '${(item.title || '').replace(/'/g, "\'")}', true)" style="background:#059669;color:white;border:none;padding:5px 10px;border-radius:6px;font-size:11.5px;font-weight:700;cursor:pointer;" title="Link and load itinerary into editor">
-                                    📥 Link & Load
-                                </button>
-                                <button onclick="window.slwSetLinkedInq('${item.inq}', '${(item.clientName || '').replace(/'/g, "\'")}', '${(item.title || '').replace(/'/g, "\'")}', false)" style="background:#f1f5f9;color:#334155;border:1px solid #cbd5e1;padding:5px 10px;border-radius:6px;font-size:11.5px;font-weight:600;cursor:pointer;" title="Link to this inquiry without overwriting editor">
-                                    🔗 Link Only
-                                </button>
-                            </div>
+                            ${pkgs.length > 1 ? `
+                                <div style="display:flex;gap:4px;flex-wrap:wrap;padding-top:6px;border-top:1px dashed #e2e8f0;align-items:center;">
+                                    <span style="font-size:10px;font-weight:700;color:#d97706;display:flex;align-items:center;gap:2px;">
+                                        📦 Packages:
+                                    </span>
+                                    ${pkgs.map((pkg, pIdx) => `
+                                        <button onclick="window.slwSetLinkedInq('${item.inq}', '${(item.clientName || '').replace(/'/g, "\'")}', '${(item.title || '').replace(/'/g, "\'")}', true, '${pkg.id}')" style="background:#fef3c7;hover:background:#fde68a;color:#92400e;border:1px solid #fcd34d;padding:2px 7px;border-radius:6px;font-size:10.5px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:2px;" title="Link & Load ${pkg.packageName || ('Option ' + (pIdx + 1))}">
+                                            <span>📦</span> <span>${pkg.packageName || ('Option ' + (pIdx + 1))}</span>
+                                        </button>
+                                    `).join('')}
+                                </div>
+                            ` : ''}
                         </div>
                     `;
                 }).join('');
@@ -2135,20 +2242,27 @@ function slwGoHome() {
         window.slwSetLinkedInq(val, '', '', false);
     };
 
-    window.slwSetLinkedInq = function(inqKey, clientName = '', title = '', autoLoad = false) {
+    window.slwSetLinkedInq = function(inqKey, clientName = '', title = '', autoLoad = false, targetPackageId = null) {
         if (!inqKey) return;
         window.__slwActiveInq = inqKey;
         window.__slwActiveInqClient = clientName;
         window.__slwActiveInqTitle = title;
+        window.__slwActivePackageId = targetPackageId || null;
+
         localStorage.setItem('SLW_ACTIVE_INQ', inqKey);
         localStorage.setItem('SLW_ACTIVE_INQ_CLIENT', clientName);
         localStorage.setItem('SLW_ACTIVE_INQ_TITLE', title);
+        if (targetPackageId) {
+            localStorage.setItem('SLW_ACTIVE_INQ_PACKAGE_ID', targetPackageId);
+        } else {
+            localStorage.removeItem('SLW_ACTIVE_INQ_PACKAGE_ID');
+        }
 
         document.getElementById('slw-link-inq-modal').style.display = 'none';
         slwUpdateInqBadges();
 
         if (autoLoad) {
-            slwLoadItineraryFromInq(inqKey);
+            slwLoadItineraryFromInq(inqKey, targetPackageId);
         } else {
             slwShowSuccess("🔗 Linked to Quotation!", `මෙම Itinerary එක [${inqKey}] (${clientName || 'Client'}) සමඟ සාර්ථකව සම්බන්ධ විය. වෙනස්කම් සිදුකළ පසු 'Save to INQ Cloud' ඔබන්න.`);
         }
@@ -2159,9 +2273,13 @@ function slwGoHome() {
         window.__slwActiveInq = null;
         window.__slwActiveInqClient = '';
         window.__slwActiveInqTitle = '';
+        window.__slwActivePackageId = null;
+        window.__slwActivePackageName = null;
+        window.__slwActivePackages = [];
         localStorage.removeItem('SLW_ACTIVE_INQ');
         localStorage.removeItem('SLW_ACTIVE_INQ_CLIENT');
         localStorage.removeItem('SLW_ACTIVE_INQ_TITLE');
+        localStorage.removeItem('SLW_ACTIVE_INQ_PACKAGE_ID');
         slwUpdateInqBadges();
     };
 
@@ -2647,6 +2765,17 @@ window.slwApplyCostingPrices = function(targetOptionIndex = 0) {
                         docData.clientName = currentData.clientName;
                     }
 
+                    // Update specific package option in packages array if present
+                    if (Array.isArray(docData.packages) && docData.packages.length > 0) {
+                        const activePkgId = window.__slwActivePackageId || localStorage.getItem('SLW_ACTIVE_INQ_PACKAGE_ID') || docData.activePackageId || docData.packages[0].id;
+                        const pIdx = docData.packages.findIndex(p => p.id === activePkgId);
+                        if (pIdx !== -1) {
+                            docData.packages[pIdx].itinerary = currentData;
+                            docData.packages[pIdx].updatedAt = nowIso;
+                            if (currentData.title) docData.packages[pIdx].title = currentData.title;
+                        }
+                    }
+
                     window.__slwActiveInqClient = docData.clientName || '';
                     window.__slwActiveInqTitle = docData.title || '';
                     localStorage.setItem('SLW_ACTIVE_INQ_CLIENT', window.__slwActiveInqClient);
@@ -2678,7 +2807,16 @@ window.slwApplyCostingPrices = function(targetOptionIndex = 0) {
                         cities: docData.cities || '',
                         rates: docData.rates || {},
                         sizeBytes: sizeBytes,
-                        updatedAt: nowIso
+                        updatedAt: nowIso,
+                        googleSheetUrl: docData.googleSheetUrl || null,
+                        packagesCount: Array.isArray(docData.packages) ? docData.packages.length : 1,
+                        packages: Array.isArray(docData.packages) ? docData.packages.map((p, idx) => ({
+                            id: p.id || ('pkg_' + (idx + 1)),
+                            packageName: p.packageName || ('Option ' + (idx + 1)),
+                            title: p.title || docData.title,
+                            cities: p.cities || docData.cities,
+                            rates: p.rates || docData.rates
+                        })) : []
                     };
 
                     if (existingIdx !== -1) {
