@@ -3995,11 +3995,6 @@
         if (resultsEl && resultsEl.style.display !== 'none' && typeof calculate === 'function') {
             calculate();
         }
-
-        const resultsEl = document.getElementById('results');
-        if (resultsEl && resultsEl.style.display !== 'none' && typeof calculate === 'function') {
-            calculate();
-        }
     }
     
     function removeItem(type, index) {
@@ -6841,7 +6836,7 @@
     async function initInqQuotationHub() {
         // 1. Load from local cache first (0ms, 0 reads)
         try {
-            const localRaw = localStorage.getItem(SLW_INQ_INDEX_STORAGE_KEY);
+            const localRaw = localStorage.getItem(SLW_INQ_INDEX_STORAGE_KEY) || localStorage.getItem('slw_quotation_index');
             if (localRaw) {
                 inqQuotationIndex = JSON.parse(localRaw) || [];
             }
@@ -6853,10 +6848,12 @@
         updateQuotationHubCountBadge();
         updateQuotationStorageStats();
 
-        // 2. Background sync from Firebase Cloud (Single read: slw_settings/quotation_index)
-        syncInqQuotationsFromCloud(false).catch(err => {
+        // 2. Sync from Firebase Cloud
+        try {
+            await syncInqQuotationsFromCloud(false);
+        } catch (err) {
             console.warn("Initial cloud quotation index sync error:", err);
-        });
+        }
 
         // 3. Sync learned AI rules from Firebase Cloud (slw_settings/learned_patterns)
         if (window.SlwLearningEngine && typeof window.SlwLearningEngine.syncWithCloud === 'function' && typeof db !== 'undefined' && db) {
@@ -6926,10 +6923,47 @@
         try {
             if (typeof db !== 'undefined' && db) {
                 const doc = await db.collection('slw_settings').doc('quotation_index').get();
+                let remoteItems = [];
                 if (doc.exists) {
                     const data = doc.data();
-                    const remoteItems = data.items || [];
-                    
+                    remoteItems = data.items || [];
+                }
+
+                // If remoteItems is empty, fallback to querying slw_quotations collection directly
+                if (remoteItems.length === 0) {
+                    try {
+                        const colSnap = await db.collection('slw_quotations').limit(100).get();
+                        if (!colSnap.empty) {
+                            colSnap.forEach(d => {
+                                const q = d.data();
+                                if (q && q.inq) {
+                                    remoteItems.push({
+                                        inq: q.inq,
+                                        clientName: q.clientName || '.',
+                                        clientPhone: q.clientPhone || '',
+                                        title: q.title || 'Tour Quotation',
+                                        date: q.date || q.quotationDate || '',
+                                        quotationDate: q.quotationDate || q.date || '',
+                                        travelMonth: q.travelMonth || '',
+                                        travelYear: q.travelYear || '',
+                                        travelMonthDate: q.travelMonthDate || '',
+                                        paxText: q.paxText || '',
+                                        cities: Array.isArray(q.packages) && q.packages[0]?.cities ? q.packages[0].cities.map(c => `${c.numberOfNights}N ${c.name}`).join(' + ') : (q.cities || ''),
+                                        rates: q.packages && q.packages[0]?.rates ? q.packages[0].rates : (q.rates || {}),
+                                        sizeBytes: q.sizeBytes || 12000,
+                                        updatedAt: q.updatedAt || q.date || new Date().toISOString(),
+                                        googleSheetUrl: q.googleSheetUrl || null,
+                                        packagesCount: Array.isArray(q.packages) ? q.packages.length : 1
+                                    });
+                                }
+                            });
+                        }
+                    } catch(colErr) {
+                        console.warn("Collection fallback error:", colErr);
+                    }
+                }
+
+                if (remoteItems.length > 0 || inqQuotationIndex.length > 0) {
                     // Merge local and remote index by INQ key, favoring newer updatedAt
                     const itemMap = new Map();
                     inqQuotationIndex.forEach(item => {
@@ -6946,12 +6980,13 @@
                     });
 
                     inqQuotationIndex = Array.from(itemMap.values()).sort((a, b) => {
-                        const da = new Date(b.updatedAt || b.date || 0);
-                        const db = new Date(a.updatedAt || a.date || 0);
-                        return da - db;
+                        const dateB = new Date(b.updatedAt || b.date || 0);
+                        const dateA = new Date(a.updatedAt || a.date || 0);
+                        return dateB - dateA;
                     });
 
                     localStorage.setItem(SLW_INQ_INDEX_STORAGE_KEY, JSON.stringify(inqQuotationIndex));
+                    localStorage.setItem('slw_quotation_index', JSON.stringify(inqQuotationIndex));
                     updateQuotationHubCountBadge();
                     updateQuotationStorageStats();
                     renderQuotationHubCards();
@@ -6963,14 +6998,6 @@
                         showNotification('☁️ Successfully synced ' + inqQuotationIndex.length + ' Quotations from Firebase Cloud!', false);
                     }
                     return true;
-                } else {
-                    // Document doesn't exist yet on cloud, if we have local quotes, initialize it
-                    if (inqQuotationIndex.length > 0) {
-                        await db.collection('slw_settings').doc('quotation_index').set({
-                            items: inqQuotationIndex,
-                            updatedAt: new Date().toISOString()
-                        });
-                    }
                 }
             }
         } catch(e) {
@@ -6990,6 +7017,10 @@
         updateQuotationStorageStats();
         renderQuotationHubCards();
         openModal('quotationHubModal');
+        // Auto-sync from cloud if list is empty
+        if (!inqQuotationIndex || inqQuotationIndex.length === 0) {
+            syncInqQuotationsFromCloud(false);
+        }
         // Auto-focus search input
         setTimeout(() => {
             const inp = document.getElementById('hubSearchInput');
@@ -8753,10 +8784,22 @@
         } catch(e) {}
         onChildOptionToggle();
 
-        await loadMasterDatabase();
+        try {
+            await loadMasterDatabase();
+        } catch(e) {
+            console.warn("loadMasterDatabase error:", e);
+        }
         updateMasterDbCounts();
-        await loadCostingPresetsFromCloud();
-        await initInqQuotationHub();
+        try {
+            await loadCostingPresetsFromCloud();
+        } catch(e) {
+            console.warn("loadCostingPresetsFromCloud error:", e);
+        }
+        try {
+            await initInqQuotationHub();
+        } catch(e) {
+            console.warn("initInqQuotationHub error:", e);
+        }
         renderAll();
     };
 
