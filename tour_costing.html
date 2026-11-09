@@ -1039,7 +1039,7 @@
     <option value="">-- Select from Master Database --</option>
 </select>
 <div class="space-y-4">
-    <input type="text" id="newTourName" placeholder="Tour Name" class="w-full p-3 border rounded-md">
+    <input type="text" id="newTourName" oninput="onTourModalNameInput(this.value)" placeholder="Tour Name" class="w-full p-3 border rounded-md">
     <input type="number" id="newTourPrice" placeholder="Per Person Price (THB) [Join or Ticket]" class="w-full p-3 border rounded-md">
     <input type="number" id="newTourTransferPrice" placeholder="Fixed Transfer Price (THB) [Private]" class="w-full p-3 border rounded-md">
 </div>
@@ -1083,7 +1083,7 @@
     <option value="">-- Select from Master Database --</option>
 </select>
 <div class="space-y-4">
-    <input type="text" id="newTransferName" placeholder="Transfer Name" class="w-full p-3 border rounded-md">
+    <input type="text" id="newTransferName" oninput="onTransferModalNameInput(this.value)" placeholder="Transfer Name" class="w-full p-3 border rounded-md">
     <input type="number" id="newTransferPrice" placeholder="Transfer Price (THB)" class="w-full p-3 border rounded-md">
 </div>
 
@@ -1945,42 +1945,81 @@
         }
     }
 
+    // ── MASTER DATABASE TAG & ROUTE HELPERS ──
+    function stripTourTags(str) {
+        if (!str) return '';
+        return String(str)
+            .replace(/\s*\([^\)]*$/gi, '')
+            .replace(/\s*\((Join Tour|Join Transfer|Private Transfer|Private - Van|Private - Bus|Private - Car|Private.*|Ticket Only|Join)\)/gi, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    function extractTourNameAndTag(fullName) {
+        if (!fullName) return { baseName: '', tag: '' };
+        const str = String(fullName).trim();
+        const knownMatch = str.match(/\s*\((Join Tour|Join Transfer|Private Transfer|Private - Van|Private - Bus|Private - Car|Private.*|Ticket Only|Join)\)\s*$/i);
+        if (knownMatch) {
+            return {
+                baseName: str.slice(0, knownMatch.index).trim(),
+                tag: knownMatch[0].trim()
+            };
+        }
+        const genericMatch = str.match(/\s*\(([^)]+)\)\s*$/);
+        if (genericMatch && /join|transfer|pvt|private|ticket|car|van|bus/i.test(genericMatch[1])) {
+            return {
+                baseName: str.slice(0, genericMatch.index).trim(),
+                tag: genericMatch[0].trim()
+            };
+        }
+        return {
+            baseName: str,
+            tag: ''
+        };
+    }
+
+    function formatTourVariantName(baseName, tag) {
+        if (!baseName) return '';
+        let clean = String(baseName).trim();
+        clean = clean.replace(/\s*\((Join Tour|Join Transfer|Private Transfer|Private - Van|Private - Bus|Private - Car|Private.*|Ticket Only|Join)\)\s*$/gi, '').trim();
+        if (!tag) return clean;
+        const cleanTag = tag.trim().startsWith('(') ? tag.trim() : `(${tag.trim()})`;
+        return `${clean} ${cleanTag}`;
+    }
+
+    function normalizeTransferRoute(raw) {
+        if (!raw) return '';
+        return String(raw)
+            .replace(/\s*\((Car|Van|Bus|Private.*)\)/gi, '')
+            .replace(/\bPvt\s+Basis\b/gi, '')
+            .replace(/\bPrivate\b/gi, '')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .toLowerCase();
+    }
+
     function deduplicateMasterDatabase(rawDb) {
         if (!rawDb) return { tours: [], hotels: [], transfers: [], extras: [] };
-
-        const stripTourTags = (str) => {
-            if (!str) return '';
-            return String(str)
-                .replace(/\s*\((Join Tour|Join Transfer|Private Transfer|Private - Van|Private - Bus|Private.*|Ticket Only|Join)\)/gi, '')
-                .replace(/\s+/g, ' ')
-                .trim();
-        };
-
-        const normalizeTransferRoute = (raw) => {
-            if (!raw) return '';
-            return String(raw)
-                .replace(/\s*\((Car|Van|Bus|Private.*)\)/gi, '')
-                .replace(/\bPvt\s+Basis\b/gi, '')
-                .replace(/\bPrivate\b/gi, '')
-                .replace(/\s+/g, ' ')
-                .trim()
-                .toLowerCase();
-        };
 
         // 1. Deduplicate & Merge Tours
         const tourGroups = {};
         (rawDb.tours || []).forEach(t => {
             const rawName = String(t.name || '').trim();
             if (!rawName) return;
-            const canonName = stripTourTags(rawName);
+            const { baseName, tag: extractedTag } = extractTourNameAndTag(rawName);
+            const canonName = stripTourTags(baseName || rawName);
             const loc = String(t.location || '').trim();
-            const key = (canonName.toLowerCase() + '|' + loc.toLowerCase()).trim();
+            const tag = t.joinTag || (extractedTag && /join/i.test(extractedTag) ? extractedTag : (rawName.toLowerCase().includes('join transfer') ? '(Join Transfer)' : (rawName.toLowerCase().includes('join tour') ? '(Join Tour)' : '')));
+            // Group key preserves distinct items if specific join tag is given (e.g. Join Transfer vs Join Tour)
+            const key = (canonName.toLowerCase() + '|' + (tag ? tag.toLowerCase() + '|' : '') + loc.toLowerCase()).trim();
 
             if (!tourGroups[key]) {
                 tourGroups[key] = {
                     id: String(t.id || ('t_' + Date.now())),
                     name: canonName,
                     location: loc,
+                    joinTag: tag || null,
+                    privateTag: t.privateTag || null,
                     price: (t.joinPrice !== null && t.joinPrice !== undefined && t.joinPrice !== '') ? Number(t.joinPrice) : (t.ticketOnlyPrice ? Number(t.ticketOnlyPrice) : 0),
                     joinPrice: t.joinPrice !== null && t.joinPrice !== undefined && t.joinPrice !== '' ? Number(t.joinPrice) : null,
                     ticketOnlyPrice: t.ticketOnlyPrice !== null && t.ticketOnlyPrice !== undefined && t.ticketOnlyPrice !== '' ? Number(t.ticketOnlyPrice) : null,
@@ -1992,6 +2031,8 @@
                 const g = tourGroups[key];
                 if (canonName.length < g.name.length && canonName.length >= 4) g.name = canonName;
                 if (!g.location && loc) g.location = loc;
+                if (tag) g.joinTag = tag;
+                if (t.privateTag) g.privateTag = t.privateTag;
                 if (t.joinPrice !== null && t.joinPrice !== undefined && t.joinPrice !== '') g.joinPrice = Number(t.joinPrice);
                 if (t.ticketOnlyPrice !== null && t.ticketOnlyPrice !== undefined && t.ticketOnlyPrice !== '') g.ticketOnlyPrice = Number(t.ticketOnlyPrice);
                 if (t.privateCarPrice !== null && t.privateCarPrice !== undefined && t.privateCarPrice !== '') g.privateCarPrice = Number(t.privateCarPrice);
@@ -2086,12 +2127,14 @@
                     location: loc,
                     star: star,
                     price: Number(h.price) || 0,
-                    mealPrice: Number(h.mealPrice) || 0
+                    mealPrice: Number(h.mealPrice) || 0,
+                    tplPrice: (h.tplPrice !== undefined && h.tplPrice !== null && h.tplPrice !== '') ? Number(h.tplPrice) : (star === '4' ? 1000 : (star === '5' ? 1200 : 800))
                 };
             } else {
                 const g = hGroups[key];
                 if (Number(h.price) > 0) g.price = Number(h.price);
                 if (Number(h.mealPrice) > 0) g.mealPrice = Number(h.mealPrice);
+                if (h.tplPrice) g.tplPrice = Number(h.tplPrice);
                 if (!g.location && loc) g.location = loc;
             }
         });
@@ -2524,19 +2567,27 @@
                 location: (h.location || h.loc || '').trim(),
                 star: String(h.star || '3'),
                 price: Number(h.price) || 0,
-                mealPrice: Number(h.mealPrice) || 0
+                mealPrice: Number(h.mealPrice) || 0,
+                tplPrice: (h.tplPrice !== undefined && h.tplPrice !== null && h.tplPrice !== '') ? Number(h.tplPrice) : (String(h.star || '3') === '4' ? 1000 : (String(h.star || '3') === '5' ? 1200 : 800))
             })),
-            tours: (data.tours || []).map((t, idx) => ({
-                id: t.id || ('t_' + idx),
-                name: (t.name || '').trim(),
-                location: (t.location || '').trim(),
-                joinPrice: (t.joinPrice !== undefined && t.joinPrice !== null && t.joinPrice !== '') ? Number(t.joinPrice) : null,
-                ticketOnlyPrice: (t.ticketOnlyPrice !== undefined && t.ticketOnlyPrice !== null && t.ticketOnlyPrice !== '') ? Number(t.ticketOnlyPrice) : null,
-                privateCarPrice: (t.privateCarPrice !== undefined && t.privateCarPrice !== null && t.privateCarPrice !== '') ? Number(t.privateCarPrice) : null,
-                privateVanPrice: (t.privateVanPrice !== undefined && t.privateVanPrice !== null && t.privateVanPrice !== '') ? Number(t.privateVanPrice) : null,
-                privateBusPrice: (t.privateBusPrice !== undefined && t.privateBusPrice !== null && t.privateBusPrice !== '') ? Number(t.privateBusPrice) : null,
-                privateTransferPrice: (t.privateTransferPrice !== undefined && t.privateTransferPrice !== null && t.privateTransferPrice !== '') ? Number(t.privateTransferPrice) : null
-            })),
+            tours: (data.tours || []).map((t, idx) => {
+                const rawName = (t.name || '').trim();
+                const { tag: extTag } = extractTourNameAndTag(rawName);
+                const joinTag = t.joinTag || (extTag && /join/i.test(extTag) ? extTag : (rawName.toLowerCase().includes('join transfer') ? '(Join Transfer)' : (rawName.toLowerCase().includes('join tour') ? '(Join Tour)' : null)));
+                return {
+                    id: t.id || ('t_' + idx),
+                    name: rawName,
+                    location: (t.location || '').trim(),
+                    joinTag: joinTag,
+                    privateTag: t.privateTag || (extTag && /private/i.test(extTag) ? extTag : null),
+                    joinPrice: (t.joinPrice !== undefined && t.joinPrice !== null && t.joinPrice !== '') ? Number(t.joinPrice) : null,
+                    ticketOnlyPrice: (t.ticketOnlyPrice !== undefined && t.ticketOnlyPrice !== null && t.ticketOnlyPrice !== '') ? Number(t.ticketOnlyPrice) : null,
+                    privateCarPrice: (t.privateCarPrice !== undefined && t.privateCarPrice !== null && t.privateCarPrice !== '') ? Number(t.privateCarPrice) : null,
+                    privateVanPrice: (t.privateVanPrice !== undefined && t.privateVanPrice !== null && t.privateVanPrice !== '') ? Number(t.privateVanPrice) : null,
+                    privateBusPrice: (t.privateBusPrice !== undefined && t.privateBusPrice !== null && t.privateBusPrice !== '') ? Number(t.privateBusPrice) : null,
+                    privateTransferPrice: (t.privateTransferPrice !== undefined && t.privateTransferPrice !== null && t.privateTransferPrice !== '') ? Number(t.privateTransferPrice) : null
+                };
+            }),
             transfers: (data.transfers || []).map((tr, idx) => ({
                 id: tr.id || ('tr_' + idx),
                 name: (tr.name || '').trim(),
@@ -2685,8 +2736,10 @@
                 const loc = (t.location || '').trim();
                 let addedAny = false;
                 if (t.joinPrice !== null && t.joinPrice !== undefined && t.joinPrice > 0) {
-                    const data = { id: t.id, baseName: t.name, location: loc, type: 'join', name: t.name + ' (Join Tour)', price: Number(t.joinPrice), transfer: 0 };
-                    const label = `${t.name} (Join Tour) - ${t.joinPrice} THB`;
+                    const tag = t.joinTag || (t.name.toLowerCase().includes('join transfer') ? '(Join Transfer)' : '(Join Tour)');
+                    const fullName = formatTourVariantName(t.name, tag);
+                    const data = { id: t.id, baseName: t.name, location: loc, type: 'join', name: fullName, price: Number(t.joinPrice), transfer: 0, tag: tag };
+                    const label = `${fullName} - ${t.joinPrice} THB`;
                     options.push({ data, label, name: t.name, location: loc });
                     addedAny = true;
                 }
@@ -2694,28 +2747,36 @@
                     if (t.privateCarPrice || (!t.privateVanPrice && !t.privateBusPrice && t.privateTransferPrice)) {
                         const carPrice = Number(t.privateCarPrice || t.privateTransferPrice || 0);
                         const ticketPrice = Number(t.ticketOnlyPrice || 0);
-                        const data = { id: t.id, baseName: t.name, location: loc, type: 'private', vehicle: 'car', name: t.name + ' (Private - Car)', price: ticketPrice, transfer: carPrice };
-                        const label = `${t.name} (Private - Car) - Ticket: ${ticketPrice}, Transfer: ${carPrice}`;
+                        const tag = t.privateTag || '(Private - Car)';
+                        const fullName = formatTourVariantName(t.name, tag);
+                        const data = { id: t.id, baseName: t.name, location: loc, type: 'private', vehicle: 'car', name: fullName, price: ticketPrice, transfer: carPrice, tag: tag };
+                        const label = `${fullName} - Ticket: ${ticketPrice}, Transfer: ${carPrice}`;
                         options.push({ data, label, name: t.name, location: loc });
                         addedAny = true;
                     }
                     if (t.privateVanPrice) {
                         const ticketPrice = Number(t.ticketOnlyPrice || 0);
-                        const data = { id: t.id, baseName: t.name, location: loc, type: 'private', vehicle: 'van', name: t.name + ' (Private - Van)', price: ticketPrice, transfer: Number(t.privateVanPrice) };
-                        const label = `${t.name} (Private - Van) - Ticket: ${ticketPrice}, Transfer: ${t.privateVanPrice}`;
+                        const tag = t.privateTag || '(Private - Van)';
+                        const fullName = formatTourVariantName(t.name, tag);
+                        const data = { id: t.id, baseName: t.name, location: loc, type: 'private', vehicle: 'van', name: fullName, price: ticketPrice, transfer: Number(t.privateVanPrice), tag: tag };
+                        const label = `${fullName} - Ticket: ${ticketPrice}, Transfer: ${t.privateVanPrice}`;
                         options.push({ data, label, name: t.name, location: loc });
                         addedAny = true;
                     }
                     if (t.privateBusPrice) {
                         const ticketPrice = Number(t.ticketOnlyPrice || 0);
-                        const data = { id: t.id, baseName: t.name, location: loc, type: 'private', vehicle: 'bus', name: t.name + ' (Private - Bus)', price: ticketPrice, transfer: Number(t.privateBusPrice) };
-                        const label = `${t.name} (Private - Bus) - Ticket: ${ticketPrice}, Transfer: ${t.privateBusPrice}`;
+                        const tag = t.privateTag || '(Private - Bus)';
+                        const fullName = formatTourVariantName(t.name, tag);
+                        const data = { id: t.id, baseName: t.name, location: loc, type: 'private', vehicle: 'bus', name: fullName, price: ticketPrice, transfer: Number(t.privateBusPrice), tag: tag };
+                        const label = `${fullName} - Ticket: ${ticketPrice}, Transfer: ${t.privateBusPrice}`;
                         options.push({ data, label, name: t.name, location: loc });
                         addedAny = true;
                     }
                     if (t.ticketOnlyPrice && !t.privateCarPrice && !t.privateVanPrice && !t.privateBusPrice && !t.privateTransferPrice) {
-                        const data = { id: t.id, baseName: t.name, location: loc, type: 'ticket', name: t.name + ' (Ticket Only)', price: Number(t.ticketOnlyPrice), transfer: 0 };
-                        const label = `${t.name} (Ticket Only) - ${t.ticketOnlyPrice} THB`;
+                        const tag = '(Ticket Only)';
+                        const fullName = formatTourVariantName(t.name, tag);
+                        const data = { id: t.id, baseName: t.name, location: loc, type: 'ticket', name: fullName, price: Number(t.ticketOnlyPrice), transfer: 0, tag: tag };
+                        const label = `${fullName} - ${t.ticketOnlyPrice} THB`;
                         options.push({ data, label, name: t.name, location: loc });
                         addedAny = true;
                     }
@@ -2724,8 +2785,10 @@
                 if (!addedAny) {
                     const ticketPrice = Number(t.ticketOnlyPrice || t.joinPrice || 0);
                     const trfPrice = Number(t.privateCarPrice || t.privateVanPrice || t.privateTransferPrice || 0);
-                    const data = { id: t.id, baseName: t.name, location: loc, type: 'custom', name: t.name, price: ticketPrice, transfer: trfPrice };
-                    const label = `${t.name}${ticketPrice || trfPrice ? ` - ${ticketPrice} THB` : ' (Custom / Set Price)'}`;
+                    const tag = t.joinTag || (ticketPrice && !trfPrice ? '(Join Tour)' : '');
+                    const fullName = formatTourVariantName(t.name, tag);
+                    const data = { id: t.id, baseName: t.name, location: loc, type: 'custom', name: fullName || t.name, price: ticketPrice, transfer: trfPrice, tag: tag };
+                    const label = `${fullName || t.name}${ticketPrice || trfPrice ? ` - ${ticketPrice} THB` : ' (Custom / Set Price)'}`;
                     options.push({ data, label, name: t.name, location: loc });
                 }
             });
@@ -2747,8 +2810,21 @@
         });
         tourSelect.innerHTML = html;
 
-        // Restore previous selection if possible
-        if (prevTourVal) {
+        // Restore previous selection or newly saved tour selection
+        let restored = false;
+        if (currentSelectedModalTourDbId) {
+            for (let i = 0; i < tourSelect.options.length; i++) {
+                try {
+                    const optData = JSON.parse(tourSelect.options[i].value);
+                    if (optData.id === currentSelectedModalTourDbId) {
+                        tourSelect.selectedIndex = i;
+                        restored = true;
+                        break;
+                    }
+                } catch(e) {}
+            }
+        }
+        if (!restored && prevTourVal) {
             try {
                 const prevData = JSON.parse(prevTourVal);
                 for (let i = 0; i < tourSelect.options.length; i++) {
@@ -3028,6 +3104,53 @@
         } catch(e) {}
     }
 
+    function onTourModalNameInput(val) {
+        val = (val || '').trim();
+        const badge = document.getElementById('modalTourMasterStatusBadge');
+        const cityInp = document.getElementById('modalTourMasterCity');
+        const syncChk = document.getElementById('modalSyncTourToDbCheckbox');
+        if (!val) {
+            if (badge) { badge.innerText = 'Custom / New'; badge.className = 'text-[10px] font-semibold px-2 py-0.5 rounded bg-gray-200 text-gray-700'; }
+            currentSelectedModalTourDbId = null;
+            return;
+        }
+        const { baseName } = extractTourNameAndTag(val);
+        const clean = stripTourTags(baseName || val).toLowerCase();
+        const matched = (masterDb.tours || []).find(t => stripTourTags(t.name).toLowerCase() === clean);
+        if (matched) {
+            currentSelectedModalTourDbId = matched.id;
+            if (cityInp && !cityInp.value && matched.location) cityInp.value = matched.location;
+            if (badge) {
+                badge.innerText = `Linked: ${(matched.name || '').substring(0, 16)} (Ready to Sync)`;
+                badge.className = 'text-[10px] font-semibold px-2 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200';
+            }
+            if (syncChk) syncChk.checked = true;
+        }
+    }
+
+    function onTransferModalNameInput(val) {
+        val = (val || '').trim();
+        const badge = document.getElementById('modalTransferMasterStatusBadge');
+        const cityInp = document.getElementById('modalTransferMasterCity');
+        const syncChk = document.getElementById('modalSyncTransferToDbCheckbox');
+        if (!val) {
+            if (badge) { badge.innerText = 'Custom / New'; badge.className = 'text-[10px] font-semibold px-2 py-0.5 rounded bg-gray-200 text-gray-700'; }
+            currentSelectedModalTransferDbId = null;
+            return;
+        }
+        const clean = normalizeTransferRoute(val);
+        const matched = (masterDb.transfers || []).find(t => normalizeTransferRoute(t.name) === clean);
+        if (matched) {
+            currentSelectedModalTransferDbId = matched.id;
+            if (cityInp && !cityInp.value && matched.location) cityInp.value = matched.location;
+            if (badge) {
+                badge.innerText = `Linked: ${(matched.name || '').substring(0, 16)} (Ready to Sync)`;
+                badge.className = 'text-[10px] font-semibold px-2 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200';
+            }
+            if (syncChk) syncChk.checked = true;
+        }
+    }
+
     async function quickSaveModalTourToMasterDb(silent = false, applyToPackage = false) {
         const btn = document.getElementById('btnTourSaveToCloud');
         const origBtnHtml = btn ? btn.innerHTML : '';
@@ -3036,40 +3159,42 @@
             btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> <span>Saving...</span>';
         }
 
-        const name = document.getElementById('newTourName')?.value.trim();
+        const rawName = document.getElementById('newTourName')?.value.trim();
         const price = parseFloat(document.getElementById('newTourPrice')?.value) || 0;
         const transferPrice = parseFloat(document.getElementById('newTourTransferPrice')?.value) || 0;
         const location = document.getElementById('modalTourMasterCity')?.value.trim() || document.getElementById('tourCityFilter')?.value.trim() || '';
         
-        if (!name) {
+        if (!rawName) {
             if (btn) { btn.disabled = false; btn.innerHTML = origBtnHtml; }
             if (!silent) showNotification("Please enter a Tour Name.", true);
             return false;
         }
+
+        const { baseName, tag } = extractTourNameAndTag(rawName);
+        const name = baseName || rawName;
         
         let existingTour = null;
         if (currentSelectedModalTourDbId) {
             existingTour = (masterDb.tours || []).find(t => t.id === currentSelectedModalTourDbId);
         }
-        const stripTourTags = (str) => {
-            if (!str) return '';
-            return String(str)
-                .replace(/\s*\([^\)]*$/gi, '')
-                .replace(/\s*\((Join Tour|Join Transfer|Private Transfer|Private - Van|Private - Bus|Private.*|Ticket Only|Join)\)/gi, '')
-                .replace(/\s+/g, ' ')
-                .trim();
-        };
         const cleanBase = stripTourTags(name).toLowerCase();
         if (!existingTour) {
             existingTour = (masterDb.tours || []).find(t => stripTourTags(t.name).toLowerCase() === cleanBase);
         }
         
-        const isVan = name.toLowerCase().includes('van') || currentSelectedModalTourVehicle === 'van';
-        const isBus = name.toLowerCase().includes('bus') || currentSelectedModalTourVehicle === 'bus';
+        const isVan = rawName.toLowerCase().includes('van') || currentSelectedModalTourVehicle === 'van';
+        const isBus = rawName.toLowerCase().includes('bus') || currentSelectedModalTourVehicle === 'bus';
+        const isJoin = transferPrice === 0;
+
         if (existingTour) {
-            existingTour.name = stripTourTags(name) || name;
-            if (transferPrice > 0) {
+            existingTour.name = name;
+            if (isJoin) {
+                existingTour.joinPrice = price;
+                if (tag) existingTour.joinTag = tag;
+                else if (!existingTour.joinTag) existingTour.joinTag = '(Join Tour)';
+            } else {
                 existingTour.ticketOnlyPrice = price;
+                if (tag) existingTour.privateTag = tag;
                 if (isVan) {
                     existingTour.privateVanPrice = transferPrice;
                 } else if (isBus) {
@@ -3078,24 +3203,37 @@
                     existingTour.privateCarPrice = transferPrice;
                     if (!existingTour.privateVanPrice) existingTour.privateVanPrice = transferPrice;
                 }
-            } else {
-                existingTour.joinPrice = price;
             }
             if (location) existingTour.location = location;
             currentSelectedModalTourDbId = existingTour.id;
         } else {
             const newTourObj = {
                 id: 't_' + Date.now(),
-                name: stripTourTags(name),
+                name: name,
                 location: location,
-                joinPrice: transferPrice === 0 ? price : null,
-                ticketOnlyPrice: transferPrice > 0 ? price : null,
-                privateCarPrice: !isVan && !isBus && transferPrice > 0 ? transferPrice : null,
-                privateVanPrice: isVan || (!isBus && transferPrice > 0) ? transferPrice : null,
-                privateBusPrice: isBus ? transferPrice : null
+                joinPrice: isJoin ? price : null,
+                joinTag: isJoin ? (tag || '(Join Tour)') : null,
+                ticketOnlyPrice: !isJoin ? price : null,
+                privateTag: !isJoin ? tag : null,
+                privateCarPrice: !isJoin && !isVan && !isBus && transferPrice > 0 ? transferPrice : null,
+                privateVanPrice: !isJoin && (isVan || !isBus) && transferPrice > 0 ? transferPrice : null,
+                privateBusPrice: !isJoin && isBus && transferPrice > 0 ? transferPrice : null
             };
             (masterDb.tours = masterDb.tours || []).push(newTourObj);
             currentSelectedModalTourDbId = newTourObj.id;
+            existingTour = newTourObj;
+        }
+
+        // Also update the current tour in availableTours if we are editing one
+        if (currentEditingTourIndex !== null && availableTours[currentEditingTourIndex]) {
+            availableTours[currentEditingTourIndex].name = rawName;
+            availableTours[currentEditingTourIndex].price = price;
+            availableTours[currentEditingTourIndex].transferPrice = transferPrice;
+            renderTours();
+            const resultsEl = document.getElementById('results');
+            if (resultsEl && resultsEl.style.display !== 'none' && typeof calculate === 'function') {
+                calculate();
+            }
         }
         
         await saveMasterDatabaseToFirebase(silent);
@@ -3105,15 +3243,15 @@
         if (transferPrice > 0 && window.SlwLearningEngine && typeof window.SlwLearningEngine.registerRule === 'function') {
             try {
                 window.SlwLearningEngine.registerRule({
-                    id: 'rule_transfer_addon_' + name.toLowerCase().replace(/[^a-z0-9]/g, '_'),
+                    id: 'rule_transfer_addon_' + rawName.toLowerCase().replace(/[^a-z0-9]/g, '_'),
                     type: 'transfer_addon',
                     category: 'Transfer Addon',
-                    title: `${name} Transfer Addon (${transferPrice} THB)`,
-                    pattern: name.toLowerCase().replace(/\s*\(.*\)/, '').trim(),
+                    title: `${rawName} Transfer Addon (${transferPrice} THB)`,
+                    pattern: rawName.toLowerCase().replace(/\s*\(.*\)/, '').trim(),
                     city: location || 'Bangkok',
                     transferPrice: transferPrice,
                     targetColumn: 'Transfer (Col 7)',
-                    description: `Recorded ${transferPrice} THB transfer addon on "${name}" into Transfer Column for accurate total calculation.`,
+                    description: `Recorded ${transferPrice} THB transfer addon on "${rawName}" into Transfer Column for accurate total calculation.`,
                     learnedFromInq: 'Master DB Update'
                 });
             } catch (e) {}
@@ -3121,7 +3259,7 @@
 
         const badge = document.getElementById('modalTourMasterStatusBadge');
         if (badge) {
-            badge.innerText = '✅ Synced to Cloud';
+            badge.innerText = `✅ Synced to Cloud: ${existingTour.joinTag || '(Saved)'}`;
             badge.className = 'text-[10px] font-bold px-2 py-0.5 rounded bg-green-100 text-green-800 border border-green-300';
         }
 
@@ -3220,6 +3358,17 @@
         
         await saveMasterDatabaseToFirebase(silent);
         populateDbDropdowns();
+
+        // Also update the current transfer in availableTransfers if we are editing one
+        if (currentEditingTransferIndex !== null && availableTransfers[currentEditingTransferIndex]) {
+            availableTransfers[currentEditingTransferIndex].name = name;
+            availableTransfers[currentEditingTransferIndex].price = price;
+            renderTransfers();
+            const resultsEl = document.getElementById('results');
+            if (resultsEl && resultsEl.style.display !== 'none' && typeof calculate === 'function') {
+                calculate();
+            }
+        }
         const badge = document.getElementById('modalTransferMasterStatusBadge');
         if (badge) {
             badge.innerText = '✅ Synced to Cloud';
@@ -3774,6 +3923,43 @@
             saveButton.innerText = 'Save Changes';
             saveButton.onclick = () => saveTour(index);
             openModal('tourModal');
+
+            // Auto-link to Master DB tour
+            const cleanTourBase = stripTourTags(tour.name).toLowerCase();
+            const matchedTour = (masterDb.tours || []).find(t => stripTourTags(t.name).toLowerCase() === cleanTourBase);
+            const badge = document.getElementById('modalTourMasterStatusBadge');
+            const cityInp = document.getElementById('modalTourMasterCity');
+            const syncChk = document.getElementById('modalSyncTourToDbCheckbox');
+            const tourSelect = document.getElementById('tourDbSelect');
+
+            if (matchedTour) {
+                currentSelectedModalTourDbId = matchedTour.id;
+                if (cityInp && matchedTour.location) cityInp.value = matchedTour.location;
+                if (badge) {
+                    badge.innerText = `Linked: ${(matchedTour.name || '').substring(0, 18)}`;
+                    badge.className = 'text-[10px] font-semibold px-2 py-0.5 rounded bg-green-100 text-green-800 border border-green-300';
+                }
+                if (syncChk) syncChk.checked = true;
+                if (tourSelect) {
+                    const isJoin = tour.transferPrice === 0;
+                    for (let i = 0; i < tourSelect.options.length; i++) {
+                        try {
+                            const optData = JSON.parse(tourSelect.options[i].value);
+                            if (optData.id === matchedTour.id && (isJoin ? optData.type === 'join' : optData.type !== 'join')) {
+                                tourSelect.selectedIndex = i;
+                                break;
+                            }
+                        } catch(e) {}
+                    }
+                }
+            } else {
+                currentSelectedModalTourDbId = null;
+                if (badge) {
+                    badge.innerText = 'Custom / New';
+                    badge.className = 'text-[10px] font-semibold px-2 py-0.5 rounded bg-gray-200 text-gray-700';
+                }
+                if (syncChk) syncChk.checked = false;
+            }
         } else if (type === 'transfer') {
             currentEditingTransferIndex = index;
             const transfer = availableTransfers[index];
@@ -3784,6 +3970,42 @@
             saveButton.innerText = 'Save Changes';
             saveButton.onclick = () => saveTransfer(index);
             openModal('transferModal');
+
+            // Auto-link to Master DB transfer
+            const cleanTrRoute = normalizeTransferRoute(transfer.name);
+            const matchedTr = (masterDb.transfers || []).find(t => normalizeTransferRoute(t.name) === cleanTrRoute);
+            const badge = document.getElementById('modalTransferMasterStatusBadge');
+            const cityInp = document.getElementById('modalTransferMasterCity');
+            const syncChk = document.getElementById('modalSyncTransferToDbCheckbox');
+            const trSelect = document.getElementById('transferDbSelect');
+
+            if (matchedTr) {
+                currentSelectedModalTransferDbId = matchedTr.id;
+                if (cityInp && matchedTr.location) cityInp.value = matchedTr.location;
+                if (badge) {
+                    badge.innerText = `Linked: ${(matchedTr.name || '').substring(0, 18)}`;
+                    badge.className = 'text-[10px] font-semibold px-2 py-0.5 rounded bg-green-100 text-green-800 border border-green-300';
+                }
+                if (syncChk) syncChk.checked = true;
+                if (trSelect) {
+                    for (let i = 0; i < trSelect.options.length; i++) {
+                        try {
+                            const optData = JSON.parse(trSelect.options[i].value);
+                            if (optData.id === matchedTr.id) {
+                                trSelect.selectedIndex = i;
+                                break;
+                            }
+                        } catch(e) {}
+                    }
+                }
+            } else {
+                currentSelectedModalTransferDbId = null;
+                if (badge) {
+                    badge.innerText = 'Custom / New';
+                    badge.className = 'text-[10px] font-semibold px-2 py-0.5 rounded bg-gray-200 text-gray-700';
+                }
+                if (syncChk) syncChk.checked = false;
+            }
         } else if (type === 'city') {
             currentEditingCityIndex = index;
             const city = availableCities[index];
