@@ -2736,6 +2736,27 @@
         if (forceReload) {
             showNotification(`☁️ Successfully synced ${masterDb.tours.length} tours and ${masterDb.hotels.length} hotels with Cloud!`, false);
         }
+
+        // Setup real-time listener for Master DB updates across all PCs
+        if (!window._masterDbCloudListenerAttached && typeof db !== 'undefined' && db) {
+            window._masterDbCloudListenerAttached = true;
+            try {
+                db.collection('slw_settings').doc('master_inventory').onSnapshot(docSnap => {
+                    if (docSnap && docSnap.exists) {
+                        const incomingData = sanitizeDb(docSnap.data());
+                        if (incomingData && (incomingData.tours.length > 0 || incomingData.hotels.length > 0)) {
+                            masterDb = deduplicateMasterDatabase(incomingData);
+                            localStorage.setItem('SLW_Master_Inventory', JSON.stringify(masterDb));
+                            populateDbDropdowns();
+                            updateMasterDbCounts();
+                            updateCloudSyncStatus('cloud', masterDb.tours.length, masterDb.hotels.length);
+                        }
+                    }
+                }, err => {
+                    console.warn('Real-time Master DB listener notice:', err);
+                });
+            } catch(e) {}
+        }
     }
 
     function importMasterDatabase(event) {
@@ -3219,6 +3240,128 @@
                 badge.className = 'text-[10px] font-semibold px-2 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200';
             }
             if (syncChk) syncChk.checked = true;
+        }
+    }
+
+    // ── AUTO-SYNC ENTIRE PACKAGE SERVICES TO MASTER DB & CLOUD ──
+    async function syncCurrentPackageServicesToMasterDb(silent = true) {
+        let changed = false;
+
+        // 1. Sync Tours from availableTours
+        (availableTours || []).forEach(tour => {
+            const rawName = (tour.name || '').trim();
+            const price = Number(tour.price) || 0;
+            const transferPrice = Number(tour.transferPrice) || 0;
+            if (!rawName || (price <= 0 && transferPrice <= 0)) return;
+
+            const { baseName, tag } = extractTourNameAndTag(rawName);
+            const name = baseName || rawName;
+            const cleanBase = stripTourTags(name).toLowerCase();
+            const isJoin = transferPrice === 0;
+
+            let existing = (masterDb.tours || []).find(t => stripTourTags(t.name).toLowerCase() === cleanBase);
+            if (existing) {
+                existing.name = name;
+                if (isJoin) {
+                    existing.joinPrice = price;
+                    if (tag) existing.joinTag = tag;
+                    else if (!existing.joinTag) existing.joinTag = '(Join Tour)';
+                } else {
+                    existing.ticketOnlyPrice = price;
+                    if (tag) existing.privateTag = tag;
+                    if (transferPrice > 0) {
+                        existing.privateCarPrice = transferPrice;
+                        if (!existing.privateVanPrice) existing.privateVanPrice = transferPrice;
+                    }
+                }
+                changed = true;
+            } else {
+                (masterDb.tours = masterDb.tours || []).push({
+                    id: 't_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+                    name: name,
+                    location: availableCities[0] ? (availableCities[0].name || '').trim() : '',
+                    joinPrice: isJoin ? price : null,
+                    joinTag: isJoin ? (tag || '(Join Tour)') : null,
+                    ticketOnlyPrice: !isJoin ? price : null,
+                    privateTag: !isJoin ? tag : null,
+                    privateCarPrice: !isJoin && transferPrice > 0 ? transferPrice : null,
+                    privateVanPrice: !isJoin && transferPrice > 0 ? transferPrice : null,
+                    privateBusPrice: null
+                });
+                changed = true;
+            }
+        });
+
+        // 2. Sync Transfers from availableTransfers
+        (availableTransfers || []).forEach(tr => {
+            const rawName = (tr.name || '').trim();
+            const price = Number(tr.price) || 0;
+            if (!rawName || price <= 0) return;
+
+            const norm = normalizeTransferRoute(rawName);
+            let existing = (masterDb.transfers || []).find(t => normalizeTransferRoute(t.name) === norm);
+            if (existing) {
+                existing.price = price;
+                if (!existing.carPrice || existing.carPrice === existing.price) existing.carPrice = price;
+                if (!existing.vanPrice || existing.vanPrice === existing.price) existing.vanPrice = price;
+                changed = true;
+            } else {
+                (masterDb.transfers = masterDb.transfers || []).push({
+                    id: 'tr_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+                    name: rawName,
+                    location: availableCities[0] ? (availableCities[0].name || '').trim() : '',
+                    price: price,
+                    carPrice: price,
+                    vanPrice: price,
+                    busPrice: null
+                });
+                changed = true;
+            }
+        });
+
+        // 3. Sync Hotels from availableCities
+        (availableCities || []).forEach(city => {
+            const cityName = (city.name || '').trim();
+            const checkHotel = (star, hName, hPrice, hMeal, hTpl) => {
+                const name = (hName || '').trim();
+                const price = Number(hPrice) || 0;
+                if (!name || price <= 0) return;
+
+                const cleanName = name.replace(/(\s*,?\s*or\s+similar\s*(\d*\*?|\*)?)+/gi, '').replace(/\s+/g, ' ').trim();
+                const normName = cleanName.toLowerCase();
+                let existing = (masterDb.hotels || []).find(h => {
+                    const hClean = (h.name || '').replace(/(\s*,?\s*or\s+similar\s*(\d*\*?|\*)?)+/gi, '').replace(/\s+/g, ' ').trim().toLowerCase();
+                    return hClean === normName || hClean.includes(normName) || normName.includes(hClean);
+                });
+
+                if (existing) {
+                    existing.price = price;
+                    if (hMeal) existing.mealPrice = Number(hMeal);
+                    if (hTpl !== undefined && hTpl !== null) existing.tplPrice = Number(hTpl);
+                    if (cityName) existing.location = cityName;
+                    existing.star = String(star);
+                    changed = true;
+                } else {
+                    (masterDb.hotels = masterDb.hotels || []).push({
+                        id: 'h_' + Date.now() + '_' + star + '_' + Math.random().toString(36).substring(2, 6),
+                        name: cleanName,
+                        location: cityName,
+                        star: String(star),
+                        price: price,
+                        mealPrice: Number(hMeal) || 0,
+                        tplPrice: Number(hTpl) || (star === 4 ? 1000 : (star === 5 ? 1200 : 800))
+                    });
+                    changed = true;
+                }
+            };
+
+            checkHotel(3, city.hotel3Name, city.hotel3Price, city.hotel3Meal, city.hotel3Tpl);
+            checkHotel(4, city.hotel4Name, city.hotel4Price, city.hotel4Meal, city.hotel4Tpl);
+            checkHotel(5, city.hotel5Name, city.hotel5Price, city.hotel5Meal, city.hotel5Tpl);
+        });
+
+        if (changed) {
+            await saveMasterDatabaseToFirebase(silent);
         }
     }
 
@@ -3919,7 +4062,7 @@
             const tourCity = document.getElementById('modalTourMasterCity');
             if (tourCity) tourCity.value = '';
             const syncChk = document.getElementById('modalSyncTourToDbCheckbox');
-            if (syncChk) syncChk.checked = false;
+            if (syncChk) syncChk.checked = true; // Auto-sync to Master DB & Cloud by default
         } else if (modalId === 'transferModal') {
             clearTransferDbSearch();
             currentSelectedModalTransferDbId = null;
@@ -3934,7 +4077,7 @@
             const trCity = document.getElementById('modalTransferMasterCity');
             if (trCity) trCity.value = '';
             const syncTrChk = document.getElementById('modalSyncTransferToDbCheckbox');
-            if (syncTrChk) syncTrChk.checked = false;
+            if (syncTrChk) syncTrChk.checked = true; // Auto-sync to Master DB & Cloud by default
         } else if (modalId === 'cityModal') {
             clearCityDbSearch();
             clearHotelDbSearch(3);
@@ -3966,7 +4109,7 @@
             document.getElementById('newCity5StarTpl').value = '1200';
             document.getElementById('newCityMixPref').value = '3';
             const syncHChk = document.getElementById('modalSyncHotelsToDbCheckbox');
-            if (syncHChk) syncHChk.checked = false;
+            if (syncHChk) syncHChk.checked = true; // Auto-sync to Master DB & Cloud by default
         }
     }
 
@@ -4035,7 +4178,7 @@
                     badge.innerText = 'Custom / New';
                     badge.className = 'text-[10px] font-semibold px-2 py-0.5 rounded bg-gray-200 text-gray-700';
                 }
-                if (syncChk) syncChk.checked = false;
+                if (syncChk) syncChk.checked = true;
             }
         } else if (type === 'transfer') {
             currentEditingTransferIndex = index;
@@ -4081,7 +4224,7 @@
                     badge.innerText = 'Custom / New';
                     badge.className = 'text-[10px] font-semibold px-2 py-0.5 rounded bg-gray-200 text-gray-700';
                 }
-                if (syncChk) syncChk.checked = false;
+                if (syncChk) syncChk.checked = true;
             }
         } else if (type === 'city') {
             currentEditingCityIndex = index;
@@ -4116,6 +4259,8 @@
             const saveButton = document.getElementById('saveCityButton');
             saveButton.innerText = 'Save Changes';
             saveButton.onclick = () => saveCity(index);
+            const syncHChk = document.getElementById('modalSyncHotelsToDbCheckbox');
+            if (syncHChk) syncHChk.checked = true;
             openModal('cityModal');
         }
     }
@@ -6597,7 +6742,7 @@
                 let tourName, tourPrice, tourTransfer = 0;
                 if (matchedTour) {
                     if (pt.type === 'join' && matchedTour.joinPrice) {
-                        tourName = matchedTour.name + ' (Join Tour)';
+                        tourName = formatTourVariantName(matchedTour.name, matchedTour.joinTag || '(Join Tour)');
                         tourPrice = matchedTour.joinPrice;
                     } else if (matchedTour.ticketOnlyPrice || matchedTour.privateCarPrice) {
                         tourName = matchedTour.name + ' (Private)';
