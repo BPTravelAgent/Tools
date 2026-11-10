@@ -190,6 +190,9 @@
                         <button type="button" onclick="saveQuickTour(true)" class="py-2 px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold rounded-lg transition" title="Add as a new tour in Master DB">
                             <i class="fas fa-plus"></i> New
                         </button>
+                        <button type="button" onclick="deleteQuickTour()" class="py-2 px-3 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-xs font-bold rounded-lg transition flex items-center gap-1" title="Permanently delete this tour from Master DB & Cloud">
+                            <i class="fas fa-trash-alt"></i> Delete
+                        </button>
                     </div>
                     <div class="flex justify-between items-center text-[10px] text-gray-400 mt-1">
                         <span id="quickTourStatus">Ready to edit or add</span>
@@ -263,6 +266,9 @@
                         <button type="button" onclick="saveQuickHotel(true)" class="py-2 px-3 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-xs font-bold rounded-lg transition" title="Add as a new hotel in Master DB">
                             <i class="fas fa-plus"></i> New
                         </button>
+                        <button type="button" onclick="deleteQuickHotel()" class="py-2 px-3 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-xs font-bold rounded-lg transition flex items-center gap-1" title="Permanently delete this hotel from Master DB & Cloud">
+                            <i class="fas fa-trash-alt"></i> Delete
+                        </button>
                     </div>
                     <div class="flex justify-between items-center text-[10px] text-gray-400 mt-1">
                         <span id="quickHotelStatus">Ready to edit or add</span>
@@ -329,6 +335,9 @@
                         </button>
                         <button type="button" onclick="saveQuickTransfer(true)" class="py-2 px-3 bg-orange-50 hover:bg-orange-100 text-orange-700 border border-orange-200 text-xs font-bold rounded-lg transition" title="Add as a new transfer in Master DB">
                             <i class="fas fa-plus"></i> New
+                        </button>
+                        <button type="button" onclick="deleteQuickTransfer()" class="py-2 px-3 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-xs font-bold rounded-lg transition flex items-center gap-1" title="Permanently delete this transfer from Master DB & Cloud">
+                            <i class="fas fa-trash-alt"></i> Delete
                         </button>
                     </div>
                     <div class="flex justify-between items-center text-[10px] text-gray-400 mt-1">
@@ -1056,14 +1065,22 @@
         <label class="text-[11px] text-gray-600 font-medium">City / Location:</label>
         <input type="text" id="modalTourMasterCity" placeholder="e.g. Bangkok, Pattaya, Phuket" class="flex-1 p-1 text-xs border rounded bg-white">
     </div>
-    <div class="flex items-center justify-between gap-2 pt-1 border-t border-purple-100">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1 border-t border-purple-100">
         <label class="flex items-center text-xs text-purple-900 font-semibold cursor-pointer">
             <input type="checkbox" id="modalSyncTourToDbCheckbox" class="mr-1.5 h-4 w-4 text-purple-600 rounded">
-            <span>Also save/update in Master DB & Cloud (All PCs)</span>
+            <span>Also save/update in Master DB & Cloud</span>
         </label>
-        <button id="btnTourSaveToCloud" type="button" onclick="quickSaveModalTourToMasterDb(false, true)" class="py-1 px-2.5 bg-purple-600 hover:bg-purple-700 text-white text-[11px] font-bold rounded shadow transition flex items-center gap-1" title="Save changes directly to Master DB & Cloud and update Costing now">
-            <i class="fas fa-save"></i> <span>Save to Cloud</span>
-        </button>
+        <div class="flex items-center gap-1.5 flex-wrap">
+            <button id="btnTourAddNewToDb" type="button" onclick="quickSaveModalTourToMasterDb(false, true, true)" class="py-1 px-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold rounded shadow transition flex items-center gap-1" title="Add as a new tour in Master DB & Cloud (All PCs)">
+                <i class="fas fa-plus-circle"></i> <span>Add New to DB</span>
+            </button>
+            <button id="btnTourSaveToCloud" type="button" onclick="quickSaveModalTourToMasterDb(false, true, false)" class="py-1 px-2.5 bg-purple-600 hover:bg-purple-700 text-white text-[11px] font-bold rounded shadow transition flex items-center gap-1" title="Save changes directly to Master DB & Cloud and update Costing now">
+                <i class="fas fa-save"></i> <span>Save to Cloud</span>
+            </button>
+            <button id="btnTourDeleteFromDb" type="button" onclick="deleteModalTourFromMasterDb()" class="py-1 px-2.5 bg-red-600 hover:bg-red-700 text-white text-[11px] font-bold rounded shadow transition flex items-center gap-1" title="Permanently delete this tour from Master DB & Cloud (All PCs)">
+                <i class="fas fa-trash-alt"></i> <span>Delete from DB</span>
+            </button>
+        </div>
     </div>
 </div>
 
@@ -1099,14 +1116,22 @@
         <label class="text-[11px] text-gray-600 font-medium">City / Location:</label>
         <input type="text" id="modalTransferMasterCity" placeholder="e.g. Bangkok, Pattaya" class="flex-1 p-1 text-xs border rounded bg-white">
     </div>
-    <div class="flex items-center justify-between gap-2 pt-1 border-t border-orange-100">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1 border-t border-orange-100">
         <label class="flex items-center text-xs text-orange-900 font-semibold cursor-pointer">
             <input type="checkbox" id="modalSyncTransferToDbCheckbox" class="mr-1.5 h-4 w-4 text-orange-600 rounded">
-            <span>Also save/update in Master DB & Cloud (All PCs)</span>
+            <span>Also save/update in Master DB & Cloud</span>
         </label>
-        <button id="btnTransferSaveToCloud" type="button" onclick="quickSaveModalTransferToMasterDb(false, true)" class="py-1 px-2.5 bg-orange-600 hover:bg-orange-700 text-white text-[11px] font-bold rounded shadow transition flex items-center gap-1" title="Save changes directly to Master DB & Cloud and update Costing now">
-            <i class="fas fa-save"></i> <span>Save to Cloud</span>
-        </button>
+        <div class="flex items-center gap-1.5 flex-wrap">
+            <button id="btnTransferAddNewToDb" type="button" onclick="quickSaveModalTransferToMasterDb(false, true, true)" class="py-1 px-2.5 bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-bold rounded shadow transition flex items-center gap-1" title="Add as a new transfer in Master DB & Cloud">
+                <i class="fas fa-plus-circle"></i> <span>Add New to DB</span>
+            </button>
+            <button id="btnTransferSaveToCloud" type="button" onclick="quickSaveModalTransferToMasterDb(false, true, false)" class="py-1 px-2.5 bg-orange-600 hover:bg-orange-700 text-white text-[11px] font-bold rounded shadow transition flex items-center gap-1" title="Save changes directly to Master DB & Cloud and update Costing now">
+                <i class="fas fa-save"></i> <span>Save to Cloud</span>
+            </button>
+            <button id="btnTransferDeleteFromDb" type="button" onclick="deleteModalTransferFromMasterDb()" class="py-1 px-2.5 bg-red-600 hover:bg-red-700 text-white text-[11px] font-bold rounded shadow transition flex items-center gap-1" title="Permanently delete this transfer from Master DB & Cloud (All PCs)">
+                <i class="fas fa-trash-alt"></i> <span>Delete from DB</span>
+            </button>
+        </div>
     </div>
 </div>
 
@@ -1137,9 +1162,14 @@
             <input type="text" id="hotel3DbSearch" oninput="filterHotelDbOptions(3)" placeholder="🔍 Search 3* Hotel (name or area, e.g. Pratunam)..." class="w-full p-1.5 pr-6 border border-blue-300 rounded-md text-xs bg-white text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-500">
             <button type="button" onclick="clearHotelDbSearch(3)" class="absolute right-2 top-1.5 text-gray-400 hover:text-gray-600 text-xs font-bold" title="Clear">✕</button>
         </div>
-        <select id="city3StarDbSelect" onchange="fillHotelFromDb(3)" class="w-full p-2 border border-blue-300 rounded-md mb-2 bg-white text-sm">
-            <option value="">-- Search 3* Database --</option>
-        </select>
+        <div class="flex items-center gap-1 mb-2">
+            <select id="city3StarDbSelect" onchange="fillHotelFromDb(3)" class="flex-1 p-2 border border-blue-300 rounded-md bg-white text-sm">
+                <option value="">-- Search 3* Database --</option>
+            </select>
+            <button type="button" onclick="deleteModalHotelFromMasterDb(3)" class="py-2 px-2.5 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-md text-xs font-bold transition flex items-center gap-1" title="Permanently delete selected 3* hotel from Master DB & Cloud">
+                <i class="fas fa-trash-alt"></i>
+            </button>
+        </div>
         <input type="text" id="newCity3StarName" placeholder="3* Hotel Name" class="w-full p-2 border rounded-md mb-2">
         <input type="number" id="newCity3StarNights" placeholder="Nights in 3* (if split)" class="w-full p-2 border rounded-md mb-2 hidden split-night-input">
         <div class="grid grid-cols-3 gap-2">
@@ -1163,9 +1193,14 @@
             <input type="text" id="hotel4DbSearch" oninput="filterHotelDbOptions(4)" placeholder="🔍 Search 4* Hotel (name or area)..." class="w-full p-1.5 pr-6 border border-amber-300 rounded-md text-xs bg-white text-amber-900 focus:outline-none focus:ring-2 focus:ring-amber-500">
             <button type="button" onclick="clearHotelDbSearch(4)" class="absolute right-2 top-1.5 text-gray-400 hover:text-gray-600 text-xs font-bold" title="Clear">✕</button>
         </div>
-        <select id="city4StarDbSelect" onchange="fillHotelFromDb(4)" class="w-full p-2 border border-amber-300 rounded-md mb-2 bg-white text-sm">
-            <option value="">-- Search 4* Database --</option>
-        </select>
+        <div class="flex items-center gap-1 mb-2">
+            <select id="city4StarDbSelect" onchange="fillHotelFromDb(4)" class="flex-1 p-2 border border-amber-300 rounded-md bg-white text-sm">
+                <option value="">-- Search 4* Database --</option>
+            </select>
+            <button type="button" onclick="deleteModalHotelFromMasterDb(4)" class="py-2 px-2.5 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-md text-xs font-bold transition flex items-center gap-1" title="Permanently delete selected 4* hotel from Master DB & Cloud">
+                <i class="fas fa-trash-alt"></i>
+            </button>
+        </div>
         <input type="text" id="newCity4StarName" placeholder="4* Hotel Name" class="w-full p-2 border rounded-md mb-2">
         <input type="number" id="newCity4StarNights" placeholder="Nights in 4* (if split)" class="w-full p-2 border rounded-md mb-2 hidden split-night-input">
         <div class="grid grid-cols-3 gap-2">
@@ -1189,9 +1224,14 @@
             <input type="text" id="hotel5DbSearch" oninput="filterHotelDbOptions(5)" placeholder="🔍 Search 5* Hotel (name or area)..." class="w-full p-1.5 pr-6 border border-purple-300 rounded-md text-xs bg-white text-purple-900 focus:outline-none focus:ring-2 focus:ring-purple-500">
             <button type="button" onclick="clearHotelDbSearch(5)" class="absolute right-2 top-1.5 text-gray-400 hover:text-gray-600 text-xs font-bold" title="Clear">✕</button>
         </div>
-        <select id="city5StarDbSelect" onchange="fillHotelFromDb(5)" class="w-full p-2 border border-purple-300 rounded-md mb-2 bg-white text-sm">
-            <option value="">-- Search 5* Database --</option>
-        </select>
+        <div class="flex items-center gap-1 mb-2">
+            <select id="city5StarDbSelect" onchange="fillHotelFromDb(5)" class="flex-1 p-2 border border-purple-300 rounded-md bg-white text-sm">
+                <option value="">-- Search 5* Database --</option>
+            </select>
+            <button type="button" onclick="deleteModalHotelFromMasterDb(5)" class="py-2 px-2.5 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-md text-xs font-bold transition flex items-center gap-1" title="Permanently delete selected 5* hotel from Master DB & Cloud">
+                <i class="fas fa-trash-alt"></i>
+            </button>
+        </div>
         <input type="text" id="newCity5StarName" placeholder="5* Hotel Name" class="w-full p-2 border rounded-md mb-2">
         <input type="number" id="newCity5StarNights" placeholder="Nights in 5* (if split)" class="w-full p-2 border rounded-md mb-2 hidden split-night-input">
         <div class="grid grid-cols-3 gap-2">
@@ -1219,14 +1259,19 @@
         </select>
     </div>
     <!-- Master DB Hotel Sync Option -->
-    <div class="bg-blue-50/80 p-3 rounded-lg border border-blue-200 flex items-center justify-between">
+    <div class="bg-blue-50/80 p-3 rounded-lg border border-blue-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <label class="flex items-center text-xs text-blue-900 font-bold cursor-pointer">
             <input type="checkbox" id="modalSyncHotelsToDbCheckbox" class="mr-2 h-4 w-4 text-blue-600 rounded">
-            <span>Also save/update newly entered Hotels to Master DB & Cloud (All PCs)</span>
+            <span>Also save/update newly entered Hotels to Master DB & Cloud</span>
         </label>
-        <button id="btnHotelSaveToCloud" type="button" onclick="quickSaveModalHotelsToMasterDb(false, true)" class="py-1 px-3 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded shadow transition flex items-center gap-1" title="Save changes directly to Master DB & Cloud and update Costing now">
-            <i class="fas fa-save"></i> <span>Save Hotels to Cloud</span>
-        </button>
+        <div class="flex items-center gap-1.5">
+            <button id="btnHotelAddNewToDb" type="button" onclick="quickSaveModalHotelsToMasterDb(false, true, true)" class="py-1 px-3 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded shadow transition flex items-center gap-1" title="Add as new hotels to Master DB & Cloud">
+                <i class="fas fa-plus-circle"></i> <span>Add New to DB</span>
+            </button>
+            <button id="btnHotelSaveToCloud" type="button" onclick="quickSaveModalHotelsToMasterDb(false, true, false)" class="py-1 px-3 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded shadow transition flex items-center gap-1" title="Save changes directly to Master DB & Cloud and update Costing now">
+                <i class="fas fa-save"></i> <span>Save Hotels to Cloud</span>
+            </button>
+        </div>
     </div>
 </div><div class="flex gap-4 mt-6"><button id="saveCityButton" onclick="saveCity()" class="flex-1 py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700">Add City</button><button onclick="closeModal('cityModal')" class="flex-1 py-2 px-4 bg-gray-300 rounded-md hover:bg-gray-400">Cancel</button></div></div></div>
 

@@ -435,6 +435,35 @@
         if (status) status.innerHTML = `<span class="text-green-600 font-bold">Saved to Cloud!</span>`;
     }
 
+    async function deleteQuickTour() {
+        const tourId = document.getElementById('quickTourId')?.value;
+        const name = document.getElementById('quickTourName')?.value.trim();
+        if (!tourId && !name) {
+            showNotification("Please select a tour to delete from Master Database.", true);
+            return;
+        }
+        const targetTour = (masterDb.tours || []).find(t => (tourId && t.id === tourId) || (name && t.name.toLowerCase() === name.toLowerCase()));
+        if (!targetTour) {
+            showNotification("Tour not found in Master Database.", true);
+            return;
+        }
+        if (!confirm(`Are you sure you want to permanently DELETE "${targetTour.name}" from Master Database and Cloud?\n\nThis will remove it across all PCs.`)) {
+            return;
+        }
+        const idx = masterDb.tours.indexOf(targetTour);
+        if (idx !== -1) {
+            masterDb.tours.splice(idx, 1);
+        }
+        localStorage.setItem('slw_master_db', JSON.stringify(masterDb));
+        await saveMasterDatabaseToFirebase(true);
+        resetQuickTourEditor();
+        populateQuickTourDropdown();
+        populateDbDropdowns();
+        filterTourDbOptions(true);
+        updateMasterDbCounts();
+        showNotification(`🗑️ Tour "${targetTour.name}" permanently deleted from Master DB & Cloud!`, false);
+    }
+
     function resetQuickTourEditor() {
         document.getElementById('quickTourId').value = '';
         document.getElementById('quickTourName').value = '';
@@ -543,6 +572,37 @@
         if (status) status.innerHTML = `<span class="text-green-600 font-bold">Saved to Cloud!</span>`;
     }
 
+    async function deleteQuickHotel() {
+        const hotelId = document.getElementById('quickHotelId')?.value;
+        const name = document.getElementById('quickHotelName')?.value.trim();
+        if (!hotelId && !name) {
+            showNotification("Please select a hotel to delete from Master Database.", true);
+            return;
+        }
+        const targetHotel = (masterDb.hotels || []).find(h => (hotelId && h.id === hotelId) || (name && h.name.toLowerCase() === name.toLowerCase()));
+        if (!targetHotel) {
+            showNotification("Hotel not found in Master Database.", true);
+            return;
+        }
+        if (!confirm(`Are you sure you want to permanently DELETE "${targetHotel.name}" from Master Database and Cloud?\n\nThis will remove it across all PCs.`)) {
+            return;
+        }
+        const idx = masterDb.hotels.indexOf(targetHotel);
+        if (idx !== -1) {
+            masterDb.hotels.splice(idx, 1);
+        }
+        localStorage.setItem('slw_master_db', JSON.stringify(masterDb));
+        await saveMasterDatabaseToFirebase(true);
+        resetQuickHotelEditor();
+        populateQuickHotelDropdown();
+        populateDbDropdowns();
+        filterHotelDbOptions(3);
+        filterHotelDbOptions(4);
+        filterHotelDbOptions(5);
+        updateMasterDbCounts();
+        showNotification(`🗑️ Hotel "${targetHotel.name}" permanently deleted from Master DB & Cloud!`, false);
+    }
+
     function resetQuickHotelEditor() {
         document.getElementById('quickHotelId').value = '';
         document.getElementById('quickHotelName').value = '';
@@ -649,6 +709,35 @@
         document.getElementById('quickTransferId').value = trObj.id;
         const status = document.getElementById('quickTransferStatus');
         if (status) status.innerHTML = `<span class="text-green-600 font-bold">Saved to Cloud!</span>`;
+    }
+
+    async function deleteQuickTransfer() {
+        const transferId = document.getElementById('quickTransferId')?.value;
+        const name = document.getElementById('quickTransferName')?.value.trim();
+        if (!transferId && !name) {
+            showNotification("Please select a transfer route to delete from Master Database.", true);
+            return;
+        }
+        const targetTransfer = (masterDb.transfers || []).find(t => (transferId && t.id === transferId) || (name && t.name.toLowerCase() === name.toLowerCase()));
+        if (!targetTransfer) {
+            showNotification("Transfer not found in Master Database.", true);
+            return;
+        }
+        if (!confirm(`Are you sure you want to permanently DELETE "${targetTransfer.name}" from Master Database and Cloud?\n\nThis will remove it across all PCs.`)) {
+            return;
+        }
+        const idx = masterDb.transfers.indexOf(targetTransfer);
+        if (idx !== -1) {
+            masterDb.transfers.splice(idx, 1);
+        }
+        localStorage.setItem('slw_master_db', JSON.stringify(masterDb));
+        await saveMasterDatabaseToFirebase(true);
+        resetQuickTransferEditor();
+        populateQuickTransferDropdown();
+        populateDbDropdowns();
+        filterTransferDbOptions(true);
+        updateMasterDbCounts();
+        showNotification(`🗑️ Transfer "${targetTransfer.name}" permanently deleted from Master DB & Cloud!`, false);
     }
 
     function resetQuickTransferEditor() {
@@ -1399,7 +1488,7 @@
         }
     }
 
-    async function quickSaveModalTourToMasterDb(silent = false, applyToPackage = false) {
+    async function quickSaveModalTourToMasterDb(silent = false, applyToPackage = false, forceNew = false) {
         const btn = document.getElementById('btnTourSaveToCloud');
         const origBtnHtml = btn ? btn.innerHTML : '';
         if (btn) {
@@ -1422,12 +1511,12 @@
         const name = baseName || rawName;
         
         let existingTour = null;
-        if (currentSelectedModalTourDbId) {
+        if (!forceNew && currentSelectedModalTourDbId) {
             existingTour = (masterDb.tours || []).find(t => t.id === currentSelectedModalTourDbId);
         }
         const cleanBase = stripTourTags(name).toLowerCase();
         const normLoc = (location || '').toLowerCase();
-        if (!existingTour) {
+        if (!forceNew && !existingTour) {
             existingTour = (masterDb.tours || []).find(t => {
                 const tBase = stripTourTags(t.name).toLowerCase();
                 const tLoc = (t.location || '').trim().toLowerCase();
@@ -1540,7 +1629,63 @@
         return true;
     }
 
-    async function quickSaveModalTransferToMasterDb(silent = false, applyToPackage = false) {
+    async function deleteModalTourFromMasterDb() {
+        const rawName = document.getElementById('newTourName')?.value.trim();
+        const select = document.getElementById('tourDbSelect');
+        let targetTour = null;
+
+        if (currentSelectedModalTourDbId) {
+            targetTour = (masterDb.tours || []).find(t => t.id === currentSelectedModalTourDbId);
+        }
+        if (!targetTour && select && select.value) {
+            try {
+                const data = JSON.parse(select.value);
+                if (data.id) targetTour = (masterDb.tours || []).find(t => t.id === data.id);
+                if (!targetTour && data.name) {
+                    const base = stripTourTags(data.name).toLowerCase();
+                    targetTour = (masterDb.tours || []).find(t => stripTourTags(t.name).toLowerCase() === base);
+                }
+            } catch(e) {}
+        }
+        if (!targetTour && rawName) {
+            const base = stripTourTags(rawName).toLowerCase();
+            targetTour = (masterDb.tours || []).find(t => stripTourTags(t.name).toLowerCase() === base);
+        }
+
+        if (!targetTour) {
+            showNotification("Please select a tour from the Master Database dropdown to delete.", true);
+            return;
+        }
+
+        if (!confirm(`Are you sure you want to permanently DELETE "${targetTour.name}" from Master Database and Cloud?\n\nThis will remove it across all PCs.`)) {
+            return;
+        }
+
+        const idx = masterDb.tours.indexOf(targetTour);
+        if (idx !== -1) {
+            masterDb.tours.splice(idx, 1);
+        }
+        localStorage.setItem('slw_master_db', JSON.stringify(masterDb));
+        await saveMasterDatabaseToFirebase(true);
+
+        currentSelectedModalTourDbId = null;
+        document.getElementById('newTourName').value = '';
+        document.getElementById('newTourPrice').value = '';
+        document.getElementById('newTourTransferPrice').value = '';
+        const badge = document.getElementById('modalTourMasterStatusBadge');
+        if (badge) {
+            badge.innerText = 'Deleted from DB';
+            badge.className = 'text-[10px] font-semibold px-2 py-0.5 rounded bg-red-100 text-red-800';
+        }
+
+        filterTourDbOptions(true);
+        populateQuickTourDropdown();
+        populateDbDropdowns();
+        updateMasterDbCounts();
+        showNotification(`🗑️ Tour "${targetTour.name}" permanently deleted from Master Database & Cloud!`, false);
+    }
+
+    async function quickSaveModalTransferToMasterDb(silent = false, applyToPackage = false, forceNew = false) {
         const btn = document.getElementById('btnTransferSaveToCloud');
         const origBtnHtml = btn ? btn.innerHTML : '';
         if (btn) {
@@ -1649,10 +1794,63 @@
         } else if (!silent) {
             showNotification(`☁️ Transfer "${name}" successfully saved & synced to Master DB Cloud! (All PCs updated)`, false);
         }
-        return true;
+        return existingTransfer;
     }
 
-    async function quickSaveModalHotelsToMasterDb(silent = false, applyToPackage = false) {
+    async function deleteModalTransferFromMasterDb() {
+        const rawName = document.getElementById('newTransferName')?.value.trim();
+        const select = document.getElementById('transferDbSelect');
+        let targetTransfer = null;
+
+        if (currentSelectedModalTransferDbId) {
+            targetTransfer = (masterDb.transfers || []).find(t => t.id === currentSelectedModalTransferDbId);
+        }
+        if (!targetTransfer && select && select.value) {
+            try {
+                const data = JSON.parse(select.value);
+                if (data.id) targetTransfer = (masterDb.transfers || []).find(t => t.id === data.id);
+                if (!targetTransfer && data.name) {
+                    targetTransfer = (masterDb.transfers || []).find(t => normalizeTransferRoute(t.name) === normalizeTransferRoute(data.name));
+                }
+            } catch(e) {}
+        }
+        if (!targetTransfer && rawName) {
+            targetTransfer = (masterDb.transfers || []).find(t => normalizeTransferRoute(t.name) === normalizeTransferRoute(rawName));
+        }
+
+        if (!targetTransfer) {
+            showNotification("Please select a transfer linked to Master Database to delete.", true);
+            return;
+        }
+
+        if (!confirm(`Are you sure you want to permanently DELETE "${targetTransfer.name}" from Master Database and Cloud?\n\nThis will remove it across all PCs.`)) {
+            return;
+        }
+
+        const idx = masterDb.transfers.indexOf(targetTransfer);
+        if (idx !== -1) {
+            masterDb.transfers.splice(idx, 1);
+        }
+        localStorage.setItem('slw_master_db', JSON.stringify(masterDb));
+        await saveMasterDatabaseToFirebase(true);
+
+        currentSelectedModalTransferDbId = null;
+        document.getElementById('newTransferName').value = '';
+        document.getElementById('newTransferPrice').value = '';
+        const badge = document.getElementById('modalTransferMasterStatusBadge');
+        if (badge) {
+            badge.innerText = 'Deleted from DB';
+            badge.className = 'text-[10px] font-semibold px-2 py-0.5 rounded bg-red-100 text-red-800';
+        }
+
+        filterTransferDbOptions(true);
+        populateQuickTransferDropdown();
+        populateDbDropdowns();
+        updateMasterDbCounts();
+        showNotification(`🗑️ Transfer "${targetTransfer.name}" permanently deleted from Master Database & Cloud!`, false);
+    }
+
+    async function quickSaveModalHotelsToMasterDb(silent = false, applyToPackage = false, forceNew = false) {
         const btn = document.getElementById('btnHotelSaveToCloud');
         const origBtnHtml = btn ? btn.innerHTML : '';
         if (btn) {
@@ -1722,6 +1920,56 @@
             if (btn) { btn.disabled = false; btn.innerHTML = origBtnHtml; }
             if (!silent) showNotification("Please enter at least one hotel name and price.", true);
         }
+    }
+
+    async function deleteModalHotelFromMasterDb(star) {
+        const select = document.getElementById(`city${star}StarDbSelect`);
+        const nameInput = document.getElementById(`newCity${star}StarName`);
+        let targetHotel = null;
+
+        if (select && select.value) {
+            try {
+                const data = JSON.parse(select.value);
+                if (data.id) targetHotel = (masterDb.hotels || []).find(h => h.id === data.id);
+                if (!targetHotel && data.name) {
+                    targetHotel = (masterDb.hotels || []).find(h => h.name.toLowerCase() === data.name.toLowerCase() && (!star || Number(h.star) === Number(star)));
+                }
+            } catch(e) {}
+        }
+        if (!targetHotel && nameInput && nameInput.value.trim()) {
+            const rawName = nameInput.value.trim().toLowerCase();
+            targetHotel = (masterDb.hotels || []).find(h => h.name.toLowerCase() === rawName && (!star || Number(h.star) === Number(star)));
+        }
+
+        if (!targetHotel) {
+            showNotification(`Please select a ${star}* hotel from the dropdown to delete.`, true);
+            return;
+        }
+
+        if (!confirm(`Are you sure you want to permanently DELETE "${targetHotel.name}" (${star}*) from Master Database and Cloud?\n\nThis will remove it across all PCs.`)) {
+            return;
+        }
+
+        const idx = masterDb.hotels.indexOf(targetHotel);
+        if (idx !== -1) {
+            masterDb.hotels.splice(idx, 1);
+        }
+        localStorage.setItem('slw_master_db', JSON.stringify(masterDb));
+        await saveMasterDatabaseToFirebase(true);
+
+        if (nameInput) nameInput.value = '';
+        const priceInput = document.getElementById(`newCity${star}StarPrice`);
+        if (priceInput) priceInput.value = '';
+        const mealInput = document.getElementById(`newCity${star}StarMeal`);
+        if (mealInput) mealInput.value = '';
+
+        filterHotelDbOptions(3);
+        filterHotelDbOptions(4);
+        filterHotelDbOptions(5);
+        populateQuickHotelDropdown();
+        populateDbDropdowns();
+        updateMasterDbCounts();
+        showNotification(`🗑️ Hotel "${targetHotel.name}" (${star}*) permanently deleted from Master Database & Cloud!`, false);
     }
 
     function fillHotelFromDb(star) {
