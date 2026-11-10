@@ -1579,15 +1579,31 @@
                     <div class="text-[11px] font-semibold text-amber-900 mb-1.5 flex items-center gap-1">
                         <i class="fas fa-layer-group text-amber-600"></i> Packages already saved under this INQ:
                     </div>
-                    <div class="flex flex-col sm:flex-row gap-2 mb-2">
-                        <label class="flex items-center text-xs font-bold text-indigo-900 cursor-pointer bg-white px-2.5 py-1.5 rounded-lg border border-indigo-200 hover:bg-indigo-50 flex-1">
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-2">
+                        <label class="flex items-center text-xs font-bold text-indigo-900 cursor-pointer bg-white px-2.5 py-1.5 rounded-lg border border-indigo-200 hover:bg-indigo-50">
                             <input type="radio" name="savePackageMode" id="savePackageModeNew" value="new_option" checked onchange="toggleSavePackageMode()" class="mr-1.5 text-indigo-600">
-                            <span>➕ Add as NEW Package Option</span>
+                            <span>➕ Add New Option</span>
                         </label>
-                        <label class="flex items-center text-xs font-bold text-gray-800 cursor-pointer bg-white px-2.5 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 flex-1">
+                        <label class="flex items-center text-xs font-bold text-gray-800 cursor-pointer bg-white px-2.5 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50">
                             <input type="radio" name="savePackageMode" id="savePackageModeOverwrite" value="overwrite_option" onchange="toggleSavePackageMode()" class="mr-1.5 text-amber-600">
-                            <span>✏️ Overwrite Selected Option</span>
+                            <span>✏️ Overwrite Option</span>
                         </label>
+                        <label class="flex items-center text-xs font-bold text-purple-900 cursor-pointer bg-purple-50 hover:bg-purple-100 px-2.5 py-1.5 rounded-lg border border-purple-300">
+                            <input type="radio" name="savePackageMode" id="savePackageModeNewInq" value="new_inq" onchange="toggleSavePackageMode()" class="mr-1.5 text-purple-600">
+                            <span>🚀 Save as New INQ</span>
+                        </label>
+                    </div>
+                    <div id="saveQuotationNewInqDetailsRow" style="display: none;" class="p-2.5 bg-gradient-to-r from-purple-50 to-indigo-50 border-2 border-purple-300 rounded-lg space-y-1.5 mb-2">
+                        <div class="flex items-center justify-between">
+                            <span class="text-[11px] font-extrabold text-purple-950 flex items-center gap-1">
+                                <i class="fas fa-magic text-purple-600"></i> New Inquiry Reference (INQ #):
+                            </span>
+                            <button type="button" onclick="generateNewInqNumberForNewMode()" class="px-2 py-0.5 bg-white hover:bg-purple-100 text-purple-800 border border-purple-300 rounded text-[10px] font-bold shadow-2xs transition flex items-center gap-1">
+                                <i class="fas fa-dice"></i> <span>Randomize</span>
+                            </button>
+                        </div>
+                        <input type="text" id="saveQuotationNewInqInput" placeholder="e.g. INQ-98214" oninput="onNewInqInputChanged(this.value)" class="w-full p-2 bg-white border-2 border-purple-400 rounded-lg text-xs font-black text-purple-950 font-mono uppercase tracking-wider focus:ring-2 focus:ring-purple-500">
+                        <p class="text-[10px] text-purple-700">Creates a brand new separate quotation. Current quotation (<strong id="saveQuotationCurrentInqBadge"></strong>) will not be modified.</p>
                     </div>
                     <div id="saveQuotationOverwriteDropdownRow" style="display: none;">
                         <label class="block text-[10px] font-bold text-amber-800 mb-0.5">Select Option to Overwrite:</label>
@@ -1693,6 +1709,9 @@
             <div class="flex flex-col sm:flex-row gap-2 pt-3 border-t">
                 <button type="submit" id="btnSaveQuotationSubmit" class="flex-1 py-2.5 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold rounded-lg shadow transition flex items-center justify-center gap-2 text-sm">
                     <i class="fas fa-save"></i> <span id="saveQuotationSubmitLabel">Save Quotation</span>
+                </button>
+                <button type="button" id="btnSaveAsNewInqDirect" onclick="triggerSaveAsNewInq()" style="display: none;" class="py-2.5 px-3.5 bg-gradient-to-r from-purple-600 to-indigo-700 hover:from-purple-700 hover:to-indigo-800 text-white font-bold rounded-lg shadow transition flex items-center justify-center gap-1.5 text-sm" title="Save this costing as a brand new inquiry number">
+                    <i class="fas fa-plus-circle"></i> <span>Save as New INQ</span>
                 </button>
                 <button type="button" onclick="downloadCurrentCostingExcel()" class="py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow transition flex items-center justify-center gap-2 text-sm" title="Download dynamic Costing Excel (.xlsx)">
                     <i class="fas fa-file-excel"></i> <span>Excel (.xlsx)</span>
@@ -7372,15 +7391,103 @@
     }
 
     function toggleSavePackageMode() {
-        const isOverwrite = document.getElementById('savePackageModeOverwrite')?.checked;
-        const row = document.getElementById('saveQuotationOverwriteDropdownRow');
+        const isOverwrite = Boolean(document.getElementById('savePackageModeOverwrite')?.checked);
+        const isNewInq = Boolean(document.getElementById('savePackageModeNewInq')?.checked);
+        const overwriteRow = document.getElementById('saveQuotationOverwriteDropdownRow');
+        const newInqRow = document.getElementById('saveQuotationNewInqDetailsRow');
         const nameInput = document.getElementById('saveQuotationPackageNameInput');
         const selectExisting = document.getElementById('saveQuotationSelectExistingPackage');
+        const inqInput = document.getElementById('saveQuotationInqInput');
+        const newInqInput = document.getElementById('saveQuotationNewInqInput');
+        const btnSubmit = document.getElementById('btnSaveQuotationSubmit');
 
-        if (row) row.style.display = isOverwrite ? 'block' : 'none';
-        if (isOverwrite && selectExisting && selectExisting.options.length > 0) {
-            const selectedText = selectExisting.options[selectExisting.selectedIndex].text;
-            if (nameInput) nameInput.value = selectedText;
+        if (overwriteRow) overwriteRow.style.display = isOverwrite ? 'block' : 'none';
+        if (newInqRow) newInqRow.style.display = isNewInq ? 'block' : 'none';
+
+        if (isNewInq) {
+            if (newInqInput && (!newInqInput.value || newInqInput.value === activeLoadedInqKey)) {
+                newInqInput.value = 'INQ-' + Math.floor(10000 + Math.random() * 90000);
+            }
+            if (inqInput && newInqInput) {
+                inqInput.value = newInqInput.value;
+            }
+            const targetInq = (newInqInput && newInqInput.value) ? newInqInput.value : 'New INQ';
+            if (btnSubmit) {
+                const span = btnSubmit.querySelector('span');
+                if (span) span.innerText = `Save as New Quotation (${targetInq})`;
+                else btnSubmit.innerText = `Save as New Quotation (${targetInq})`;
+            }
+            const titleVal = document.getElementById('saveQuotationTitleInput')?.value.trim() || 'Tour Package';
+            if (nameInput) nameInput.value = 'Option 1: ' + titleVal;
+        } else if (isOverwrite) {
+            if (inqInput && activeLoadedInqKey) inqInput.value = activeLoadedInqKey;
+            if (selectExisting && selectExisting.options.length > 0) {
+                const selectedText = selectExisting.options[selectExisting.selectedIndex].text;
+                if (nameInput) nameInput.value = selectedText;
+            }
+            if (btnSubmit && activeLoadedInqKey) {
+                const span = btnSubmit.querySelector('span');
+                if (span) span.innerText = `Update Quotation (${activeLoadedInqKey})`;
+                else btnSubmit.innerText = `Update Quotation (${activeLoadedInqKey})`;
+            }
+        } else {
+            if (inqInput && activeLoadedInqKey) inqInput.value = activeLoadedInqKey;
+            if (btnSubmit && activeLoadedInqKey) {
+                const span = btnSubmit.querySelector('span');
+                if (span) span.innerText = `Update Quotation (${activeLoadedInqKey})`;
+                else btnSubmit.innerText = `Update Quotation (${activeLoadedInqKey})`;
+            }
+            if (activeLoadedInqData && Array.isArray(activeLoadedInqData.packages)) {
+                const nextOptNum = activeLoadedInqData.packages.length + 1;
+                const titleVal = document.getElementById('saveQuotationTitleInput')?.value.trim() || 'Tour Package';
+                if (nameInput) nameInput.value = `Option ${nextOptNum}: ` + titleVal;
+            }
+        }
+    }
+
+    function generateNewInqNumberForNewMode() {
+        const freshInq = 'INQ-' + Math.floor(10000 + Math.random() * 90000);
+        const newInqInput = document.getElementById('saveQuotationNewInqInput');
+        const inqInput = document.getElementById('saveQuotationInqInput');
+        if (newInqInput) newInqInput.value = freshInq;
+        if (inqInput) inqInput.value = freshInq;
+        const btnSubmit = document.getElementById('btnSaveQuotationSubmit');
+        if (btnSubmit) {
+            const span = btnSubmit.querySelector('span');
+            if (span) span.innerText = `Save as New Quotation (${freshInq})`;
+            else btnSubmit.innerText = `Save as New Quotation (${freshInq})`;
+        }
+    }
+
+    function onNewInqInputChanged(val) {
+        const inqInput = document.getElementById('saveQuotationInqInput');
+        if (inqInput) inqInput.value = val;
+        const btnSubmit = document.getElementById('btnSaveQuotationSubmit');
+        if (btnSubmit) {
+            const span = btnSubmit.querySelector('span');
+            const displayInq = val.trim() || 'New INQ';
+            if (span) span.innerText = `Save as New Quotation (${displayInq})`;
+            else btnSubmit.innerText = `Save as New Quotation (${displayInq})`;
+        }
+    }
+
+    function triggerSaveAsNewInq() {
+        const radioNewInq = document.getElementById('savePackageModeNewInq');
+        if (radioNewInq) {
+            radioNewInq.checked = true;
+            toggleSavePackageMode();
+        }
+        const newInqInput = document.getElementById('saveQuotationNewInqInput');
+        const targetInq = newInqInput ? newInqInput.value : ('INQ-' + Math.floor(10000 + Math.random() * 90000));
+        const clientName = document.getElementById('saveQuotationClientInput')?.value || 'Client';
+
+        const ok = confirm(`Save this costing as a BRAND NEW inquiry [${targetInq}] for ${clientName}?\n\n• Existing quotation [${activeLoadedInqKey}] will remain untouched.\n• Click OK to save now, or Cancel to review details in the form first.`);
+        if (ok) {
+            executeSaveQuotation(false);
+        } else {
+            newInqInput?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            newInqInput?.focus();
+            newInqInput?.select();
         }
     }
 
@@ -7435,6 +7542,16 @@
             if (modalTitle) modalTitle.innerHTML = `<i class="fas fa-edit text-amber-500"></i> Update Quotation: ${activeLoadedInqKey}`;
             if (modalSubtitle) modalSubtitle.innerText = 'Overwrites and updates this quotation with your modified prices, tours, and services';
             if (btnSwitchNew) btnSwitchNew.style.display = 'inline-flex';
+            const btnSaveNewDirect = document.getElementById('btnSaveAsNewInqDirect');
+            if (btnSaveNewDirect) btnSaveNewDirect.style.display = 'inline-flex';
+            const curInqBadge = document.getElementById('saveQuotationCurrentInqBadge');
+            if (curInqBadge) curInqBadge.innerText = activeLoadedInqKey;
+
+            const radioNewOpt = document.getElementById('savePackageModeNew');
+            if (radioNewOpt) radioNewOpt.checked = true;
+            const newInqDetails = document.getElementById('saveQuotationNewInqDetailsRow');
+            if (newInqDetails) newInqDetails.style.display = 'none';
+
             if (btnSubmit) {
                 const s = btnSubmit.querySelector('span');
                 if (s) s.innerText = `Update Quotation (${activeLoadedInqKey})`;
@@ -7467,6 +7584,10 @@
             if (modalTitle) modalTitle.innerHTML = `<i class="fas fa-file-invoice-dollar text-indigo-600"></i> Save as INQ Quotation`;
             if (modalSubtitle) modalSubtitle.innerText = 'Saves complete costing calculations and itinerary to Cloud & Local Storage';
             if (btnSwitchNew) btnSwitchNew.style.display = 'none';
+            const btnSaveNewDirectElse = document.getElementById('btnSaveAsNewInqDirect');
+            if (btnSaveNewDirectElse) btnSaveNewDirectElse.style.display = 'none';
+            const newInqDetailsElse = document.getElementById('saveQuotationNewInqDetailsRow');
+            if (newInqDetailsElse) newInqDetailsElse.style.display = 'none';
             if (btnSubmit) {
                 const s = btnSubmit.querySelector('span');
                 if (s) s.innerText = 'Save Quotation';
@@ -7520,7 +7641,17 @@
     }
 
     async function executeSaveQuotation(andOpenItinerary = false) {
-        const inqRaw = (document.getElementById('saveQuotationInqInput')?.value || '').trim().toUpperCase();
+        const isNewInqMode = Boolean(document.getElementById('savePackageModeNewInq')?.checked);
+        let inqRaw = '';
+        if (isNewInqMode) {
+            inqRaw = (document.getElementById('saveQuotationNewInqInput')?.value || document.getElementById('saveQuotationInqInput')?.value || '').trim().toUpperCase();
+            if (!inqRaw || inqRaw === activeLoadedInqKey) {
+                inqRaw = 'INQ-' + Math.floor(10000 + Math.random() * 90000);
+            }
+        } else {
+            inqRaw = (document.getElementById('saveQuotationInqInput')?.value || '').trim().toUpperCase();
+        }
+
         const clientName = (document.getElementById('saveQuotationClientInput')?.value || '').trim();
         const clientPhone = (document.getElementById('saveQuotationPhoneInput')?.value || '').trim();
         const title = (document.getElementById('saveQuotationTitleInput')?.value || '').trim() || 'Tour Quotation';
@@ -7532,9 +7663,9 @@
         const syncCloud = document.getElementById('saveQuotationCloudSyncCheck')?.checked ?? true;
 
         // Multi-package options
-        const packageName = (document.getElementById('saveQuotationPackageNameInput')?.value || '').trim() || title || 'Package Option';
-        const isOverwriteMode = Boolean(document.getElementById('savePackageModeOverwrite')?.checked);
-        const selectedExistingPkgId = (document.getElementById('saveQuotationSelectExistingPackage')?.value || '').trim();
+        const packageName = (document.getElementById('saveQuotationPackageNameInput')?.value || '').trim() || (isNewInqMode ? ('Option 1: ' + title) : (title || 'Package Option'));
+        const isOverwriteMode = isNewInqMode ? false : Boolean(document.getElementById('savePackageModeOverwrite')?.checked);
+        const selectedExistingPkgId = isNewInqMode ? '' : (document.getElementById('saveQuotationSelectExistingPackage')?.value || '').trim();
 
         if (!inqRaw) {
             alert("Please enter a valid Inquiry Reference (e.g. 58291 or INQ-58291).");
@@ -7615,7 +7746,7 @@
             let existingPackages = [];
 
             try {
-                let existingRaw = localStorage.getItem(SLW_INQ_DOC_PREFIX + inqKey);
+                let existingRaw = isNewInqMode ? null : localStorage.getItem(SLW_INQ_DOC_PREFIX + inqKey);
                 if (!existingRaw && inqRaw !== inqKey) {
                     existingRaw = localStorage.getItem(SLW_INQ_DOC_PREFIX + inqRaw);
                 }
@@ -7845,9 +7976,11 @@
             activeLoadedPackageName = packageName;
             updateActiveInqBanner();
 
-            const pkgSuccessMsg = existingPackages.length > 1 
-                ? `Saved as "${packageName}" (${existingPackages.length} options under ${inqKey})!` 
-                : `Successfully saved Quotation [${inqKey}]!`;
+            const pkgSuccessMsg = isNewInqMode
+                ? `🎉 Created & saved as BRAND NEW Quotation [${inqKey}]!`
+                : (existingPackages.length > 1 
+                    ? `Saved as "${packageName}" (${existingPackages.length} options under ${inqKey})!` 
+                    : `Successfully saved Quotation [${inqKey}]!`);
             showNotification('✅ ' + pkgSuccessMsg, false);
 
             // If user clicked "Save & Open Itinerary"
