@@ -7006,11 +7006,17 @@
                     ${pkgs.map((p, idx) => {
                         const isCur = (p.id === activeLoadedPackageId) || (!activeLoadedPackageId && idx === 0);
                         const pName = p.packageName || ('Option ' + (idx + 1));
+                        const pNameEsc = pName.replace(/'/g, "\\'").replace(/"/g, '&quot;');
                         return `
-                            <button onclick="loadInqQuotationIntoCosting('${activeLoadedInqKey}', '${p.id}')" class="px-2.5 py-0.5 rounded-full text-xs font-bold transition flex items-center gap-1 ${isCur ? 'bg-amber-400 text-indigo-950 shadow-sm ring-2 ring-white/60 font-black' : 'bg-indigo-900/80 hover:bg-indigo-800 text-indigo-200 hover:text-white border border-indigo-400/40'}">
-                                ${isCur ? '<i class="fas fa-check-circle text-[10px]"></i>' : '<span>📦</span>'}
-                                <span class="truncate max-w-[150px]">${pName}</span>
-                            </button>
+                            <div class="inline-flex items-center rounded-full text-xs font-bold transition ${isCur ? 'bg-amber-400 text-indigo-950 shadow-sm ring-2 ring-white/60 font-black' : 'bg-indigo-900/80 hover:bg-indigo-800 text-indigo-200 hover:text-white border border-indigo-400/40'} overflow-hidden">
+                                <button onclick="loadInqQuotationIntoCosting('${activeLoadedInqKey}', '${p.id}')" class="px-2.5 py-0.5 flex items-center gap-1">
+                                    ${isCur ? '<i class="fas fa-check-circle text-[10px]"></i>' : '<span>📦</span>'}
+                                    <span class="truncate max-w-[140px]">${pName}</span>
+                                </button>
+                                <button onclick="event.stopPropagation(); deleteInqPackageOption('${activeLoadedInqKey}', '${p.id}', '${pNameEsc}')" class="px-1.5 py-0.5 ${isCur ? 'hover:bg-red-600 hover:text-white text-indigo-950' : 'hover:bg-red-600 hover:text-white text-indigo-300'} transition" title="Delete ${pName}">
+                                    <i class="fas fa-times text-[10px]"></i>
+                                </button>
+                            </div>
                         `;
                     }).join('')}
                     <button onclick="openSaveQuotationModal()" class="px-2 py-0.5 rounded-full text-xs font-bold bg-white/20 hover:bg-white/30 text-amber-200 border border-amber-300/50 transition flex items-center gap-1" title="Add another package option under this INQ">
@@ -8112,6 +8118,140 @@
         window.open('archives/Itinerary_Builder_App New.html', '_blank');
     }
 
+        async function deleteInqPackageOption(inqKey, pkgId, pkgName = '') {
+        if (!inqKey || !pkgId) return;
+
+        // 1. Fetch document (from local storage or firestore)
+        let docData = null;
+        try {
+            let localRaw = localStorage.getItem(SLW_INQ_DOC_PREFIX + inqKey);
+            if (!localRaw && typeof slwNormalizeInqKey === 'function') {
+                localRaw = localStorage.getItem(SLW_INQ_DOC_PREFIX + slwNormalizeInqKey(inqKey));
+            }
+            if (localRaw) {
+                docData = JSON.parse(localRaw);
+            }
+        } catch(e) {
+            console.warn("Local quotation read error:", e);
+        }
+
+        if (!docData && typeof db !== 'undefined' && db) {
+            try {
+                const snap = await db.collection('slw_quotations').doc(inqKey).get();
+                if (snap.exists) {
+                    docData = snap.data();
+                }
+            } catch(e) {
+                console.error("Cloud fetch error:", e);
+            }
+        }
+
+        if (!docData || !Array.isArray(docData.packages) || docData.packages.length === 0) {
+            alert("Quotation data or package options could not be found.");
+            return;
+        }
+
+        if (docData.packages.length <= 1) {
+            alert("This quotation only has 1 package option remaining. To delete the entire quotation, please click the trash icon on the quotation card.");
+            return;
+        }
+
+        const targetPkg = docData.packages.find(p => p.id === pkgId);
+        const displayName = pkgName || (targetPkg ? (targetPkg.packageName || targetPkg.title) : 'Option');
+
+        if (!confirm('Are you sure you want to permanently delete option "' + displayName + '" from quotation [' + inqKey + ']?\n\nThis will remove it from Firebase Cloud and local storage across all devices.')) {
+            return;
+        }
+
+        // 2. Filter out the package
+        const updatedPackages = docData.packages.filter(p => p.id !== pkgId);
+        docData.packages = updatedPackages;
+
+        let remainingActivePkg = updatedPackages[0];
+        if (docData.activePackageId === pkgId) {
+            docData.activePackageId = remainingActivePkg.id;
+            docData.packageName = remainingActivePkg.packageName || remainingActivePkg.title;
+            if (remainingActivePkg.costing) docData.costing = remainingActivePkg.costing;
+            if (remainingActivePkg.rates) docData.rates = remainingActivePkg.rates;
+            if (remainingActivePkg.title) docData.title = remainingActivePkg.title;
+        } else {
+            const foundActive = updatedPackages.find(p => p.id === docData.activePackageId);
+            if (foundActive) remainingActivePkg = foundActive;
+        }
+
+        docData.updatedAt = new Date().toISOString();
+        docData.sizeBytes = new Blob([JSON.stringify(docData)]).size;
+
+        // 3. Save to LocalStorage
+        localStorage.setItem(SLW_INQ_DOC_PREFIX + inqKey, JSON.stringify(docData));
+        if (typeof slwNormalizeInqKey === 'function') {
+            const normKey = slwNormalizeInqKey(inqKey);
+            if (normKey !== inqKey) {
+                localStorage.setItem(SLW_INQ_DOC_PREFIX + normKey, JSON.stringify(docData));
+            }
+        }
+
+        // Update active localStorage pointers if this was the active package
+        if (localStorage.getItem('SLW_ACTIVE_INQ') === inqKey && localStorage.getItem('SLW_ACTIVE_INQ_PACKAGE_ID') === pkgId) {
+            localStorage.setItem('SLW_ACTIVE_INQ_PACKAGE_ID', remainingActivePkg.id);
+            localStorage.setItem('SLW_ACTIVE_INQ_TITLE', remainingActivePkg.title || docData.title || '');
+            if (remainingActivePkg.costing) {
+                localStorage.setItem('SLW_PENDING_COSTING_DATA', JSON.stringify(remainingActivePkg.costing));
+            }
+        }
+
+        // 4. Update index
+        const idx = inqQuotationIndex.findIndex(i => i.inq === inqKey);
+        if (idx !== -1) {
+            inqQuotationIndex[idx].packagesCount = updatedPackages.length;
+            inqQuotationIndex[idx].packages = updatedPackages.map((p, pIdx) => ({
+                id: p.id || ('pkg_' + (pIdx + 1)),
+                packageName: p.packageName || ('Option ' + (pIdx + 1)),
+                title: p.title || inqQuotationIndex[idx].title,
+                rates: p.rates || inqQuotationIndex[idx].rates
+            }));
+            inqQuotationIndex[idx].rates = docData.rates || inqQuotationIndex[idx].rates;
+            inqQuotationIndex[idx].title = docData.title || inqQuotationIndex[idx].title;
+            inqQuotationIndex[idx].sizeBytes = docData.sizeBytes;
+            inqQuotationIndex[idx].updatedAt = docData.updatedAt;
+            localStorage.setItem(SLW_INQ_INDEX_STORAGE_KEY, JSON.stringify(inqQuotationIndex));
+        }
+
+        // 5. If currently loaded into active costing editor
+        if (activeLoadedInqKey === inqKey) {
+            activeLoadedInqData = docData;
+            if (activeLoadedPackageId === pkgId) {
+                // Load remaining active package into editor
+                loadInqQuotationIntoCosting(inqKey, remainingActivePkg.id);
+            } else {
+                updateActiveInqBanner();
+            }
+        }
+
+        // 6. Sync to Firebase Cloud
+        try {
+            if (typeof db !== 'undefined' && db) {
+                await db.collection('slw_quotations').doc(inqKey).set(docData);
+                await db.collection('slw_settings').doc('quotation_index').set({
+                    items: inqQuotationIndex,
+                    updatedAt: new Date().toISOString()
+                });
+                if (window.slwLogActivity) {
+                    window.slwLogActivity('Deleted Option "' + displayName + '" from Quotation ' + inqKey);
+                }
+            }
+            showNotification('🗑️ Deleted option "' + displayName + '" from [' + inqKey + '].', false);
+        } catch(err) {
+            console.error("Cloud sync error on option deletion:", err);
+            showNotification('⚠️ Deleted locally, but Cloud sync error: ' + err.message, true);
+        }
+
+        // 7. Re-render UI
+        updateQuotationHubCountBadge();
+        updateQuotationStorageStats();
+        renderQuotationHubCards();
+    }
+
     async function deleteInqQuotation(inqKey) {
         if (!inqKey) return;
 
@@ -8259,11 +8399,20 @@
                             <span class="text-[9px] text-gray-400 font-normal">Click to load option</span>
                         </div>
                         <div class="flex flex-wrap gap-1">
-                            ${item.packages.map((pkg, pIdx) => `
-                                <button onclick="loadInqQuotationIntoCosting('${item.inq}', '${pkg.id}')" class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 transition flex items-center gap-1 shadow-2xs" title="Load ${pkg.packageName || ('Option ' + (pIdx + 1))} into Costing">
-                                    <span>📦</span> <span class="truncate max-w-[120px]">${pkg.packageName || ('Option ' + (pIdx + 1))}</span>
-                                </button>
-                            `).join('')}
+                            ${item.packages.map((pkg, pIdx) => {
+                                const pName = pkg.packageName || ('Option ' + (pIdx + 1));
+                                const pNameEsc = pName.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                                return `
+                                <div class="inline-flex items-center rounded text-[10px] font-bold bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 transition shadow-2xs overflow-hidden group">
+                                    <button onclick="loadInqQuotationIntoCosting('${item.inq}', '${pkg.id}')" class="px-2 py-0.5 flex items-center gap-1 hover:text-indigo-900 transition" title="Load ${pName} into Costing">
+                                        <span>📦</span> <span class="truncate max-w-[110px]">${pName}</span>
+                                    </button>
+                                    <button onclick="event.stopPropagation(); deleteInqPackageOption('${item.inq}', '${pkg.id}', '${pNameEsc}')" class="px-1.5 py-0.5 text-gray-400 hover:text-white hover:bg-red-500 transition border-l border-amber-200" title="Delete ${pName}">
+                                        <i class="fas fa-times text-[10px]"></i>
+                                    </button>
+                                </div>
+                                `;
+                            }).join('')}
                         </div>
                     </div>
                     ` : ''}

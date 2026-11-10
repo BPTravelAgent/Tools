@@ -2209,11 +2209,20 @@ function slwGoHome() {
                                     <span style="font-size:10px;font-weight:700;color:#d97706;display:flex;align-items:center;gap:2px;">
                                         📦 Packages:
                                     </span>
-                                    ${pkgs.map((pkg, pIdx) => `
-                                        <button onclick="window.slwSetLinkedInq('${item.inq}', '${(item.clientName || '').replace(/'/g, "\'")}', '${(item.title || '').replace(/'/g, "\'")}', true, '${pkg.id}')" style="background:#fef3c7;hover:background:#fde68a;color:#92400e;border:1px solid #fcd34d;padding:2px 7px;border-radius:6px;font-size:10.5px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:2px;" title="Link & Load ${pkg.packageName || ('Option ' + (pIdx + 1))}">
-                                            <span>📦</span> <span>${pkg.packageName || ('Option ' + (pIdx + 1))}</span>
-                                        </button>
-                                    `).join('')}
+                                    ${pkgs.map((pkg, pIdx) => {
+                                        const pName = pkg.packageName || ('Option ' + (pIdx + 1));
+                                        const pNameEsc = pName.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                                        return `
+                                        <div style="display:inline-flex;align-items:center;border-radius:6px;overflow:hidden;border:1px solid #fcd34d;background:#fef3c7;">
+                                            <button onclick="window.slwSetLinkedInq('${item.inq}', '${(item.clientName || '').replace(/'/g, "\\'")}', '${(item.title || '').replace(/'/g, "\\'")}', true, '${pkg.id}')" style="background:transparent;border:none;color:#92400e;padding:2px 6px;font-size:10.5px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:2px;" title="Link & Load ${pName}">
+                                                <span>📦</span> <span>${pName}</span>
+                                            </button>
+                                            <button onclick="event.stopPropagation(); window.slwDeleteInqPackageOption('${item.inq}', '${pkg.id}', '${pNameEsc}')" style="background:transparent;border:none;border-left:1px solid #fcd34d;color:#ef4444;padding:2px 6px;font-size:11px;font-weight:bold;cursor:pointer;" title="Delete this option">
+                                                ✕
+                                            </button>
+                                        </div>
+                                        `;
+                                    }).join('')}
                                 </div>
                             ` : ''}
                         </div>
@@ -2265,6 +2274,70 @@ function slwGoHome() {
             slwLoadItineraryFromInq(inqKey, targetPackageId);
         } else {
             slwShowSuccess("🔗 Linked to Quotation!", `මෙම Itinerary එක [${inqKey}] (${clientName || 'Client'}) සමඟ සාර්ථකව සම්බන්ධ විය. වෙනස්කම් සිදුකළ පසු 'Save to INQ Cloud' ඔබන්න.`);
+        }
+    };
+
+    window.slwDeleteInqPackageOption = async function(inqKey, pkgId, pkgName = '') {
+        if (!inqKey || !pkgId) return;
+        let docData = null;
+        try {
+            let localRaw = localStorage.getItem('SLW_INQ_DOC_' + inqKey);
+            if (localRaw) docData = JSON.parse(localRaw);
+        } catch(e) {}
+        if (!docData && typeof db !== 'undefined' && db) {
+            try {
+                const snap = await db.collection('slw_quotations').doc(inqKey).get();
+                if (snap.exists) docData = snap.data();
+            } catch(e) {}
+        }
+        if (!docData || !Array.isArray(docData.packages) || docData.packages.length <= 1) {
+            alert("This quotation only has 1 package option remaining. To delete the entire quotation, please delete it from the Costing Quotation Hub.");
+            return;
+        }
+        const displayName = pkgName || 'Option';
+        if (!confirm('Are you sure you want to delete option "' + displayName + '" from quotation [' + inqKey + ']?')) return;
+
+        docData.packages = docData.packages.filter(p => p.id !== pkgId);
+        if (docData.activePackageId === pkgId) {
+            docData.activePackageId = docData.packages[0].id;
+        }
+        docData.updatedAt = new Date().toISOString();
+        localStorage.setItem('SLW_INQ_DOC_' + inqKey, JSON.stringify(docData));
+
+        try {
+            let indexRaw = localStorage.getItem('SLW_INQ_QUOTATION_INDEX');
+            if (indexRaw) {
+                let idxArr = JSON.parse(indexRaw);
+                let itemIdx = idxArr.findIndex(i => i.inq === inqKey);
+                if (itemIdx !== -1) {
+                    idxArr[itemIdx].packagesCount = docData.packages.length;
+                    idxArr[itemIdx].packages = docData.packages.map((p, idx) => ({
+                        id: p.id || ('pkg_' + (idx + 1)),
+                        packageName: p.packageName || ('Option ' + (idx + 1)),
+                        title: p.title || idxArr[itemIdx].title,
+                        rates: p.rates || idxArr[itemIdx].rates
+                    }));
+                    localStorage.setItem('SLW_INQ_QUOTATION_INDEX', JSON.stringify(idxArr));
+                }
+            }
+        } catch(e) {}
+
+        if (typeof db !== 'undefined' && db) {
+            try {
+                await db.collection('slw_quotations').doc(inqKey).set(docData);
+                let indexRaw = localStorage.getItem('SLW_INQ_QUOTATION_INDEX');
+                if (indexRaw) {
+                    await db.collection('slw_settings').doc('quotation_index').set({
+                        items: JSON.parse(indexRaw),
+                        updatedAt: new Date().toISOString()
+                    });
+                }
+            } catch(e) {}
+        }
+
+        alert('🗑️ Deleted option "' + displayName + '" from [' + inqKey + '].');
+        if (typeof window.slwOpenLinkInqModal === 'function') {
+            window.slwOpenLinkInqModal();
         }
     };
 
