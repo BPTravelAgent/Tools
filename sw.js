@@ -1,9 +1,18 @@
-const CACHE_NAME = 'bp-tools-v33';
+const CACHE_NAME = 'bp-tools-v34';
 
 const ASSETS_TO_CACHE = [
   '.',
   './index.html',
   './tour_costing.html',
+  './js/costing/costing_state.js',
+  './js/costing/costing_master_db.js',
+  './js/costing/costing_ui.js',
+  './js/costing/costing_itinerary_sync.js',
+  './js/costing/costing_calculator.js',
+  './js/costing/costing_presets.js',
+  './js/costing/costing_inq_hub.js',
+  './js/costing/costing_sheets.js',
+  './js/costing/costing_init.js',
   './Domarco_Itinerary.html',
   './Evago_Smart_Itinerary.html',
   './archives/Itinerary_Builder_App New.html',
