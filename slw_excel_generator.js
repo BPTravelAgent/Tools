@@ -2694,11 +2694,15 @@
         const base64 = await generateCostingExcelBase64(payload);
         const filename = options.customFilename || buildCostingDocFilename(payload);
         const folderName = options.folderName || 'BP Travel Costings';
+        const sheetUrl = options.sheetUrl || payload.sheetUrl || payload.googleSheetUrl || null;
+        const sheetId = options.sheetId || payload.sheetId || null;
 
         const postBody = {
             fileName: filename,
             folderName: folderName,
-            base64: base64
+            base64: base64,
+            sheetUrl: sheetUrl,
+            sheetId: sheetId
         };
 
         const response = await fetch(webhookUrl, {

@@ -167,6 +167,28 @@
             costingPayload.packages = activeLoadedInqData.packages;
         }
 
+        // Locate existing Google Sheet URL if any for this INQ
+        let existingSheetUrl = null;
+        if (activeLoadedInqData && activeLoadedInqData.googleSheetUrl) {
+            existingSheetUrl = activeLoadedInqData.googleSheetUrl;
+        }
+        if (!existingSheetUrl && inq) {
+            const foundInIndex = (Array.isArray(inqQuotationIndex) ? inqQuotationIndex : []).find(i => i.inq === inq);
+            if (foundInIndex && foundInIndex.googleSheetUrl) {
+                existingSheetUrl = foundInIndex.googleSheetUrl;
+            }
+        }
+        if (!existingSheetUrl && inq) {
+            const localRaw = localStorage.getItem(SLW_INQ_DOC_PREFIX + inq);
+            if (localRaw) {
+                try {
+                    const parsed = JSON.parse(localRaw);
+                    if (parsed.googleSheetUrl) existingSheetUrl = parsed.googleSheetUrl;
+                } catch(e) {}
+            }
+        }
+        costingPayload.googleSheetUrl = existingSheetUrl;
+
         return costingPayload;
     }
 
@@ -187,6 +209,16 @@
     }
 
     async function exportCurrentCostingToGoogleSheets() {
+        const isModalOpen = document.getElementById('saveQuotationModal') && !document.getElementById('saveQuotationModal').classList.contains('hidden');
+        if (isModalOpen && typeof executeSaveQuotation === 'function') {
+            try {
+                showNotification('💾 Saving package options to INQ before opening Google Sheets...', false);
+                await executeSaveQuotation(false);
+            } catch(e) {
+                console.warn('Auto-save prior to Google Sheet export failed, proceeding with current state:', e);
+            }
+        }
+
         const payload = getCurrentCostingExcelPayload();
         const webhookUrl = getGoogleSheetsWebhookUrl();
 
@@ -195,15 +227,25 @@
             return;
         }
 
-        showNotification('🟢 Converting Costing & creating Google Sheet in Google Drive...', false);
+        const hasMulti = payload.packages && payload.packages.length > 1;
+        const statusMsg = payload.googleSheetUrl
+            ? `🟢 Syncing ${payload.inq} (${hasMulti ? payload.packages.length + ' Packages' : 'Costing'}) into existing Google Sheet...`
+            : `🟢 Converting Costing & creating Google Sheet in Google Drive...`;
+        showNotification(statusMsg, false);
 
         try {
-            const result = await window.SlwExcelGenerator.exportToGoogleSheets(payload, webhookUrl);
+            const options = {
+                sheetUrl: payload.googleSheetUrl || null
+            };
+            const result = await window.SlwExcelGenerator.exportToGoogleSheets(payload, webhookUrl, options);
             if (result && result.sheetUrl) {
                 await saveGoogleSheetUrlToInq(payload.inq, result.sheetUrl);
                 if (typeof renderQuotationHubCards === 'function') renderQuotationHubCards();
                 window.open(result.sheetUrl, '_blank');
-                showNotification('✅ Fresh Google Sheet created successfully in your Drive! Opened in new tab.', false);
+                const notifyMsg = result.isUpdated
+                    ? `✅ Existing Google Sheet for ${payload.inq} updated in-place with latest option tabs!`
+                    : `✅ Google Sheet created successfully in your Drive! Opened in new tab.`;
+                showNotification(notifyMsg, false);
             } else {
                 throw new Error('Google did not return a valid Sheet URL');
             }
@@ -268,8 +310,8 @@
             if (docData.googleSheetUrl && !forceRegenerate) {
                 const wantRegenerate = confirm(
                     '📊 Google Sheet for ' + inqKey + ' already exists in Google Drive.\n\n' +
-                    '• Click OK to 🔄 GENERATE A FRESH UPDATED SHEET\n  (Recommended if you modified costing, added Mix Hotel, updated rates, or deleted the old file from Google Drive).\n\n' +
-                    '• Click CANCEL to 📂 OPEN EXISTING SHEET.'
+                    '• Click OK to 🔄 UPDATE / SYNC IN-PLACE\n  (Syncs latest options, tabs, and rates directly into the existing Google Sheet without creating duplicate files).\n\n' +
+                    '• Click CANCEL to 📂 OPEN EXISTING SHEET directly.'
                 );
                 if (wantRegenerate) {
                     forceRegenerate = true;
@@ -407,14 +449,20 @@
             }
 
             const webhookUrl = getGoogleSheetsWebhookUrl();
-            showNotification('🟢 Converting ' + inqKey + (payload.packages ? ` (${payload.packages.length} Packages)` : '') + ' to Google Sheet in Google Drive...', false);
-            const result = await window.SlwExcelGenerator.exportToGoogleSheets(payload, webhookUrl);
+            const options = {
+                sheetUrl: docData.googleSheetUrl || null
+            };
+            showNotification('🟢 Syncing ' + inqKey + (payload.packages ? ` (${payload.packages.length} Packages)` : '') + ' to Google Sheet in Google Drive...', false);
+            const result = await window.SlwExcelGenerator.exportToGoogleSheets(payload, webhookUrl, options);
 
             if (result && result.sheetUrl) {
                 await saveGoogleSheetUrlToInq(inqKey, result.sheetUrl);
                 renderQuotationHubCards();
                 window.open(result.sheetUrl, '_blank');
-                showNotification('✅ Google Sheet for ' + inqKey + ' opened successfully!', false);
+                const actionMsg = result.isUpdated
+                    ? `✅ Existing Google Sheet for ${inqKey} updated in-place with all package tabs!`
+                    : `✅ Google Sheet for ${inqKey} opened successfully!`;
+                showNotification(actionMsg, false);
             }
         } catch(err) {
             console.error('Error generating Google Sheet for INQ:', err);
