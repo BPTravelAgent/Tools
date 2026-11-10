@@ -2021,48 +2021,76 @@
         if (!rawDb) return { tours: [], hotels: [], transfers: [], extras: [] };
 
         // 1. Deduplicate & Merge Tours
+        // Canonical tour identity = base tour name + location (city) OR ID.
+        // A single tour record holds both join details (joinPrice, joinTag like (Join Transfer)) and private details.
         const tourGroups = {};
+        const tourIdMap = {};
+
         (rawDb.tours || []).forEach(t => {
             const rawName = String(t.name || '').trim();
             if (!rawName) return;
             const { baseName, tag: extractedTag } = extractTourNameAndTag(rawName);
             const canonName = stripTourTags(baseName || rawName);
             const loc = String(t.location || '').trim();
+            const normLoc = loc.toLowerCase();
             const tag = t.joinTag || (extractedTag && /join/i.test(extractedTag) ? extractedTag : (rawName.toLowerCase().includes('join transfer') ? '(Join Transfer)' : (rawName.toLowerCase().includes('join tour') ? '(Join Tour)' : '')));
-            // Group key preserves distinct items if specific join tag is given (e.g. Join Transfer vs Join Tour)
-            const key = (canonName.toLowerCase() + '|' + (tag ? tag.toLowerCase() + '|' : '') + loc.toLowerCase()).trim();
+            const canonKey = (canonName.toLowerCase() + '|' + normLoc).trim();
 
-            if (!tourGroups[key]) {
-                tourGroups[key] = {
-                    id: String(t.id || ('t_' + Date.now())),
+            let target = null;
+            if (t.id && tourIdMap[t.id]) {
+                target = tourIdMap[t.id];
+            } else if (tourGroups[canonKey]) {
+                target = tourGroups[canonKey];
+            }
+
+            if (!target) {
+                const newTour = {
+                    id: String(t.id || ('t_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6))),
                     name: canonName,
                     location: loc,
                     joinTag: tag || null,
                     privateTag: t.privateTag || null,
                     price: (t.joinPrice !== null && t.joinPrice !== undefined && t.joinPrice !== '') ? Number(t.joinPrice) : (t.ticketOnlyPrice ? Number(t.ticketOnlyPrice) : 0),
-                    joinPrice: t.joinPrice !== null && t.joinPrice !== undefined && t.joinPrice !== '' ? Number(t.joinPrice) : null,
-                    ticketOnlyPrice: t.ticketOnlyPrice !== null && t.ticketOnlyPrice !== undefined && t.ticketOnlyPrice !== '' ? Number(t.ticketOnlyPrice) : null,
-                    privateCarPrice: t.privateCarPrice !== null && t.privateCarPrice !== undefined && t.privateCarPrice !== '' ? Number(t.privateCarPrice) : null,
-                    privateVanPrice: t.privateVanPrice !== null && t.privateVanPrice !== undefined && t.privateVanPrice !== '' ? Number(t.privateVanPrice) : null,
-                    privateBusPrice: t.privateBusPrice !== null && t.privateBusPrice !== undefined && t.privateBusPrice !== '' ? Number(t.privateBusPrice) : null
+                    joinPrice: (t.joinPrice !== null && t.joinPrice !== undefined && t.joinPrice !== '') ? Number(t.joinPrice) : null,
+                    ticketOnlyPrice: (t.ticketOnlyPrice !== null && t.ticketOnlyPrice !== undefined && t.ticketOnlyPrice !== '') ? Number(t.ticketOnlyPrice) : null,
+                    privateCarPrice: (t.privateCarPrice !== null && t.privateCarPrice !== undefined && t.privateCarPrice !== '') ? Number(t.privateCarPrice) : null,
+                    privateVanPrice: (t.privateVanPrice !== null && t.privateVanPrice !== undefined && t.privateVanPrice !== '') ? Number(t.privateVanPrice) : null,
+                    privateBusPrice: (t.privateBusPrice !== null && t.privateBusPrice !== undefined && t.privateBusPrice !== '') ? Number(t.privateBusPrice) : null
                 };
+                tourGroups[canonKey] = newTour;
+                if (newTour.id) tourIdMap[newTour.id] = newTour;
             } else {
-                const g = tourGroups[key];
-                if (canonName.length < g.name.length && canonName.length >= 4) g.name = canonName;
-                if (!g.location && loc) g.location = loc;
-                if (tag) g.joinTag = tag;
-                if (t.privateTag) g.privateTag = t.privateTag;
-                if (t.joinPrice !== null && t.joinPrice !== undefined && t.joinPrice !== '') g.joinPrice = Number(t.joinPrice);
-                if (t.ticketOnlyPrice !== null && t.ticketOnlyPrice !== undefined && t.ticketOnlyPrice !== '') g.ticketOnlyPrice = Number(t.ticketOnlyPrice);
-                if (t.privateCarPrice !== null && t.privateCarPrice !== undefined && t.privateCarPrice !== '') g.privateCarPrice = Number(t.privateCarPrice);
-                if (t.privateVanPrice !== null && t.privateVanPrice !== undefined && t.privateVanPrice !== '') g.privateVanPrice = Number(t.privateVanPrice);
-                if (t.privateBusPrice !== null && t.privateBusPrice !== undefined && t.privateBusPrice !== '') g.privateBusPrice = Number(t.privateBusPrice);
-                g.price = g.joinPrice || g.ticketOnlyPrice || 0;
+                // Merge/update: Latest user/cloud values take precedence without creating duplicate records
+                if (canonName && canonName.length >= 3) target.name = canonName;
+                if (loc) target.location = loc;
+                if (tag) target.joinTag = tag;
+                if (t.privateTag) target.privateTag = t.privateTag;
+                if (t.joinPrice !== null && t.joinPrice !== undefined && t.joinPrice !== '') {
+                    target.joinPrice = Number(t.joinPrice);
+                }
+                if (t.ticketOnlyPrice !== null && t.ticketOnlyPrice !== undefined && t.ticketOnlyPrice !== '') {
+                    target.ticketOnlyPrice = Number(t.ticketOnlyPrice);
+                }
+                if (t.privateCarPrice !== null && t.privateCarPrice !== undefined && t.privateCarPrice !== '') {
+                    target.privateCarPrice = Number(t.privateCarPrice);
+                }
+                if (t.privateVanPrice !== null && t.privateVanPrice !== undefined && t.privateVanPrice !== '') {
+                    target.privateVanPrice = Number(t.privateVanPrice);
+                }
+                if (t.privateBusPrice !== null && t.privateBusPrice !== undefined && t.privateBusPrice !== '') {
+                    target.privateBusPrice = Number(t.privateBusPrice);
+                }
+                target.price = target.joinPrice || target.ticketOnlyPrice || 0;
+                if (t.id && !target.id) {
+                    target.id = t.id;
+                    tourIdMap[t.id] = target;
+                }
             }
         });
 
         // 2. Deduplicate & Merge Transfers
         const trGroups = {};
+        const trIdMap = {};
         (rawDb.transfers || []).forEach(tr => {
             const rawName = String(tr.name || '').trim();
             if (!rawName) return;
@@ -2102,6 +2130,8 @@
                 groupKey = 'phuket_hotel_to_phuket_airport';
                 cleanDisplayName = 'Transfer Phuket Hotel to Phuket Airport';
                 if (!location) location = 'Phuket';
+            } else {
+                groupKey = (norm + '|' + location.toLowerCase()).trim();
             }
 
             const pCar = tr.carPrice !== null && tr.carPrice !== undefined && tr.carPrice !== '' ? Number(tr.carPrice) : (tr.price ? Number(tr.price) : null);
@@ -2109,9 +2139,13 @@
             const pBus = tr.busPrice !== null && tr.busPrice !== undefined && tr.busPrice !== '' ? Number(tr.busPrice) : null;
             const pDef = pCar || pVan || pBus || (tr.price ? Number(tr.price) : 0);
 
-            if (!trGroups[groupKey]) {
-                trGroups[groupKey] = {
-                    id: String(tr.id || ('tr_' + Date.now())),
+            let target = null;
+            if (tr.id && trIdMap[tr.id]) target = trIdMap[tr.id];
+            else if (trGroups[groupKey]) target = trGroups[groupKey];
+
+            if (!target) {
+                const newTr = {
+                    id: String(tr.id || ('tr_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6))),
                     name: cleanDisplayName,
                     location: location,
                     carPrice: pCar,
@@ -2119,29 +2153,41 @@
                     busPrice: pBus,
                     price: pDef
                 };
+                trGroups[groupKey] = newTr;
+                if (newTr.id) trIdMap[newTr.id] = newTr;
             } else {
-                const g = trGroups[groupKey];
-                if (pCar !== null) g.carPrice = pCar;
-                if (pVan !== null) g.vanPrice = pVan;
-                if (pBus !== null) g.busPrice = pBus;
-                g.price = g.carPrice || g.vanPrice || g.busPrice || 0;
-                if (!g.location && location) g.location = location;
+                if (pCar !== null && pCar > 0) target.carPrice = pCar;
+                if (pVan !== null && pVan > 0) target.vanPrice = pVan;
+                if (pBus !== null && pBus > 0) target.busPrice = pBus;
+                target.price = target.carPrice || target.vanPrice || target.busPrice || target.price || 0;
+                if (!target.location && location) target.location = location;
+                if (cleanDisplayName && cleanDisplayName.length >= target.name.length) target.name = cleanDisplayName;
+                if (tr.id && !target.id) {
+                    target.id = tr.id;
+                    trIdMap[tr.id] = target;
+                }
             }
         });
 
         // 3. Deduplicate & Merge Hotels
         const hGroups = {};
+        const hIdMap = {};
         (rawDb.hotels || []).forEach(h => {
             const rawName = String(h.name || '').trim();
             if (!rawName) return;
             const cleanName = rawName.replace(/(\s*,?\s*or\s+similar\s*(\d*\*?|\*)?)+/gi, '').replace(/\s+/g, ' ').trim();
             const star = String(h.star || '3').trim();
             const loc = String(h.location || '').trim();
-            const key = (cleanName.toLowerCase() + '|' + star + '|' + loc.toLowerCase()).trim();
+            const normLoc = loc.toLowerCase();
+            const key = (cleanName.toLowerCase() + '|' + star + '|' + normLoc).trim();
 
-            if (!hGroups[key]) {
-                hGroups[key] = {
-                    id: String(h.id || ('h_' + Date.now())),
+            let target = null;
+            if (h.id && hIdMap[h.id]) target = hIdMap[h.id];
+            else if (hGroups[key]) target = hGroups[key];
+
+            if (!target) {
+                const newH = {
+                    id: String(h.id || ('h_' + Date.now() + '_' + star + '_' + Math.random().toString(36).substring(2, 6))),
                     name: cleanName,
                     location: loc,
                     star: star,
@@ -2149,12 +2195,18 @@
                     mealPrice: Number(h.mealPrice) || 0,
                     tplPrice: (h.tplPrice !== undefined && h.tplPrice !== null && h.tplPrice !== '') ? Number(h.tplPrice) : (star === '4' ? 1000 : (star === '5' ? 1200 : 800))
                 };
+                hGroups[key] = newH;
+                if (newH.id) hIdMap[newH.id] = newH;
             } else {
-                const g = hGroups[key];
-                if (Number(h.price) > 0) g.price = Number(h.price);
-                if (Number(h.mealPrice) > 0) g.mealPrice = Number(h.mealPrice);
-                if (h.tplPrice) g.tplPrice = Number(h.tplPrice);
-                if (!g.location && loc) g.location = loc;
+                if (Number(h.price) > 0) target.price = Number(h.price);
+                if (Number(h.mealPrice) > 0) target.mealPrice = Number(h.mealPrice);
+                if (h.tplPrice !== undefined && h.tplPrice !== null && h.tplPrice !== '') target.tplPrice = Number(h.tplPrice);
+                if (!target.location && loc) target.location = loc;
+                if (cleanName && cleanName.length >= target.name.length) target.name = cleanName;
+                if (h.id && !target.id) {
+                    target.id = h.id;
+                    hIdMap[h.id] = target;
+                }
             }
         });
 
@@ -3197,8 +3249,14 @@
             existingTour = (masterDb.tours || []).find(t => t.id === currentSelectedModalTourDbId);
         }
         const cleanBase = stripTourTags(name).toLowerCase();
+        const normLoc = (location || '').toLowerCase();
         if (!existingTour) {
-            existingTour = (masterDb.tours || []).find(t => stripTourTags(t.name).toLowerCase() === cleanBase);
+            existingTour = (masterDb.tours || []).find(t => {
+                const tBase = stripTourTags(t.name).toLowerCase();
+                const tLoc = (t.location || '').trim().toLowerCase();
+                if (normLoc && tLoc) return tBase === cleanBase && (tLoc === normLoc || tLoc.includes(normLoc) || normLoc.includes(tLoc));
+                return tBase === cleanBase;
+            });
         }
         
         const isVan = rawName.toLowerCase().includes('van') || currentSelectedModalTourVehicle === 'van';
@@ -3953,7 +4011,7 @@
 
             if (matchedTour) {
                 currentSelectedModalTourDbId = matchedTour.id;
-                if (cityInp && matchedTour.location) cityInp.value = matchedTour.location;
+                if (cityInp && matchedTour.location) cityInp.value = matchedTour.location.trim();
                 if (badge) {
                     badge.innerText = `Linked: ${(matchedTour.name || '').substring(0, 18)}`;
                     badge.className = 'text-[10px] font-semibold px-2 py-0.5 rounded bg-green-100 text-green-800 border border-green-300';
@@ -8578,9 +8636,16 @@
                     <button onclick="downloadInqQuotationExcel('${item.inq}')" class="shrink-0 py-1.5 px-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-xs shadow-2xs transition flex items-center justify-center gap-1" title="Download dynamic Costing Excel (.xlsx)">
                         <i class="fas fa-file-excel"></i> <span>Excel</span>
                     </button>
-                    <button onclick="exportInqQuotationToGoogleSheets('${item.inq}')" class="shrink-0 py-1.5 px-2 ${item.googleSheetUrl ? 'bg-teal-700 text-white hover:bg-teal-800' : 'bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-300'} font-bold rounded-lg text-xs shadow-2xs transition flex items-center justify-center gap-1" title="${item.googleSheetUrl ? 'Open Google Sheet' : 'Convert & Open in Google Sheets'}">
-                        <i class="fab fa-google-drive"></i> <span>Sheet</span>
-                    </button>
+                    <div class="flex items-center shrink-0">
+                        <button onclick="exportInqQuotationToGoogleSheets('${item.inq}')" class="py-1.5 px-2 ${item.googleSheetUrl ? 'bg-teal-700 text-white hover:bg-teal-800 rounded-l-lg' : 'bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-300 rounded-lg'} font-bold text-xs shadow-2xs transition flex items-center justify-center gap-1" title="${item.googleSheetUrl ? 'Open Google Sheet (or click 🔄 to regenerate)' : 'Convert & Open in Google Sheets'}">
+                            <i class="fab fa-google-drive"></i> <span>Sheet</span>
+                        </button>
+                        ${item.googleSheetUrl ? `
+                        <button onclick="event.stopPropagation(); exportInqQuotationToGoogleSheets('${item.inq}', true)" class="py-1.5 px-1.5 bg-teal-800 hover:bg-teal-900 text-teal-200 hover:text-white font-bold rounded-r-lg text-xs transition border-l border-teal-600" title="🔄 Regenerate Fresh Google Sheet with Latest Costing & Mix Hotel">
+                            <i class="fas fa-sync-alt text-[10px]"></i>
+                        </button>
+                        ` : ''}
+                    </div>
                     <button onclick="deleteInqQuotation('${item.inq}')" class="shrink-0 p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition" title="Delete quotation">
                         <i class="fas fa-trash-alt text-xs"></i>
                     </button>
@@ -8991,8 +9056,9 @@
             const result = await window.SlwExcelGenerator.exportToGoogleSheets(payload, webhookUrl);
             if (result && result.sheetUrl) {
                 await saveGoogleSheetUrlToInq(payload.inq, result.sheetUrl);
+                if (typeof renderQuotationHubCards === 'function') renderQuotationHubCards();
                 window.open(result.sheetUrl, '_blank');
-                showNotification('✅ Google Sheet created successfully in your Drive! Opened in new tab.', false);
+                showNotification('✅ Fresh Google Sheet created successfully in your Drive! Opened in new tab.', false);
             } else {
                 throw new Error('Google did not return a valid Sheet URL');
             }
@@ -9038,7 +9104,7 @@
         }
     }
 
-    async function exportInqQuotationToGoogleSheets(inqKey) {
+    async function exportInqQuotationToGoogleSheets(inqKey, forceRegenerate = false) {
         if (!inqKey) return;
         try {
             let docData = null;
@@ -9053,11 +9119,20 @@
                 return;
             }
 
-            // If already created, open directly
-            if (docData.googleSheetUrl) {
-                window.open(docData.googleSheetUrl, '_blank');
-                showNotification('📂 Opening Google Sheet for ' + inqKey + '...', false);
-                return;
+            // If already created and forceRegenerate is false:
+            if (docData.googleSheetUrl && !forceRegenerate) {
+                const wantRegenerate = confirm(
+                    '📊 Google Sheet for ' + inqKey + ' already exists in Google Drive.\n\n' +
+                    '• Click OK to 🔄 GENERATE A FRESH UPDATED SHEET\n  (Recommended if you modified costing, added Mix Hotel, updated rates, or deleted the old file from Google Drive).\n\n' +
+                    '• Click CANCEL to 📂 OPEN EXISTING SHEET.'
+                );
+                if (wantRegenerate) {
+                    forceRegenerate = true;
+                } else {
+                    window.open(docData.googleSheetUrl, '_blank');
+                    showNotification('📂 Opening existing Google Sheet for ' + inqKey + '...', false);
+                    return;
+                }
             }
 
             const costing = docData.costing || {};

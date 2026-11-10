@@ -667,7 +667,7 @@
             rates: pkg.rates || parentDoc.rates,
             pricingAdj: costing.pricingAdj || pkg.pricingAdj || parentDoc.pricingAdj,
             pricingSummary: pkg.pricingSummary || parentDoc.pricingSummary,
-            hasMix: costing.hasMix !== undefined ? costing.hasMix : (pkg.hasMix !== undefined ? pkg.hasMix : parentDoc.hasMix),
+            hasMix: (costing.hasMix !== undefined ? Boolean(costing.hasMix) : (pkg.hasMix !== undefined ? Boolean(pkg.hasMix) : Boolean(parentDoc.hasMix))) || Boolean(pkg.rates && pkg.rates.pMix && String(pkg.rates.pMix).replace(/[^0-9]/g, '') !== '0' && String(pkg.rates.pMix).trim() !== ''),
             isTplActive: costing.isTplActive !== undefined ? costing.isTplActive : (pkg.isTplActive !== undefined ? pkg.isTplActive : parentDoc.isTplActive),
             tplRoomsCount: costing.tplRoomsCount !== undefined ? costing.tplRoomsCount : (pkg.tplRoomsCount !== undefined ? pkg.tplRoomsCount : parentDoc.tplRoomsCount),
             totalRoomsCount: costing.totalRoomsCount !== undefined ? costing.totalRoomsCount : (pkg.totalRoomsCount !== undefined ? pkg.totalRoomsCount : parentDoc.totalRoomsCount),
@@ -722,6 +722,8 @@
         let hasMix = false;
         if (typeof payload.hasMix === 'boolean') {
             hasMix = payload.hasMix;
+        } else if (payload.rates && payload.rates.pMix && String(payload.rates.pMix).replace(/[^0-9]/g, '') !== '0' && String(payload.rates.pMix).trim() !== '') {
+            hasMix = true;
         } else if (payload.options && Array.isArray(payload.options) && payload.options.length > 0) {
             // Primary source of truth: does the itinerary offer a mix hotel option?
             hasMix = payload.options.some(opt => 
