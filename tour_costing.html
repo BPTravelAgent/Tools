@@ -430,7 +430,7 @@
             <div class="min-w-0">
                 <div class="flex items-center gap-2 flex-wrap">
                     <span class="text-[10px] uppercase font-black tracking-wider bg-amber-400 text-indigo-950 px-2 py-0.5 rounded-full font-mono">Editing Quotation</span>
-                    <strong id="activeInqBannerKey" class="text-base font-black font-mono tracking-wide text-white">INQ-XXXX</strong>
+                    <strong id="activeInqBannerKey" onclick="copyInqNumber(this.innerText, this)" class="text-base font-black font-mono tracking-wide text-white cursor-pointer hover:underline" title="Click to copy INQ #">INQ-XXXX</strong>
                     <span class="text-xs text-indigo-200 hidden sm:inline">•</span>
                     <span id="activeInqBannerClient" class="text-sm font-bold text-amber-200 truncate">Client Name</span>
                     <span id="activeInqBannerPax" class="text-xs bg-indigo-900/60 text-indigo-200 px-2 py-0.5 rounded border border-indigo-500/40">2 Pax</span>
@@ -8352,10 +8352,10 @@
                 <div class="p-3.5 pb-2.5 border-b border-gray-100 bg-gradient-to-r from-gray-50/80 to-indigo-50/30">
                     <div class="flex items-center justify-between gap-2 mb-1.5">
                         <div class="flex items-center gap-1.5">
-                            <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-extrabold bg-indigo-100 text-indigo-900 border border-indigo-200 font-mono tracking-wide">
+                            <span onclick="event.stopPropagation(); copyInqNumber('${item.inq}', this)" class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-extrabold bg-indigo-100 hover:bg-indigo-200 text-indigo-900 border border-indigo-200 font-mono tracking-wide cursor-pointer transition" title="Click to copy INQ #${item.inq}">
                                 <i class="fas fa-tag text-[10px] text-indigo-600"></i> ${item.inq}
                             </span>
-                            <button onclick="copyInqNumber('${item.inq}')" class="text-gray-400 hover:text-indigo-600 text-xs p-1" title="Copy INQ #">
+                            <button onclick="event.stopPropagation(); copyInqNumber('${item.inq}', this)" class="text-gray-400 hover:text-indigo-600 text-xs p-1 transition" title="Copy INQ #${item.inq}">
                                 <i class="fas fa-copy"></i>
                             </button>
                             ${(item.packages && item.packages.length > 1) ? `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300" title="${item.packages.length} Saved Package Options"><i class="fas fa-boxes text-[9px] text-amber-600"></i> ${item.packages.length} Options</span>` : ''}
@@ -8481,13 +8481,72 @@
         renderQuotationHubCards();
     }
 
-    function copyInqNumber(inq) {
+    function slwCopyToClipboard(text, successMsg = 'Copied to clipboard!', btnEl = null) {
+        if (!text) return false;
+
+        const onDone = () => {
+            if (typeof showNotification === 'function') {
+                showNotification(successMsg, false);
+            }
+            if (btnEl) {
+                const originalHtml = btnEl.innerHTML;
+                btnEl.innerHTML = '<i class="fas fa-check text-emerald-600"></i>';
+                setTimeout(() => {
+                    btnEl.innerHTML = originalHtml;
+                }, 1500);
+            }
+        };
+
+        // Method 1: Modern navigator.clipboard (available in HTTPS & localhost)
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+            navigator.clipboard.writeText(text).then(() => {
+                onDone();
+            }).catch(() => {
+                execCommandFallback();
+            });
+            return;
+        }
+
+        // Method 2: execCommand fallback (works in HTTP, file://, mobile, older browsers)
+        execCommandFallback();
+
+        function execCommandFallback() {
+            try {
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                ta.style.position = 'fixed';
+                ta.style.top = '0';
+                ta.style.left = '0';
+                ta.style.width = '2em';
+                ta.style.height = '2em';
+                ta.style.padding = '0';
+                ta.style.border = 'none';
+                ta.style.outline = 'none';
+                ta.style.boxShadow = 'none';
+                ta.style.background = 'transparent';
+                ta.style.opacity = '0.01';
+                ta.setAttribute('readonly', '');
+                document.body.appendChild(ta);
+                ta.focus();
+                ta.select();
+                ta.setSelectionRange(0, 99999);
+                const successful = document.execCommand('copy');
+                document.body.removeChild(ta);
+                if (successful) {
+                    onDone();
+                    return;
+                }
+            } catch (err) {
+                console.warn('execCommand fallback copy failed:', err);
+            }
+            // Method 3: Last resort prompt
+            prompt("Copy Inquiry Reference (Ctrl+C, Enter):", text);
+        }
+    }
+
+    function copyInqNumber(inq, btnEl = null) {
         if (!inq) return;
-        navigator.clipboard.writeText(inq).then(() => {
-            showNotification('📋 Copied Inquiry #' + inq + ' to clipboard!', false);
-        }).catch(() => {
-            prompt("Copy Inquiry Reference:", inq);
-        });
+        slwCopyToClipboard(inq, '📋 Copied Inquiry #' + inq + ' to clipboard!', btnEl);
     }
 
     function saveAndOpenFromExportModal() {
