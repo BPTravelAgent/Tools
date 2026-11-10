@@ -1,4 +1,4 @@
-const CACHE_NAME = 'bp-tools-v32';
+const CACHE_NAME = 'bp-tools-v33';
 
 const ASSETS_TO_CACHE = [
   '.',
@@ -7,6 +7,8 @@ const ASSETS_TO_CACHE = [
   './Domarco_Itinerary.html',
   './Evago_Smart_Itinerary.html',
   './archives/Itinerary_Builder_App New.html',
+  './archives/html2canvas.min.js',
+  './archives/jspdf.umd.min.js',
   './Dp/Image.png',
   './team_chat.css',
   './team_chat.js',
