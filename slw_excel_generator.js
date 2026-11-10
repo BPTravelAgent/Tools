@@ -659,9 +659,9 @@
             paxText: pkg.paxText || parentDoc.paxText,
             transferPax: pkg.transferPax || costing.transferPax || parentDoc.transferPax || parentDoc.pax,
             hotelDivisor: pkg.hotelDivisor || costing.hotelDivisor || parentDoc.hotelDivisor || 2,
-            cities: costing.availableCities || pkg.cities || parentDoc.cities || [],
-            tours: costing.availableTours || pkg.tours || parentDoc.tours || [],
-            transfers: costing.availableTransfers || pkg.transfers || parentDoc.transfers || [],
+            cities: Array.isArray(costing.availableCities) ? costing.availableCities : (Array.isArray(pkg.cities) ? pkg.cities : (Array.isArray(parentDoc.cities) ? parentDoc.cities : [])),
+            tours: Array.isArray(costing.availableTours) ? costing.availableTours : (Array.isArray(pkg.tours) ? pkg.tours : (Array.isArray(parentDoc.tours) ? parentDoc.tours : [])),
+            transfers: Array.isArray(costing.availableTransfers) ? costing.availableTransfers : (Array.isArray(pkg.transfers) ? pkg.transfers : (Array.isArray(parentDoc.transfers) ? parentDoc.transfers : [])),
             days: pkg.itinerary?.days || costing.days || pkg.days || null,
             itinerary: pkg.itinerary || parentDoc.itinerary,
             rates: pkg.rates || parentDoc.rates,
@@ -2436,13 +2436,13 @@
             ws.mergeCells(priceRowIdx, 3, priceRowIdx, 4);
             const rPriceCard = ws.getRow(priceRowIdx);
 
-            let cardPriceVal = hCol.bufferAdult || 0;
+            let cardPriceVal = 0;
             const ratesObj = payload.rates || {};
             if (hCol.key === 'h3' && ratesObj.p3) cardPriceVal = extractNumericVal(ratesObj.p3);
             else if (hCol.key === 'hMix' && ratesObj.pMix) cardPriceVal = extractNumericVal(ratesObj.pMix);
             else if (hCol.key === 'h4' && ratesObj.p4) cardPriceVal = extractNumericVal(ratesObj.p4);
 
-            if (matchedOpt && Array.isArray(matchedOpt.prices)) {
+            if ((!cardPriceVal || cardPriceVal === 0) && matchedOpt && Array.isArray(matchedOpt.prices)) {
                 matchedOpt.prices.forEach(p => {
                     const lblNorm = normalizeText(p.label);
                     const pAmt = extractNumericVal(p.amount);
@@ -2450,6 +2450,9 @@
                         cardPriceVal = pAmt;
                     }
                 });
+            }
+            if (!cardPriceVal || cardPriceVal === 0) {
+                cardPriceVal = hCol.bufferAdult || 0;
             }
 
             const roomSharingSuffix = isTplActive ? ' (Triple Sharing)' : '';
@@ -2474,10 +2477,10 @@
             rPriceCard.getCell(4).border = priceBorder;
 
             if (hasChildPrices) {
-                let extraPriceVal = hCol.bufferExtra;
-                let sharePriceVal = hCol.bufferShare;
+                let extraPriceVal = 0;
+                let sharePriceVal = 0;
 
-                // Check payload.rates overrides
+                // Check payload.rates overrides first
                 if (hCol.key === 'h3') {
                     if (ratesObj.childExtra3) extraPriceVal = extractNumericVal(ratesObj.childExtra3);
                     if (ratesObj.childShare3) sharePriceVal = extractNumericVal(ratesObj.childShare3);
@@ -2495,11 +2498,14 @@
                         const lblNorm = normalizeText(p.label);
                         const pAmt = extractNumericVal(p.amount);
                         if (pAmt > 0) {
-                            if (lblNorm.includes('extra bed') || lblNorm.includes('extra')) extraPriceVal = pAmt;
-                            else if (lblNorm.includes('sharing')) sharePriceVal = pAmt;
+                            if (!extraPriceVal && (lblNorm.includes('extra bed') || lblNorm.includes('extra'))) extraPriceVal = pAmt;
+                            else if (!sharePriceVal && lblNorm.includes('sharing')) sharePriceVal = pAmt;
                         }
                     });
                 }
+
+                if (!extraPriceVal) extraPriceVal = hCol.bufferExtra || 0;
+                if (!sharePriceVal) sharePriceVal = hCol.bufferShare || 0;
 
                 // Child Extra Bed Card (Merged C:D)
                 if (includeChildExtra) {

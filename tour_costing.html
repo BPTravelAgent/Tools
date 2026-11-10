@@ -5340,6 +5340,12 @@
             hasChildPrices: hasChildPrices,
             includeChildExtraBed: includeChildExtra,
             includeChildSharingBed: includeChildShare,
+            isTplActive: Boolean(document.getElementById('check_tpl_room')?.checked),
+            tplRoomsCount: Number(document.getElementById('tpl_rooms_count')?.value) || 1,
+            totalRoomsCount: Number(document.getElementById('total_hotel_rooms')?.value) || 1,
+            tplRate3: Number(document.getElementById('tpl_rate_3star')?.value) || 800,
+            tplRate4: Number(document.getElementById('tpl_rate_4star')?.value) || 1000,
+            tplRate5: Number(document.getElementById('tpl_rate_5star')?.value) || 1200,
             childExtraLabel: document.getElementById('exportChildExtraBedLabel')?.value.trim() || 'PER CHILD (WITH EXTRA BED)',
             childShareLabel: document.getElementById('exportChildSharingBedLabel')?.value.trim() || 'PER CHILD (SHARING BED)',
             roe: roe,
@@ -7949,7 +7955,7 @@
         const chkTpl = document.getElementById('check_tpl_room');
         if (chkTpl) {
             chkTpl.checked = isTpl;
-            if (typeof onTplCheckboxChange === 'function') onTplCheckboxChange();
+            if (typeof onTplOptionToggle === 'function') onTplOptionToggle();
         }
         if (document.getElementById('tpl_rooms_count')) {
             document.getElementById('tpl_rooms_count').value = (targetPackage ? targetPackage.tplRoomsCount : null) ?? docData.tplRoomsCount ?? 1;
@@ -8807,11 +8813,17 @@
                 hasChildPrices: hasChild,
                 includeChildExtraBed: includeChildExtra,
                 includeChildSharingBed: includeChildShare,
+                isTplActive: Boolean(costing.isTplActive !== undefined ? costing.isTplActive : docData.isTplActive),
+                tplRoomsCount: Number(costing.tplRoomsCount !== undefined ? costing.tplRoomsCount : docData.tplRoomsCount) || 1,
+                totalRoomsCount: Number(costing.totalRoomsCount !== undefined ? costing.totalRoomsCount : docData.totalRoomsCount) || 1,
+                tplRate3: Number(costing.tplRate3 !== undefined ? costing.tplRate3 : docData.tplRate3) || 800,
+                tplRate4: Number(costing.tplRate4 !== undefined ? costing.tplRate4 : docData.tplRate4) || 1000,
+                tplRate5: Number(costing.tplRate5 !== undefined ? costing.tplRate5 : docData.tplRate5) || 1200,
                 childExtraLabel: docData.childExtraLabel || costing.childExtraLabel || 'Per Child (With Extra Bed)',
                 childShareLabel: docData.childShareLabel || costing.childShareLabel || 'Per Child (Sharing Bed)',
-                cities: cities.filter(c => c.selected !== false),
-                tours: tours.filter(t => t.selected !== false),
-                transfers: transfers.filter(t => t.selected !== false),
+                cities: (Array.isArray(cities) ? cities : []).filter(c => c.selected !== false),
+                tours: (Array.isArray(tours) ? tours : []).filter(t => t.selected !== false),
+                transfers: (Array.isArray(transfers) ? transfers : []).filter(t => t.selected !== false),
                 days: docData.itinerary && docData.itinerary.days ? docData.itinerary.days : null,
                 options: docData.itinerary && docData.itinerary.options ? docData.itinerary.options : null,
                 inclusions: docData.itinerary && docData.itinerary.inclusions ? docData.itinerary.inclusions : null,
@@ -8958,11 +8970,17 @@
                 hasChildPrices: hasChild,
                 includeChildExtraBed: includeChildExtra,
                 includeChildSharingBed: includeChildShare,
+                isTplActive: Boolean(costing.isTplActive !== undefined ? costing.isTplActive : docData.isTplActive),
+                tplRoomsCount: Number(costing.tplRoomsCount !== undefined ? costing.tplRoomsCount : docData.tplRoomsCount) || 1,
+                totalRoomsCount: Number(costing.totalRoomsCount !== undefined ? costing.totalRoomsCount : docData.totalRoomsCount) || 1,
+                tplRate3: Number(costing.tplRate3 !== undefined ? costing.tplRate3 : docData.tplRate3) || 800,
+                tplRate4: Number(costing.tplRate4 !== undefined ? costing.tplRate4 : docData.tplRate4) || 1000,
+                tplRate5: Number(costing.tplRate5 !== undefined ? costing.tplRate5 : docData.tplRate5) || 1200,
                 childExtraLabel: docData.childExtraLabel || costing.childExtraLabel || 'Per Child (With Extra Bed)',
                 childShareLabel: docData.childShareLabel || costing.childShareLabel || 'Per Child (Sharing Bed)',
-                cities: cities.filter(c => c.selected !== false),
-                tours: tours.filter(t => t.selected !== false),
-                transfers: transfers.filter(t => t.selected !== false),
+                cities: (Array.isArray(cities) ? cities : []).filter(c => c.selected !== false),
+                tours: (Array.isArray(tours) ? tours : []).filter(t => t.selected !== false),
+                transfers: (Array.isArray(transfers) ? transfers : []).filter(t => t.selected !== false),
                 days: docData.itinerary && docData.itinerary.days ? docData.itinerary.days : null,
                 options: docData.itinerary && docData.itinerary.options ? docData.itinerary.options : null,
                 inclusions: docData.itinerary && docData.itinerary.inclusions ? docData.itinerary.inclusions : null,
