@@ -1067,14 +1067,14 @@
     </div>
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1 border-t border-purple-100">
         <label class="flex items-center text-xs text-purple-900 font-semibold cursor-pointer">
-            <input type="checkbox" id="modalSyncTourToDbCheckbox" class="mr-1.5 h-4 w-4 text-purple-600 rounded">
+            <input type="checkbox" id="modalSyncTourToDbCheckbox" checked class="mr-1.5 h-4 w-4 text-purple-600 rounded">
             <span>Also save/update in Master DB & Cloud</span>
         </label>
         <div class="flex items-center gap-1.5 flex-wrap">
-            <button id="btnTourAddNewToDb" type="button" onclick="quickSaveModalTourToMasterDb(false, true, true)" class="py-1 px-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold rounded shadow transition flex items-center gap-1" title="Add as a new tour in Master DB & Cloud (All PCs)">
+            <button id="btnTourAddNewToDb" type="button" onclick="quickSaveModalTourToMasterDb(false, false, true)" class="py-1 px-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold rounded shadow transition flex items-center gap-1" title="Add as a new tour in Master DB & Cloud (All PCs)">
                 <i class="fas fa-plus-circle"></i> <span>Add New to DB</span>
             </button>
-            <button id="btnTourSaveToCloud" type="button" onclick="quickSaveModalTourToMasterDb(false, true, false)" class="py-1 px-2.5 bg-purple-600 hover:bg-purple-700 text-white text-[11px] font-bold rounded shadow transition flex items-center gap-1" title="Save changes directly to Master DB & Cloud and update Costing now">
+            <button id="btnTourSaveToCloud" type="button" onclick="quickSaveModalTourToMasterDb(false, false, false)" class="py-1 px-2.5 bg-purple-600 hover:bg-purple-700 text-white text-[11px] font-bold rounded shadow transition flex items-center gap-1" title="Save changes directly to Master DB & Cloud (keeps item selected so you can verify)">
                 <i class="fas fa-save"></i> <span>Save to Cloud</span>
             </button>
             <button id="btnTourDeleteFromDb" type="button" onclick="deleteModalTourFromMasterDb()" class="py-1 px-2.5 bg-red-600 hover:bg-red-700 text-white text-[11px] font-bold rounded shadow transition flex items-center gap-1" title="Permanently delete this tour from Master DB & Cloud (All PCs)">
@@ -1118,14 +1118,14 @@
     </div>
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1 border-t border-orange-100">
         <label class="flex items-center text-xs text-orange-900 font-semibold cursor-pointer">
-            <input type="checkbox" id="modalSyncTransferToDbCheckbox" class="mr-1.5 h-4 w-4 text-orange-600 rounded">
+            <input type="checkbox" id="modalSyncTransferToDbCheckbox" checked class="mr-1.5 h-4 w-4 text-orange-600 rounded">
             <span>Also save/update in Master DB & Cloud</span>
         </label>
         <div class="flex items-center gap-1.5 flex-wrap">
-            <button id="btnTransferAddNewToDb" type="button" onclick="quickSaveModalTransferToMasterDb(false, true, true)" class="py-1 px-2.5 bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-bold rounded shadow transition flex items-center gap-1" title="Add as a new transfer in Master DB & Cloud">
+            <button id="btnTransferAddNewToDb" type="button" onclick="quickSaveModalTransferToMasterDb(false, false, true)" class="py-1 px-2.5 bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-bold rounded shadow transition flex items-center gap-1" title="Add as a new transfer in Master DB & Cloud">
                 <i class="fas fa-plus-circle"></i> <span>Add New to DB</span>
             </button>
-            <button id="btnTransferSaveToCloud" type="button" onclick="quickSaveModalTransferToMasterDb(false, true, false)" class="py-1 px-2.5 bg-orange-600 hover:bg-orange-700 text-white text-[11px] font-bold rounded shadow transition flex items-center gap-1" title="Save changes directly to Master DB & Cloud and update Costing now">
+            <button id="btnTransferSaveToCloud" type="button" onclick="quickSaveModalTransferToMasterDb(false, false, false)" class="py-1 px-2.5 bg-orange-600 hover:bg-orange-700 text-white text-[11px] font-bold rounded shadow transition flex items-center gap-1" title="Save changes directly to Master DB & Cloud (keeps item selected so you can verify)">
                 <i class="fas fa-save"></i> <span>Save to Cloud</span>
             </button>
             <button id="btnTransferDeleteFromDb" type="button" onclick="deleteModalTransferFromMasterDb()" class="py-1 px-2.5 bg-red-600 hover:bg-red-700 text-white text-[11px] font-bold rounded shadow transition flex items-center gap-1" title="Permanently delete this transfer from Master DB & Cloud (All PCs)">
@@ -1261,14 +1261,14 @@
     <!-- Master DB Hotel Sync Option -->
     <div class="bg-blue-50/80 p-3 rounded-lg border border-blue-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <label class="flex items-center text-xs text-blue-900 font-bold cursor-pointer">
-            <input type="checkbox" id="modalSyncHotelsToDbCheckbox" class="mr-2 h-4 w-4 text-blue-600 rounded">
+            <input type="checkbox" id="modalSyncHotelsToDbCheckbox" checked class="mr-2 h-4 w-4 text-blue-600 rounded">
             <span>Also save/update newly entered Hotels to Master DB & Cloud</span>
         </label>
         <div class="flex items-center gap-1.5">
-            <button id="btnHotelAddNewToDb" type="button" onclick="quickSaveModalHotelsToMasterDb(false, true, true)" class="py-1 px-3 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded shadow transition flex items-center gap-1" title="Add as new hotels to Master DB & Cloud">
+            <button id="btnHotelAddNewToDb" type="button" onclick="quickSaveModalHotelsToMasterDb(false, false, true)" class="py-1 px-3 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded shadow transition flex items-center gap-1" title="Add as new hotels to Master DB & Cloud">
                 <i class="fas fa-plus-circle"></i> <span>Add New to DB</span>
             </button>
-            <button id="btnHotelSaveToCloud" type="button" onclick="quickSaveModalHotelsToMasterDb(false, true, false)" class="py-1 px-3 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded shadow transition flex items-center gap-1" title="Save changes directly to Master DB & Cloud and update Costing now">
+            <button id="btnHotelSaveToCloud" type="button" onclick="quickSaveModalHotelsToMasterDb(false, false, false)" class="py-1 px-3 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded shadow transition flex items-center gap-1" title="Save changes directly to Master DB & Cloud (keeps items selected so you can verify)">
                 <i class="fas fa-save"></i> <span>Save Hotels to Cloud</span>
             </button>
         </div>

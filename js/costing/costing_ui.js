@@ -342,6 +342,7 @@
             clearTourDbSearch();
             currentSelectedModalTourDbId = null;
             currentSelectedModalTourVehicle = null;
+            currentSelectedModalTourOptionType = null;
             document.getElementById('tourModalTitle').innerText = 'Add New Tour';
             const saveButton = document.getElementById('saveTourButton');
             saveButton.innerText = 'Add Tour';
@@ -358,6 +359,7 @@
         } else if (modalId === 'transferModal') {
             clearTransferDbSearch();
             currentSelectedModalTransferDbId = null;
+            currentSelectedModalTransferVehicle = null;
             document.getElementById('transferModalTitle').innerText = 'Add New Transfer';
             const saveButton = document.getElementById('saveTransferButton');
             saveButton.innerText = 'Add Transfer';
@@ -375,6 +377,7 @@
             clearHotelDbSearch(3);
             clearHotelDbSearch(4);
             clearHotelDbSearch(5);
+            currentSelectedModalHotelDbIds = { 3: null, 4: null, 5: null };
             document.getElementById('cityModalTitle').innerText = 'Add New City Stay';
             const saveButton = document.getElementById('saveCityButton');
             saveButton.innerText = 'Add City';
@@ -434,36 +437,26 @@
             const saveButton = document.getElementById('saveTourButton');
             saveButton.innerText = 'Save Changes';
             saveButton.onclick = () => saveTour(index);
-            openModal('tourModal');
 
-            // Auto-link to Master DB tour
+            // Auto-link to Master DB tour BEFORE openModal populates/restores dropdown
             const cleanTourBase = stripTourTags(tour.name).toLowerCase();
             const matchedTour = (masterDb.tours || []).find(t => stripTourTags(t.name).toLowerCase() === cleanTourBase);
             const badge = document.getElementById('modalTourMasterStatusBadge');
             const cityInp = document.getElementById('modalTourMasterCity');
             const syncChk = document.getElementById('modalSyncTourToDbCheckbox');
-            const tourSelect = document.getElementById('tourDbSelect');
+
+            const isJoin = (Number(tour.transferPrice) || 0) === 0 && !/\b(private|pvt)\b/i.test(tour.name || '');
+            currentSelectedModalTourOptionType = isJoin ? 'join' : 'private';
+            currentSelectedModalTourVehicle = /\bvan\b/i.test(tour.name || '') ? 'van' : (/\bbus\b/i.test(tour.name || '') ? 'bus' : 'car');
 
             if (matchedTour) {
                 currentSelectedModalTourDbId = matchedTour.id;
-                if (cityInp && matchedTour.location) cityInp.value = matchedTour.location.trim();
+                if (cityInp) cityInp.value = (matchedTour.location || '').trim();
                 if (badge) {
                     badge.innerText = `Linked: ${(matchedTour.name || '').substring(0, 18)}`;
                     badge.className = 'text-[10px] font-semibold px-2 py-0.5 rounded bg-green-100 text-green-800 border border-green-300';
                 }
                 if (syncChk) syncChk.checked = true;
-                if (tourSelect) {
-                    const isJoin = tour.transferPrice === 0;
-                    for (let i = 0; i < tourSelect.options.length; i++) {
-                        try {
-                            const optData = JSON.parse(tourSelect.options[i].value);
-                            if (optData.id === matchedTour.id && (isJoin ? optData.type === 'join' : optData.type !== 'join')) {
-                                tourSelect.selectedIndex = i;
-                                break;
-                            }
-                        } catch(e) {}
-                    }
-                }
             } else {
                 currentSelectedModalTourDbId = null;
                 if (badge) {
@@ -472,6 +465,8 @@
                 }
                 if (syncChk) syncChk.checked = true;
             }
+
+            openModal('tourModal');
         } else if (type === 'transfer') {
             currentEditingTransferIndex = index;
             const transfer = availableTransfers[index];
@@ -481,35 +476,24 @@
             const saveButton = document.getElementById('saveTransferButton');
             saveButton.innerText = 'Save Changes';
             saveButton.onclick = () => saveTransfer(index);
-            openModal('transferModal');
 
-            // Auto-link to Master DB transfer
+            // Auto-link to Master DB transfer BEFORE openModal populates/restores dropdown
             const cleanTrRoute = normalizeTransferRoute(transfer.name);
             const matchedTr = (masterDb.transfers || []).find(t => normalizeTransferRoute(t.name) === cleanTrRoute);
             const badge = document.getElementById('modalTransferMasterStatusBadge');
             const cityInp = document.getElementById('modalTransferMasterCity');
             const syncChk = document.getElementById('modalSyncTransferToDbCheckbox');
-            const trSelect = document.getElementById('transferDbSelect');
+
+            currentSelectedModalTransferVehicle = /\(van\)/i.test(transfer.name || '') ? 'van' : (/\(bus\)/i.test(transfer.name || '') ? 'bus' : (/\(car\)/i.test(transfer.name || '') ? 'car' : 'custom'));
 
             if (matchedTr) {
                 currentSelectedModalTransferDbId = matchedTr.id;
-                if (cityInp && matchedTr.location) cityInp.value = matchedTr.location;
+                if (cityInp) cityInp.value = (matchedTr.location || '').trim();
                 if (badge) {
                     badge.innerText = `Linked: ${(matchedTr.name || '').substring(0, 18)}`;
                     badge.className = 'text-[10px] font-semibold px-2 py-0.5 rounded bg-green-100 text-green-800 border border-green-300';
                 }
                 if (syncChk) syncChk.checked = true;
-                if (trSelect) {
-                    for (let i = 0; i < trSelect.options.length; i++) {
-                        try {
-                            const optData = JSON.parse(trSelect.options[i].value);
-                            if (optData.id === matchedTr.id) {
-                                trSelect.selectedIndex = i;
-                                break;
-                            }
-                        } catch(e) {}
-                    }
-                }
             } else {
                 currentSelectedModalTransferDbId = null;
                 if (badge) {
@@ -518,6 +502,8 @@
                 }
                 if (syncChk) syncChk.checked = true;
             }
+
+            openModal('transferModal');
         } else if (type === 'city') {
             currentEditingCityIndex = index;
             const city = availableCities[index];
@@ -547,6 +533,23 @@
             document.getElementById('newCity5StarPrice').value = city.hotel5Price || '';
             document.getElementById('newCity5StarMeal').value = city.hotel5Meal || '';
             document.getElementById('newCity5StarTpl').value = (city.hotel5Tpl !== undefined && city.hotel5Tpl !== null) ? city.hotel5Tpl : 1200;
+
+            // Link existing 3*, 4*, 5* hotels to Master DB IDs before openModal renders dropdowns
+            const findHotelId = (star, hName) => {
+                const n = (hName || '').trim().toLowerCase();
+                if (!n) return null;
+                const cityLow = (city.name || '').trim().toLowerCase();
+                const exact = (masterDb.hotels || []).find(h => (h.name || '').trim().toLowerCase() === n && Number(h.star) === star && (!cityLow || (h.location || '').trim().toLowerCase() === cityLow))
+                    || (masterDb.hotels || []).find(h => (h.name || '').trim().toLowerCase() === n && Number(h.star) === star)
+                    || (masterDb.hotels || []).find(h => (h.name || '').trim().toLowerCase() === n);
+                return exact ? exact.id : null;
+            };
+            currentSelectedModalHotelDbIds = {
+                3: findHotelId(3, city.hotel3Name),
+                4: findHotelId(4, city.hotel4Name),
+                5: findHotelId(5, city.hotel5Name)
+            };
+
             document.getElementById('cityModalTitle').innerText = 'Edit City Stay';
             const saveButton = document.getElementById('saveCityButton');
             saveButton.innerText = 'Save Changes';
@@ -557,7 +560,7 @@
         }
     }
 
-    function saveTour(index = null, syncToCloud = true) {
+    async function saveTour(index = null, syncToCloud = true) {
         if (index === null && currentEditingTourIndex !== null) {
             index = currentEditingTourIndex;
         }
@@ -577,9 +580,9 @@
             tourData.selected = availableTours[index] ? availableTours[index].selected : true;
             availableTours[index] = tourData;
         } else {
-            const cleanNew = name.toLowerCase().replace(/\s*\([^\)]*$/gi, '').replace(/\s*\((Join Tour|Join Transfer|Private Transfer|Private - Van|Private - Bus|Private.*|Ticket Only|Join)\)/gi, '').trim();
+            const cleanNew = typeof stripTourTags === 'function' ? stripTourTags(name).toLowerCase() : name.toLowerCase();
             const existingIdx = availableTours.findIndex(t => {
-                const cleanT = (t.name || '').toLowerCase().replace(/\s*\([^\)]*$/gi, '').replace(/\s*\((Join Tour|Join Transfer|Private Transfer|Private - Van|Private - Bus|Private.*|Ticket Only|Join)\)/gi, '').trim();
+                const cleanT = typeof stripTourTags === 'function' ? stripTourTags(t.name).toLowerCase() : (t.name || '').toLowerCase();
                 return cleanT === cleanNew;
             });
             if (existingIdx !== -1) {
@@ -593,12 +596,13 @@
 
         const syncCheckbox = document.getElementById('modalSyncTourToDbCheckbox');
         if (syncToCloud && syncCheckbox && syncCheckbox.checked) {
-            quickSaveModalTourToMasterDb(true, false);
+            await quickSaveModalTourToMasterDb(true, false, false);
         }
 
         currentEditingTourIndex = null;
         closeModal('tourModal');
         renderTours();
+        if (typeof saveState === 'function') saveState();
 
         const resultsEl = document.getElementById('results');
         if (resultsEl && resultsEl.style.display !== 'none' && typeof calculate === 'function') {
@@ -606,7 +610,7 @@
         }
     }
     
-    function saveTransfer(index = null, syncToCloud = true) {
+    async function saveTransfer(index = null, syncToCloud = true) {
         if (index === null && currentEditingTransferIndex !== null) {
             index = currentEditingTransferIndex;
         }
@@ -625,9 +629,9 @@
             transferData.selected = availableTransfers[index] ? availableTransfers[index].selected : true;
             availableTransfers[index] = transferData;
         } else {
-            const cleanNew = name.toLowerCase().replace(/\s*\([^\)]*$/gi, '').replace(/\s*\((Car|Van|Bus|Private.*)\)/gi, '').replace(/\bpvt\s+basis\b/gi, '').replace(/\bprivate\b/gi, '').trim();
+            const cleanNew = typeof normalizeTransferRoute === 'function' ? normalizeTransferRoute(name) : name.toLowerCase();
             const existingIdx = availableTransfers.findIndex(t => {
-                const cleanT = (t.name || '').toLowerCase().replace(/\s*\([^\)]*$/gi, '').replace(/\s*\((Car|Van|Bus|Private.*)\)/gi, '').replace(/\bpvt\s+basis\b/gi, '').replace(/\bprivate\b/gi, '').trim();
+                const cleanT = typeof normalizeTransferRoute === 'function' ? normalizeTransferRoute(t.name) : (t.name || '').toLowerCase();
                 return cleanT === cleanNew;
             });
             if (existingIdx !== -1) {
@@ -641,12 +645,13 @@
 
         const syncCheckbox = document.getElementById('modalSyncTransferToDbCheckbox');
         if (syncToCloud && syncCheckbox && syncCheckbox.checked) {
-            quickSaveModalTransferToMasterDb(true, false);
+            await quickSaveModalTransferToMasterDb(true, false, false);
         }
 
         currentEditingTransferIndex = null;
         closeModal('transferModal');
         renderTransfers();
+        if (typeof saveState === 'function') saveState();
 
         const resultsEl = document.getElementById('results');
         if (resultsEl && resultsEl.style.display !== 'none' && typeof calculate === 'function') {
@@ -654,7 +659,7 @@
         }
     }
 
-    function saveCity(index = null, syncToCloud = true) {
+    async function saveCity(index = null, syncToCloud = true) {
         if (index === null && currentEditingCityIndex !== null) {
             index = currentEditingCityIndex;
         }
@@ -720,12 +725,13 @@
 
         const syncHotelsCheckbox = document.getElementById('modalSyncHotelsToDbCheckbox');
         if (syncToCloud && syncHotelsCheckbox && syncHotelsCheckbox.checked) {
-            quickSaveModalHotelsToMasterDb(true, false);
+            await quickSaveModalHotelsToMasterDb(true, false, false);
         }
 
         currentEditingCityIndex = null;
         closeModal('cityModal');
         renderCities();
+        if (typeof saveState === 'function') saveState();
 
         const resultsEl = document.getElementById('results');
         if (resultsEl && resultsEl.style.display !== 'none' && typeof calculate === 'function') {
