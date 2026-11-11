@@ -1,18 +1,18 @@
-const CACHE_NAME = 'bp-tools-v37';
+const CACHE_NAME = 'bp-tools-v38';
 
 const ASSETS_TO_CACHE = [
   '.',
   './index.html',
   './tour_costing.html',
-  './js/costing/costing_state.js',
-  './js/costing/costing_master_db.js',
-  './js/costing/costing_ui.js',
-  './js/costing/costing_itinerary_sync.js',
-  './js/costing/costing_calculator.js',
-  './js/costing/costing_presets.js',
-  './js/costing/costing_inq_hub.js',
-  './js/costing/costing_sheets.js',
-  './js/costing/costing_init.js',
+  './js/costing/costing_state.js?v=38',
+  './js/costing/costing_master_db.js?v=38',
+  './js/costing/costing_ui.js?v=38',
+  './js/costing/costing_itinerary_sync.js?v=38',
+  './js/costing/costing_calculator.js?v=38',
+  './js/costing/costing_presets.js?v=38',
+  './js/costing/costing_inq_hub.js?v=38',
+  './js/costing/costing_sheets.js?v=38',
+  './js/costing/costing_init.js?v=38',
   './Domarco_Itinerary.html',
   './Evago_Smart_Itinerary.html',
   './archives/Itinerary_Builder_App New.html',
@@ -52,12 +52,17 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Fetch event: Network-first strategy
+// Fetch event: Network-first strategy (bypass HTTP disk cache for same-origin app assets)
 self.addEventListener('fetch', (event) => {
+  if (event.request.method !== 'GET') return;
+  const reqUrl = new URL(event.request.url);
+  const fetchPromise = reqUrl.origin === self.location.origin
+    ? fetch(event.request.url, { cache: 'no-cache', credentials: event.request.credentials })
+    : fetch(event.request);
   event.respondWith(
-    fetch(event.request)
+    fetchPromise
       .then((networkResponse) => {
-        if (event.request.method === 'GET') {
+        if (networkResponse && networkResponse.ok) {
           const responseClone = networkResponse.clone();
           caches.open(CACHE_NAME).then((cache) => {
             cache.put(event.request, responseClone);

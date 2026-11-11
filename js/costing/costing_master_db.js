@@ -1,6 +1,7 @@
     // ── MASTER DATABASE STORAGE, ENCODING, TAG & ROUTE HELPERS ──
     const MASTER_DB_STORAGE_KEY = 'SLW_Master_Inventory';
     let _isSavingMasterDb = false;
+    let _lastMasterDbSaveAt = 0;
 
     function encodeDbOptionValue(obj) {
         return encodeURIComponent(JSON.stringify(obj)).replace(/'/g, '%27');
@@ -343,6 +344,7 @@
             }
         } finally {
             _isSavingMasterDb = false;
+            _lastMasterDbSaveAt = Date.now();
         }
 
         if (typeof populateDbDropdowns === 'function') populateDbDropdowns();
@@ -1007,7 +1009,15 @@
                     if (docSnap && docSnap.exists) {
                         const incomingData = sanitizeDb(docSnap.data());
                         if (incomingData && (incomingData.tours.length > 0 || incomingData.hotels.length > 0 || incomingData.transfers.length > 0)) {
-                            masterDb = deduplicateMasterDatabase(incomingData);
+                            const nextDb = deduplicateMasterDatabase(incomingData);
+                            // Ignore self-triggered Firestore echo within 1.5s when data matches local state so open modals aren't disrupted
+                            if (Date.now() - _lastMasterDbSaveAt < 1500 &&
+                                JSON.stringify(nextDb.tours) === JSON.stringify(masterDb.tours || []) &&
+                                JSON.stringify(nextDb.hotels) === JSON.stringify(masterDb.hotels || []) &&
+                                JSON.stringify(nextDb.transfers) === JSON.stringify(masterDb.transfers || [])) {
+                                return;
+                            }
+                            masterDb = nextDb;
                             localStorage.setItem(MASTER_DB_STORAGE_KEY, JSON.stringify(masterDb));
                             populateDbDropdowns();
                             updateMasterDbCounts();
@@ -1190,9 +1200,10 @@
         });
         tourSelect.innerHTML = html;
 
-        // Restore previous or newly saved tour selection (matching both ID and variant type/vehicle)
+        // Restore previous or newly saved tour selection only when modal name input is non-empty
+        const currentModalTourName = (document.getElementById('newTourName')?.value || '').trim();
         let restored = false;
-        if (currentSelectedModalTourDbId) {
+        if (currentModalTourName !== '' && currentSelectedModalTourDbId) {
             let fallbackIdx = -1;
             for (let i = 1; i < tourSelect.options.length; i++) {
                 try {
@@ -1214,7 +1225,7 @@
                 restored = true;
             }
         }
-        if (!restored && prevTourVal) {
+        if (!restored && prevTourVal && currentModalTourName !== '') {
             try {
                 const prevData = decodeDbOptionValue(prevTourVal);
                 for (let i = 1; i < tourSelect.options.length; i++) {
@@ -1319,9 +1330,10 @@
         });
         transferSelect.innerHTML = html;
 
-        // Restore selection by locked DB ID + vehicle, or fallback to previous value
+        // Restore selection by locked DB ID + vehicle only when modal transfer input is non-empty
+        const currentModalTrName = (document.getElementById('newTransferName')?.value || '').trim();
         let restored = false;
-        if (currentSelectedModalTransferDbId) {
+        if (currentModalTrName !== '' && currentSelectedModalTransferDbId) {
             let fallbackIdx = -1;
             for (let i = 1; i < transferSelect.options.length; i++) {
                 try {
@@ -1341,7 +1353,7 @@
                 restored = true;
             }
         }
-        if (!restored && prevTrVal) {
+        if (!restored && prevTrVal && currentModalTrName !== '') {
             try {
                 const prevData = decodeDbOptionValue(prevTrVal);
                 for (let i = 1; i < transferSelect.options.length; i++) {
@@ -1504,17 +1516,18 @@
 
     function fillTourFromDb() {
         const select = document.getElementById('tourDbSelect');
-        if (!select.value) return;
+        if (!select || !select.value) return;
         try {
             const data = decodeDbOptionValue(select.value);
             if (!data) return;
-            document.getElementById('newTourName').value = data.name;
-            document.getElementById('newTourPrice').value = data.price;
-            document.getElementById('newTourTransferPrice').value = data.transfer;
+            const tourName = data.name || '';
+            document.getElementById('newTourName').value = tourName;
+            document.getElementById('newTourPrice').value = data.price ?? 0;
+            document.getElementById('newTourTransferPrice').value = data.transfer ?? 0;
 
             currentSelectedModalTourDbId = data.id || null;
             currentSelectedModalTourOptionType = data.type || null;
-            currentSelectedModalTourVehicle = data.vehicle || (data.name.toLowerCase().includes('van') ? 'van' : (data.name.toLowerCase().includes('bus') ? 'bus' : 'car'));
+            currentSelectedModalTourVehicle = data.vehicle || (tourName.toLowerCase().includes('van') ? 'van' : (tourName.toLowerCase().includes('bus') ? 'bus' : 'car'));
             const cityInp = document.getElementById('modalTourMasterCity');
             if (cityInp) cityInp.value = data.location || document.getElementById('tourCityFilter')?.value || '';
             const badge = document.getElementById('modalTourMasterStatusBadge');
@@ -1524,20 +1537,23 @@
             }
             const chk = document.getElementById('modalSyncTourToDbCheckbox');
             if (chk) chk.checked = true;
-        } catch (e) {}
+        } catch (e) {
+            console.error('fillTourFromDb error:', e);
+        }
     }
 
     function fillTransferFromDb() {
         const select = document.getElementById('transferDbSelect');
-        if (!select.value) return;
+        if (!select || !select.value) return;
         try {
             const data = decodeDbOptionValue(select.value);
             if (!data) return;
-            document.getElementById('newTransferName').value = data.name;
-            document.getElementById('newTransferPrice').value = data.price;
+            const transferName = data.name || '';
+            document.getElementById('newTransferName').value = transferName;
+            document.getElementById('newTransferPrice').value = data.price ?? 0;
 
             currentSelectedModalTransferDbId = data.id || null;
-            currentSelectedModalTransferVehicle = data.vehicle || (/\(van\)/i.test(data.name) ? 'van' : (/\(bus\)/i.test(data.name) ? 'bus' : (/\(car\)/i.test(data.name) ? 'car' : 'custom')));
+            currentSelectedModalTransferVehicle = data.vehicle || (/\(van\)/i.test(transferName) ? 'van' : (/\(bus\)/i.test(transferName) ? 'bus' : (/\(car\)/i.test(transferName) ? 'car' : 'custom')));
             const cityInp = document.getElementById('modalTransferMasterCity');
             if (cityInp) cityInp.value = data.location || document.getElementById('transferCityFilter')?.value || '';
             const badge = document.getElementById('modalTransferMasterStatusBadge');
@@ -1547,11 +1563,21 @@
             }
             const chk = document.getElementById('modalSyncTransferToDbCheckbox');
             if (chk) chk.checked = true;
-        } catch (e) {}
+        } catch (e) {
+            console.error('fillTransferFromDb error:', e);
+        }
     }
 
     function onTourModalNameInput(val) {
         val = (val || '').trim();
+        // Reset dropdown selection in Add mode when input is cleared so re-clicking the same tour fires onchange
+        if (!val && (typeof currentEditingTourIndex === 'undefined' || currentEditingTourIndex === null)) {
+            const tourSelect = document.getElementById('tourDbSelect');
+            if (tourSelect) {
+                tourSelect.value = '';
+                tourSelect.selectedIndex = 0;
+            }
+        }
         const badge = document.getElementById('modalTourMasterStatusBadge');
         const cityInp = document.getElementById('modalTourMasterCity');
         const syncChk = document.getElementById('modalSyncTourToDbCheckbox');
@@ -1592,6 +1618,14 @@
 
     function onTransferModalNameInput(val) {
         val = (val || '').trim();
+        // Reset dropdown selection in Add mode when input is cleared so re-clicking the same transfer fires onchange
+        if (!val && (typeof currentEditingTransferIndex === 'undefined' || currentEditingTransferIndex === null)) {
+            const transferSelect = document.getElementById('transferDbSelect');
+            if (transferSelect) {
+                transferSelect.value = '';
+                transferSelect.selectedIndex = 0;
+            }
+        }
         const badge = document.getElementById('modalTransferMasterStatusBadge');
         const cityInp = document.getElementById('modalTransferMasterCity');
         const syncChk = document.getElementById('modalSyncTransferToDbCheckbox');

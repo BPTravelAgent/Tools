@@ -339,7 +339,7 @@
         document.getElementById(modalId).style.display = 'none';
         // Reset modal to "Add" mode
         if (modalId === 'tourModal') {
-            clearTourDbSearch();
+            // Clear DB selection & inputs BEFORE clearing search filter so filterTourDbOptions() cannot re-select stale item
             currentSelectedModalTourDbId = null;
             currentSelectedModalTourVehicle = null;
             currentSelectedModalTourOptionType = null;
@@ -350,6 +350,12 @@
             document.getElementById('newTourName').value = '';
             document.getElementById('newTourPrice').value = '';
             document.getElementById('newTourTransferPrice').value = '';
+            const tourDbSel = document.getElementById('tourDbSelect');
+            if (tourDbSel) {
+                tourDbSel.value = '';
+                tourDbSel.selectedIndex = 0;
+            }
+            clearTourDbSearch();
             const tourBadge = document.getElementById('modalTourMasterStatusBadge');
             if (tourBadge) { tourBadge.innerText = 'Custom / New'; tourBadge.className = 'text-[10px] font-semibold px-2 py-0.5 rounded bg-gray-200 text-gray-700'; }
             const tourCity = document.getElementById('modalTourMasterCity');
@@ -357,7 +363,6 @@
             const syncChk = document.getElementById('modalSyncTourToDbCheckbox');
             if (syncChk) syncChk.checked = true; // Auto-sync to Master DB & Cloud by default
         } else if (modalId === 'transferModal') {
-            clearTransferDbSearch();
             currentSelectedModalTransferDbId = null;
             currentSelectedModalTransferVehicle = null;
             document.getElementById('transferModalTitle').innerText = 'Add New Transfer';
@@ -366,6 +371,12 @@
             saveButton.onclick = () => saveTransfer();
             document.getElementById('newTransferName').value = '';
             document.getElementById('newTransferPrice').value = '';
+            const transferDbSel = document.getElementById('transferDbSelect');
+            if (transferDbSel) {
+                transferDbSel.value = '';
+                transferDbSel.selectedIndex = 0;
+            }
+            clearTransferDbSearch();
             const trBadge = document.getElementById('modalTransferMasterStatusBadge');
             if (trBadge) { trBadge.innerText = 'Custom / New'; trBadge.className = 'text-[10px] font-semibold px-2 py-0.5 rounded bg-gray-200 text-gray-700'; }
             const trCity = document.getElementById('modalTransferMasterCity');
@@ -373,11 +384,18 @@
             const syncTrChk = document.getElementById('modalSyncTransferToDbCheckbox');
             if (syncTrChk) syncTrChk.checked = true; // Auto-sync to Master DB & Cloud by default
         } else if (modalId === 'cityModal') {
+            currentSelectedModalHotelDbIds = { 3: null, 4: null, 5: null };
+            ['cityNameDbSelect', 'city3StarDbSelect', 'city4StarDbSelect', 'city5StarDbSelect'].forEach(selId => {
+                const sel = document.getElementById(selId);
+                if (sel) {
+                    sel.value = '';
+                    sel.selectedIndex = 0;
+                }
+            });
             clearCityDbSearch();
             clearHotelDbSearch(3);
             clearHotelDbSearch(4);
             clearHotelDbSearch(5);
-            currentSelectedModalHotelDbIds = { 3: null, 4: null, 5: null };
             document.getElementById('cityModalTitle').innerText = 'Add New City Stay';
             const saveButton = document.getElementById('saveCityButton');
             saveButton.innerText = 'Add City';
@@ -564,9 +582,16 @@
         if (index === null && currentEditingTourIndex !== null) {
             index = currentEditingTourIndex;
         }
-        const name = (document.getElementById('newTourName').value || '').trim();
-        const price = parseFloat(document.getElementById('newTourPrice').value) || 0;
-        const transferPrice = parseFloat(document.getElementById('newTourTransferPrice').value) || 0;
+        let name = (document.getElementById('newTourName').value || '').trim();
+        let price = parseFloat(document.getElementById('newTourPrice').value) || 0;
+        let transferPrice = parseFloat(document.getElementById('newTourTransferPrice').value) || 0;
+        // Fallback: if dropdown has a selected Master DB tour but inputs weren't populated yet, populate now
+        if (!name && document.getElementById('tourDbSelect')?.value && typeof fillTourFromDb === 'function') {
+            fillTourFromDb();
+            name = (document.getElementById('newTourName').value || '').trim();
+            price = parseFloat(document.getElementById('newTourPrice').value) || 0;
+            transferPrice = parseFloat(document.getElementById('newTourTransferPrice').value) || 0;
+        }
         if (!name) {
             showNotification("Please enter a valid tour name.", true);
             return;
@@ -614,8 +639,14 @@
         if (index === null && currentEditingTransferIndex !== null) {
             index = currentEditingTransferIndex;
         }
-        const name = (document.getElementById('newTransferName').value || '').trim();
-        const price = parseFloat(document.getElementById('newTransferPrice').value) || 0;
+        let name = (document.getElementById('newTransferName').value || '').trim();
+        let price = parseFloat(document.getElementById('newTransferPrice').value) || 0;
+        // Fallback: if dropdown has a selected Master DB transfer but inputs weren't populated yet, populate now
+        if (!name && document.getElementById('transferDbSelect')?.value && typeof fillTransferFromDb === 'function') {
+            fillTransferFromDb();
+            name = (document.getElementById('newTransferName').value || '').trim();
+            price = parseFloat(document.getElementById('newTransferPrice').value) || 0;
+        }
         if (!name) {
             showNotification("Please enter a valid transfer name.", true);
             return;
