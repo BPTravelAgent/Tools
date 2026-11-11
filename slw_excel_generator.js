@@ -272,6 +272,127 @@
         return availableCities.length > 0 ? availableCities[0].name : 'Bangkok';
     }
 
+    function isEveningTourName(name) {
+        return /dinner|cruise|alcazar|tiffany|colosseum|calypso|simon|fantasea|carnival\s*magic|night\s*safari/i.test(String(name || ''));
+    }
+
+    function formatTourActivityLabel(tour) {
+        if (!tour || !tour.name) return '';
+        const cleanName = cleanTourNameTags(tour.name);
+        let tag = Number(tour.transferPrice) > 0 ? '(Private Transfer)' : '(Join Transfer)';
+        if (hasExistingTourTag(cleanName)) tag = '';
+        return cleanTourNameTags(`${cleanName}${tag ? ' ' + tag : ''}`.trim());
+    }
+
+    function applyMealFlagToCode(mealCode, tourName) {
+        const lower = String(tourName || '').toLowerCase();
+        const addLunch = lower.includes('lunch');
+        const addDinner = lower.includes('dinner') || lower.includes('cruise');
+        if (!addLunch && !addDinner) return mealCode || '(--/--/--)';
+        const match = String(mealCode || '(--/--/--)').match(/\(([^/]+)\/([^/]+)\/([^)]+)\)/);
+        if (!match) return mealCode || '(--/--/--)';
+        const b = match[1].trim() || '--';
+        const l = addLunch ? 'L' : (match[2].trim() || '--');
+        const d = addDinner ? 'D' : (match[3].trim() || '--');
+        return `(${b}/${l}/${d})`;
+    }
+
+    function isNonActivityBoilerplate(actText) {
+        const clean = stripHtml(actText).trim();
+        return /^(?:\d{1,2}[.:]\d{2}\s*(?:am|pm)?\s*)?(?:check\s*in\s+at|check\s*out\s+from|checkout\s+from|breakfast\s+at\s+hotel|overnight\s+at\s+hotel|free\s+for\s+leisure|tour\s+end!?)$/i.test(clean) ||
+               /^(?:\d{1,2}[.:]\d{2}\s*(?:am|pm)?\s*)?(?:check\s*in\s+at|12\.00\s*check\s*out\s*from)/i.test(clean);
+    }
+
+    function insertTourIntoDay(dayObj, tourText, isFirstDay = false) {
+        if (!dayObj || !tourText) return;
+        if (!Array.isArray(dayObj.activities)) dayObj.activities = [];
+        const acts = dayObj.activities;
+
+        const leisureIdx = acts.findIndex(a => /free\s+for\s+leisure/i.test(stripHtml(a)));
+        if (leisureIdx !== -1) {
+            acts[leisureIdx] = tourText;
+        } else if (isFirstDay && !isEveningTourName(tourText)) {
+            const checkInIdx = acts.findIndex(a => /check\s*in/i.test(stripHtml(a)));
+            if (checkInIdx !== -1) {
+                acts.splice(checkInIdx, 0, tourText);
+            } else {
+                const overIdx = acts.findIndex(a => /overnight/i.test(stripHtml(a)));
+                acts.splice(overIdx !== -1 ? overIdx : acts.length, 0, tourText);
+            }
+        } else {
+            const overIdx = acts.findIndex(a => /overnight/i.test(stripHtml(a)));
+            if (overIdx !== -1) {
+                acts.splice(overIdx, 0, tourText);
+            } else {
+                const depIdx = acts.findIndex(a => /check\s*out|checkout|tour\s*end/i.test(stripHtml(a)));
+                acts.splice(depIdx !== -1 ? depIdx : acts.length, 0, tourText);
+            }
+        }
+        dayObj.meal = applyMealFlagToCode(dayObj.meal, tourText);
+    }
+
+    /**
+     * Reconcile saved Itinerary Builder days with Costing selected tours so no selected tour (e.g. Coral Island on 1N Pattaya) is omitted from Excel/Google Sheets
+     */
+    function reconcileDaysWithTours(days, tours, cities, getCityForNight, effectiveNights) {
+        const renderDays = days.map(d => ({
+            ...d,
+            activities: Array.isArray(d.activities) ? [...d.activities] : []
+        }));
+        const simRemaining = [...tours];
+
+        renderDays.forEach((dayObj, dayIdx) => {
+            const isFirst = (dayIdx === 0);
+            const isLast = (dayIdx === renderDays.length - 1);
+            const acts = dayObj.activities.length > 0
+                ? dayObj.activities
+                : [isFirst ? 'Arrival and Transfer to Hotel' : (isLast ? 'Check out and Departure Transfer' : 'Free For Leisure')];
+            acts.forEach(act => {
+                if (!isNonActivityBoilerplate(act)) {
+                    matchAndConsumeTour(act, simRemaining);
+                }
+            });
+        });
+
+        if (simRemaining.length === 0) return renderDays;
+
+        const dayCityKeys = renderDays.map((_, idx) => {
+            if (idx < effectiveNights) return String(getCityForNight(idx).name || '').toLowerCase();
+            return String(cities[cities.length - 1]?.name || '').toLowerCase();
+        });
+
+        simRemaining.forEach(tour => {
+            const tourLabel = formatTourActivityLabel(tour);
+            if (!tourLabel) return;
+            const targetCity = detectTourCity(tour.name, cities).toLowerCase();
+
+            let targetIdx = renderDays.findIndex((d, idx) =>
+                idx < renderDays.length - 1 &&
+                dayCityKeys[idx] === targetCity &&
+                d.activities.some(a => /free\s+for\s+leisure/i.test(stripHtml(a)))
+            );
+            if (targetIdx === -1) {
+                targetIdx = renderDays.findIndex((_, idx) =>
+                    idx < renderDays.length - 1 && dayCityKeys[idx] === targetCity
+                );
+            }
+            if (targetIdx === -1) {
+                targetIdx = renderDays.findIndex((d, idx) =>
+                    idx < renderDays.length - 1 &&
+                    d.activities.some(a => /free\s+for\s+leisure/i.test(stripHtml(a)))
+                );
+            }
+            if (targetIdx === -1) {
+                targetIdx = Math.max(0, renderDays.length - 2);
+            }
+            if (renderDays[targetIdx]) {
+                insertTourIntoDay(renderDays[targetIdx], tourLabel, targetIdx === 0);
+            }
+        });
+
+        return renderDays;
+    }
+
     /**
      * Smart Day-by-Day Generation for Multi-City Packages
      */
@@ -318,6 +439,7 @@
         };
 
         const days = [];
+        const dayCityKeys = [];
         let currentCityIdx = 0;
         let nightsInCurCity = 0;
 
@@ -341,6 +463,7 @@
             const curCity = selectedCities[currentCityIdx] || { name: 'Bangkok', hotel3Name: 'Hotel 3*', hotel4Name: 'Hotel 4*' };
             const curCityKey = curCity.name.toLowerCase();
             const curCityTours = toursByCity[curCityKey] || [];
+            let assignedDayCityKey = curCityKey;
 
             if (isFirstDay) {
                 // Day 1 Arrival in City 1
@@ -358,34 +481,32 @@
                     activities.push(`Private Arrival at Airport and Transfer to ${curCity.name} Hotel`);
                 }
 
-                // Check if there is an arrival/en-route tour in City 1 (e.g. Pattaya City Tour - Big Buddha & Viewpoint)
-                const cityTourIdx = curCityTours.findIndex(t => {
+                // Check for arrival/en-route tour, or day tour when City 1 only has 1 night (e.g. 1N Pattaya Coral Island)
+                let cityTourIdx = curCityTours.findIndex(t => {
                     const n = t.name.toLowerCase();
                     if (learnedRules.some(r => r.type === 'en_route' && r.timing === 'day_1_en_route' && n.includes(r.pattern))) return true;
                     return n.includes('city tour') || n.includes('half day') || n.includes('viewpoint') || n.includes('big buddha');
                 });
+                if (cityTourIdx === -1 && (Number(curCity.numberOfNights) || 1) === 1 && curCityTours.length > 0) {
+                    cityTourIdx = curCityTours.findIndex(t => !isEveningTourName(t.name));
+                }
 
                 if (cityTourIdx !== -1) {
                     const cityTour = curCityTours.splice(cityTourIdx, 1)[0];
-                    let cleanName = cleanTourNameTags(cityTour.name);
-                    let tag = cityTour.transferPrice > 0 ? '(Private Transfer)' : '(Join Transfer)';
-                    if (hasExistingTourTag(cleanName)) tag = '';
-                    activities.push(cleanTourNameTags(`${cleanName}${tag ? ' ' + tag : ''}`.trim()));
-                    if (cleanName.toLowerCase().includes('lunch')) hasLunch = true;
-                    if (cleanName.toLowerCase().includes('dinner')) hasDinner = true;
+                    activities.push(formatTourActivityLabel(cityTour));
+                    const lowerCityTour = cityTour.name.toLowerCase();
+                    if (lowerCityTour.includes('lunch')) hasLunch = true;
+                    if (lowerCityTour.includes('dinner')) hasDinner = true;
                 }
 
                 activities.push(formatHotelCheckIn(curCity.hotel3Name, curCity, '3*'));
 
-                // If arrival is in Bangkok and there is an evening dinner cruise, place it
-                if (curCityKey === 'bangkok') {
-                    const eveIdx = curCityTours.findIndex(t => t.name.toLowerCase().includes('dinner') || t.name.toLowerCase().includes('cruise'));
+                // Place evening/dinner tour on Day 1 if arrival is in Bangkok or this is a 1-night stay
+                if (curCityKey === 'bangkok' || (Number(curCity.numberOfNights) || 1) === 1) {
+                    const eveIdx = curCityTours.findIndex(t => isEveningTourName(t.name));
                     if (eveIdx !== -1) {
                         const eveTour = curCityTours.splice(eveIdx, 1)[0];
-                        let cleanEveName = cleanTourNameTags(eveTour.name);
-                        let tag = eveTour.transferPrice > 0 ? '(Private Transfer)' : '(Join Transfer)';
-                        if (hasExistingTourTag(cleanEveName)) tag = '';
-                        activities.push(cleanTourNameTags(`${cleanEveName}${tag ? ' ' + tag : ''}`.trim()));
+                        activities.push(formatTourActivityLabel(eveTour));
                         hasDinner = true;
                     }
                 }
@@ -396,6 +517,16 @@
             } else if (isLastDay) {
                 // Last Day Departure from Last City
                 activities.push("Breakfast at Hotel");
+
+                // Drain any unscheduled day tour before final departure if needed
+                const lastCityTours = toursByCity[curCityKey] || [];
+                while (lastCityTours.length > 0) {
+                    const remTour = lastCityTours.shift();
+                    activities.push(formatTourActivityLabel(remTour));
+                    const lowerRem = remTour.name.toLowerCase();
+                    if (lowerRem.includes('lunch')) hasLunch = true;
+                    if (lowerRem.includes('dinner')) hasDinner = true;
+                }
 
                 const depTr = findTransfer(tr => {
                     const n = tr.name.toLowerCase();
@@ -426,11 +557,23 @@
 
                 if (isCityTransitionDay) {
                     const prevCity = selectedCities[currentCityIdx];
+                    const prevCityKey = prevCity.name.toLowerCase();
+                    const prevCityTours = toursByCity[prevCityKey] || [];
+
+                    // Schedule any remaining tour in prevCity before checkout (e.g. extra tour in 1N stay or multi-city stopover)
+                    while (prevCityTours.length > 0) {
+                        const prevTour = prevCityTours.shift();
+                        activities.push(formatTourActivityLabel(prevTour));
+                        const lowerPrev = prevTour.name.toLowerCase();
+                        if (lowerPrev.includes('lunch')) hasLunch = true;
+                        if (lowerPrev.includes('dinner')) hasDinner = true;
+                    }
+
                     currentCityIdx++;
                     nightsInCurCity = 0;
                     const nextCity = selectedCities[currentCityIdx];
                     const nextCityKey = nextCity.name.toLowerCase();
-                    const prevCityKey = prevCity.name.toLowerCase();
+                    assignedDayCityKey = nextCityKey;
                     const nextCityTours = toursByCity[nextCityKey] || [];
 
                     activities.push("12.00 Check out from Hotel");
@@ -446,21 +589,18 @@
                         activities.push(directInterTr.name);
                     } else {
                         // 2. Multi-leg / Domestic Flight Transfer (e.g. Phuket to Pattaya/Bangkok):
-                        // Leg 1: Departure transfer in prevCity (prevCity hotel to airport)
                         const leg1 = findTransfer(tr => {
                             const n = tr.name.toLowerCase();
                             return n.includes(prevCityKey) && (n.includes('departure') || n.includes('to airport') || (n.includes('airport') && !n.includes('arrival')));
                         });
                         if (leg1) activities.push(leg1.name);
 
-                        // Leg 2: Arrival transfer in nextCity (airport to nextCity hotel)
                         const leg2 = findTransfer(tr => {
                             const n = tr.name.toLowerCase();
                             return n.includes(nextCityKey) && (n.includes('arrival') || n.includes('from airport') || (n.includes('airport') && !n.includes('departure')));
                         });
                         if (leg2) activities.push(leg2.name);
 
-                        // Fallback if neither found
                         if (!leg1 && !leg2) {
                             activities.push(`Private Transfer ${prevCity.name} Hotel to ${nextCity.name} Hotel (Private Transfer)`);
                         }
@@ -468,17 +608,14 @@
 
                     activities.push(formatHotelCheckIn(nextCity.hotel3Name, nextCity, '3*'));
 
-                    // Check for evening or afternoon tour in next city:
-                    // Priority A: Evening / Dinner cruise tour
+                    // Check for evening or afternoon tour in next city (or only tour if nextCity has 1 night)
                     let trTourIdx = nextCityTours.findIndex(t => {
                         const n = t.name.toLowerCase();
                         if (learnedRules.some(r => (r.type === 'tour_timing' || r.type === 'evening_tour') && n.includes(r.pattern))) return true;
-                        return n.includes('dinner') || n.includes('cruise');
+                        return isEveningTourName(n);
                     });
 
-                    // Priority B: If no dinner cruise, but there are multiple tours in nextCity (e.g. Pattaya has Floating Market + Coral Island):
-                    // place the half-day / non-lunch tour on the transition day!
-                    if (trTourIdx === -1 && nextCityTours.length > 1) {
+                    if (trTourIdx === -1 && (nextCityTours.length > 1 || (Number(nextCity.numberOfNights) || 1) === 1) && nextCityTours.length > 0) {
                         trTourIdx = nextCityTours.findIndex(t => {
                             const n = t.name.toLowerCase();
                             return !n.includes('lunch') && !n.includes('full day') && !n.includes('island');
@@ -488,12 +625,10 @@
 
                     if (trTourIdx !== -1) {
                         const trTour = nextCityTours.splice(trTourIdx, 1)[0];
-                        let cleanTrName = cleanTourNameTags(trTour.name);
-                        let tag = trTour.transferPrice > 0 ? '(Private Transfer)' : '(Join Transfer)';
-                        if (hasExistingTourTag(cleanTrName)) tag = '';
-                        activities.push(cleanTourNameTags(`${cleanTrName}${tag ? ' ' + tag : ''}`.trim()));
-                        if (cleanTrName.toLowerCase().includes('lunch')) hasLunch = true;
-                        if (cleanTrName.toLowerCase().includes('dinner') || cleanTrName.toLowerCase().includes('cruise')) hasDinner = true;
+                        activities.push(formatTourActivityLabel(trTour));
+                        const lowerTr = trTour.name.toLowerCase();
+                        if (lowerTr.includes('lunch')) hasLunch = true;
+                        if (lowerTr.includes('dinner') || lowerTr.includes('cruise')) hasDinner = true;
                     }
 
                     activities.push("Overnight at Hotel");
@@ -503,12 +638,10 @@
                     // Regular stay day in curCity
                     if (curCityTours.length > 0) {
                         const tour = curCityTours.shift();
-                        let cleanTourName = cleanTourNameTags(tour.name);
-                        let tag = tour.transferPrice > 0 ? '(Private Transfer)' : '(Join Transfer)';
-                        if (hasExistingTourTag(cleanTourName)) tag = '';
-                        activities.push(cleanTourNameTags(`${cleanTourName}${tag ? ' ' + tag : ''}`.trim()));
-                        if (cleanTourName.toLowerCase().includes('lunch')) hasLunch = true;
-                        if (cleanTourName.toLowerCase().includes('dinner') || cleanTourName.toLowerCase().includes('cruise')) hasDinner = true;
+                        activities.push(formatTourActivityLabel(tour));
+                        const lowerT = tour.name.toLowerCase();
+                        if (lowerT.includes('lunch')) hasLunch = true;
+                        if (lowerT.includes('dinner') || lowerT.includes('cruise')) hasDinner = true;
                     } else {
                         activities.push("Free For Leisure");
                     }
@@ -521,7 +654,7 @@
             // Accurate Meal code based on actual scheduled activities
             let mealStr = '';
             if (isFirstDay) {
-                mealStr = hasDinner ? '(--/--/D)' : '(--/--/--)';
+                mealStr = `(--/${hasLunch ? 'L' : '--'}/${hasDinner ? 'D' : '--'})`;
             } else {
                 const b = 'B';
                 const l = hasLunch ? 'L' : '--';
@@ -529,6 +662,7 @@
                 mealStr = `(${b}/${l}/${d})`;
             }
 
+            dayCityKeys.push(assignedDayCityKey);
             days.push({
                 id: dayNum,
                 day: dayTitle,
@@ -537,6 +671,18 @@
                 activities: activities
             });
         }
+
+        // Final safety net: inject any remaining unscheduled tours into matching city days
+        const remainingPool = [];
+        Object.values(toursByCity).forEach(list => remainingPool.push(...list));
+        remainingPool.forEach(tour => {
+            const targetCity = detectTourCity(tour.name, selectedCities).toLowerCase();
+            let idx = days.findIndex((d, i) => i < days.length - 1 && dayCityKeys[i] === targetCity && d.activities.some(a => /free\s+for\s+leisure/i.test(a)));
+            if (idx === -1) idx = days.findIndex((_, i) => i < days.length - 1 && dayCityKeys[i] === targetCity);
+            if (idx === -1) idx = days.findIndex((d, i) => i < days.length - 1 && d.activities.some(a => /free\s+for\s+leisure/i.test(a)));
+            if (idx === -1) idx = Math.max(0, days.length - 2);
+            if (days[idx]) insertTourIntoDay(days[idx], formatTourActivityLabel(tour), idx === 0);
+        });
 
         return days;
     }
@@ -659,9 +805,9 @@
             paxText: pkg.paxText || parentDoc.paxText,
             transferPax: pkg.transferPax || costing.transferPax || parentDoc.transferPax || parentDoc.pax,
             hotelDivisor: pkg.hotelDivisor || costing.hotelDivisor || parentDoc.hotelDivisor || 2,
-            cities: Array.isArray(costing.availableCities) ? costing.availableCities : (Array.isArray(pkg.cities) ? pkg.cities : (Array.isArray(parentDoc.cities) ? parentDoc.cities : [])),
-            tours: Array.isArray(costing.availableTours) ? costing.availableTours : (Array.isArray(pkg.tours) ? pkg.tours : (Array.isArray(parentDoc.tours) ? parentDoc.tours : [])),
-            transfers: Array.isArray(costing.availableTransfers) ? costing.availableTransfers : (Array.isArray(pkg.transfers) ? pkg.transfers : (Array.isArray(parentDoc.transfers) ? parentDoc.transfers : [])),
+            cities: (Array.isArray(costing.availableCities) ? costing.availableCities : (Array.isArray(pkg.cities) ? pkg.cities : (Array.isArray(parentDoc.cities) ? parentDoc.cities : []))).filter(c => c && c.selected !== false),
+            tours: (Array.isArray(costing.availableTours) ? costing.availableTours : (Array.isArray(pkg.tours) ? pkg.tours : (Array.isArray(parentDoc.tours) ? parentDoc.tours : []))).filter(t => t && t.selected !== false),
+            transfers: (Array.isArray(costing.availableTransfers) ? costing.availableTransfers : (Array.isArray(pkg.transfers) ? pkg.transfers : (Array.isArray(parentDoc.transfers) ? parentDoc.transfers : []))).filter(t => t && t.selected !== false),
             days: pkg.itinerary?.days || costing.days || pkg.days || null,
             itinerary: pkg.itinerary || parentDoc.itinerary,
             rates: pkg.rates || parentDoc.rates,
@@ -1030,13 +1176,39 @@
         const remainingTours = [...tours];
         const remainingTransfers = [...transfers];
 
+        const appendRemainingToursToSheet = () => {
+            if (remainingTours.length === 0) return;
+            remainingTours.forEach(remTour => {
+                const extraRow = ws.getRow(currentRow++);
+                extraRow.getCell(3).value = formatTourActivityLabel(remTour) || remTour.name;
+                extraRow.getCell(3).font = { name: 'Arial', size: 10, bold: true };
+                extraRow.getCell(3).border = BORDER_THIN;
+                extraRow.getCell(4).border = BORDER_THIN;
+                extraRow.getCell(6).value = (remTour.price !== undefined && remTour.price !== null) ? Number(remTour.price) : 0;
+                extraRow.getCell(6).font = { name: 'Arial', size: 10 };
+                extraRow.getCell(6).alignment = { horizontal: 'right' };
+                extraRow.getCell(6).border = BORDER_THIN;
+                if (Number(remTour.transferPrice) > 0) {
+                    extraRow.getCell(7).value = Number(remTour.transferPrice);
+                    extraRow.getCell(7).font = { name: 'Arial', size: 10 };
+                    extraRow.getCell(7).alignment = { horizontal: 'right' };
+                }
+                extraRow.getCell(7).border = BORDER_THIN;
+                hotelCols.forEach(hCol => {
+                    extraRow.getCell(hCol.col).border = BORDER_THIN;
+                });
+            });
+            remainingTours.length = 0;
+        };
+
         // ── DAY-BY-DAY GENERATION ──
         if (days && days.length > 0) {
             // ── MODE A: From Itinerary Builder Finalized Days ──
             const totalDaysCount = days.length;
             const effectiveNights = totalNights > 0 ? totalNights : Math.max(0, totalDaysCount - 1);
+            const renderDays = reconcileDaysWithTours(days, tours, cities, getCityForNight, effectiveNights);
 
-            days.forEach((dayObj, dayIdx) => {
+            renderDays.forEach((dayObj, dayIdx) => {
                 const dayNum = dayIdx + 1;
                 const isFirstDay = (dayIdx === 0);
                 const isLastDay = (dayIdx === totalDaysCount - 1);
@@ -1192,8 +1364,9 @@
                         }
                     }
 
-                    // Match Tours
-                    const matchedTour = matchAndConsumeTour(actText, remainingTours);
+                    // Match Tours (skip pure hotel check-in/checkout/leisure boilerplate so hotels don't accidentally steal a tour)
+                    const isBoilerplateRow = isNonActivityBoilerplate(actText);
+                    const matchedTour = isBoilerplateRow ? null : matchAndConsumeTour(actText, remainingTours);
                     if (matchedTour) {
                         row.getCell(6).value = Number(matchedTour.price) || 0;
                         row.getCell(6).font = { name: 'Arial', size: 10 };
@@ -1345,6 +1518,9 @@
                 }
             });
 
+            // Belt-and-suspenders: if any selected tour STILL wasn't consumed above, append it before totals so tourSum matches Costing 100%
+            appendRemainingToursToSheet();
+
         } else {
             // ── MODE B: Fallback Synthetic Day Generation ──
             const totalDays = totalNights > 0 ? totalNights + 1 : Math.max(1, tours.length + 1);
@@ -1480,7 +1656,7 @@
                         });
                     }
 
-                    const eveIdx = remainingTours.findIndex(t => t.name.toLowerCase().includes('dinner') || t.name.toLowerCase().includes('cruise'));
+                    const eveIdx = remainingTours.findIndex(t => isEveningTourName(t.name));
                     if (eveIdx !== -1) {
                         const eveTour = remainingTours.splice(eveIdx, 1)[0];
                         const rowEve = ws.getRow(currentRow++);
@@ -1488,10 +1664,16 @@
                         rowEve.getCell(3).font = { name: 'Arial', size: 10, bold: true };
                         rowEve.getCell(3).border = BORDER_THIN;
 
-                        rowEve.getCell(6).value = Number(eveTour.price) || 1150;
+                        rowEve.getCell(6).value = (eveTour.price !== undefined && eveTour.price !== null) ? Number(eveTour.price) : 0;
                         rowEve.getCell(6).font = { name: 'Arial', size: 10 };
                         rowEve.getCell(6).alignment = { horizontal: 'right' };
                         rowEve.getCell(6).border = BORDER_THIN;
+                        if (Number(eveTour.transferPrice) > 0) {
+                            rowEve.getCell(7).value = Number(eveTour.transferPrice);
+                            rowEve.getCell(7).font = { name: 'Arial', size: 10 };
+                            rowEve.getCell(7).alignment = { horizontal: 'right' };
+                            rowEve.getCell(7).border = BORDER_THIN;
+                        }
                     }
 
                     const rowOver = ws.getRow(currentRow++);
@@ -1676,10 +1858,16 @@
                         rowTour.getCell(3).font = { name: 'Arial', size: 10, bold: true };
                         rowTour.getCell(3).border = BORDER_THIN;
 
-                        rowTour.getCell(6).value = Number(dayTour.price) || 1200;
+                        rowTour.getCell(6).value = (dayTour.price !== undefined && dayTour.price !== null) ? Number(dayTour.price) : 0;
                         rowTour.getCell(6).font = { name: 'Arial', size: 10 };
                         rowTour.getCell(6).alignment = { horizontal: 'right' };
                         rowTour.getCell(6).border = BORDER_THIN;
+                        if (Number(dayTour.transferPrice) > 0) {
+                            rowTour.getCell(7).value = Number(dayTour.transferPrice);
+                            rowTour.getCell(7).font = { name: 'Arial', size: 10 };
+                            rowTour.getCell(7).alignment = { horizontal: 'right' };
+                            rowTour.getCell(7).border = BORDER_THIN;
+                        }
                         secondDayRow = rowTour;
                     } else {
                         const rowFree = ws.getRow(currentRow++);
@@ -1711,6 +1899,8 @@
                     nightsSpentInCurrentCity++;
                 }
             }
+
+            appendRemainingToursToSheet();
         }
 
         // ── TABLE HEADER ROW ABOVE SUBTOTALS ──
