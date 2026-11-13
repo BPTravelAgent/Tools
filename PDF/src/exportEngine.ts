@@ -360,20 +360,31 @@ export class ExportEngine {
           ? change.origPdfX
           : (change.pdfX !== undefined ? change.pdfX : (change.origX ?? change.x));
         const origWidth = change.origWidth ?? change.width;
-        const origHeight = change.origHeight ?? change.height;
 
         const wasMoved = change.origX !== undefined && change.origY !== undefined && (Math.abs(change.x - change.origX) > 1 || Math.abs(change.y - change.origY) > 1);
 
-        const maskHeight = Math.max(origHeight + 6, change.fontSize * 1.35);
-        const maskY = origBaseY - change.fontSize * 0.32;
-        const maskWidth = Math.max(origWidth + 8, change.width + 8, 24);
+        // Precise typographic metrics:
+        // In standard typography (Helvetica, Arial, Times, Roboto, DM Sans):
+        // Descenders ('g', 'j', 'p', 'q', 'y') extend ~0.20-0.22 * fontSize below baseline.
+        // Ascenders ('b', 'd', 'h', 'k', 'l') and capitals ('A'-'Z') extend ~0.72-0.78 * fontSize above baseline.
+        // Accents reach at most ~0.82 * fontSize above baseline.
+        // Tight bounds prevent the mask from overflowing upwards into adjacent table headers, rows, or borders!
+        const descender = Math.max(1.5, change.fontSize * 0.22);
+        const ascender = Math.max(5.5, change.fontSize * 0.82);
+        const maskHeight = ascender + descender;
+        const maskY = origBaseY - descender;
+        const maskX = Math.max(0, origX - 1.0);
+        const maskWidth = Math.max(8, origWidth + 2.0);
 
+        const bgColor = hexToRgb(change.backgroundColor || '#ffffff');
+
+        // Erase original text at its original position
         newPage.drawRectangle({
-          x: Math.max(0, origX - 2),
-          y: Math.max(0, maskY),
+          x: maskX,
+          y: maskY,
           width: maskWidth,
           height: maskHeight,
-          color: rgb(1, 1, 1),
+          color: rgb(bgColor.r, bgColor.g, bgColor.b),
         });
 
         // If not moved and has new multiline text, also mask the expanded area under it
@@ -382,16 +393,34 @@ export class ExportEngine {
           const numLines = Math.max(1, rawLines.length);
           if (numLines > 1) {
             const lineHeight = change.fontSize * 1.25;
-            const fullMaskHeight = Math.max(origHeight, change.fontSize * 1.08 + (numLines - 1) * lineHeight);
-            const fullMaskY = origBaseY - change.fontSize * 0.22 - (numLines - 1) * lineHeight;
+            const fullMaskHeight = maskHeight + (numLines - 1) * lineHeight;
+            const fullMaskY = origBaseY - descender - (numLines - 1) * lineHeight;
             newPage.drawRectangle({
-              x: Math.max(0, origX - 1),
-              y: Math.max(0, fullMaskY),
+              x: maskX,
+              y: fullMaskY,
               width: maskWidth,
               height: fullMaskHeight,
-              color: rgb(1, 1, 1),
+              color: rgb(bgColor.r, bgColor.g, bgColor.b),
             });
           }
+        }
+
+        // If moved, also mask the area at the new target position so it sits cleanly
+        if (wasMoved && !change.deleted && change.newText.trim().length > 0) {
+          const targetBaselineY = change.pdfBaselineY !== undefined
+            ? change.pdfBaselineY
+            : pageHeight - change.y - change.fontSize * 0.85;
+          const targetX = change.pdfX !== undefined ? change.pdfX : change.x;
+          const newMaskX = Math.max(0, targetX - 1.0);
+          const newMaskY = targetBaselineY - descender;
+          const newMaskWidth = Math.max(8, (change.width || origWidth) + 2.0);
+          newPage.drawRectangle({
+            x: newMaskX,
+            y: newMaskY,
+            width: newMaskWidth,
+            height: maskHeight,
+            color: rgb(bgColor.r, bgColor.g, bgColor.b),
+          });
         }
       }
 
