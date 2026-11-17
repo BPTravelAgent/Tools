@@ -46,8 +46,35 @@ export class PDFManager {
       });
 
       // Extract text content for TrueEdit Pro
-      await this.extractPageText(i - 1, page, viewport);
+      try {
+        await this.extractPageText(i - 1, page, viewport);
+      } catch (err) {
+        console.warn(`Text extraction failed for page ${i}:`, err);
+      }
     }
+  }
+
+  /**
+   * Guarantees extracted text items are available for a given page index.
+   * If not already cached, extracts them on demand.
+   */
+  async ensurePageTextExtracted(pageIndex: number): Promise<ExtractedTextItem[]> {
+    const existing = this.extractedTexts.get(pageIndex);
+    if (existing && existing.length > 0) {
+      return existing;
+    }
+    if (!this.pdfDocument) return [];
+    const meta = this.pagesMeta[pageIndex];
+    if (!meta || meta.isBlankPage) return [];
+
+    try {
+      const page = await this.pdfDocument.getPage(meta.originalPageNumber);
+      const viewport = page.getViewport({ scale: 1.0 });
+      await this.extractPageText(pageIndex, page, viewport);
+    } catch (err) {
+      console.warn(`Fallback text extraction failed for page ${pageIndex}:`, err);
+    }
+    return this.extractedTexts.get(pageIndex) || [];
   }
 
   private async extractPageText(
@@ -72,21 +99,26 @@ export class PDFManager {
         if ((page as any).commonObjs.has(item.fontName)) {
           fontPromises.push(
             new Promise<void>((resolve) => {
+              const timer = setTimeout(resolve, 150);
               try {
                 (page as any).commonObjs.get(item.fontName, (fontObj: any) => {
-                  if (fontObj) {
-                    const name = fontObj.name || fontObj.loadedName || '';
-                    const bold = !!(
-                      fontObj.bold ||
-                      fontObj.black ||
-                      (typeof fontObj.weight === 'number' && fontObj.weight >= 600) ||
-                      /bold|black|heavy|w[7-9]|semibold|medium/i.test(name)
-                    );
-                    fontCache.set(item.fontName, { name, bold });
-                  }
+                  clearTimeout(timer);
+                  try {
+                    if (fontObj) {
+                      const name = fontObj.name || fontObj.loadedName || '';
+                      const bold = !!(
+                        fontObj.bold ||
+                        fontObj.black ||
+                        (typeof fontObj.weight === 'number' && fontObj.weight >= 600) ||
+                        /bold|black|heavy|w[7-9]|semibold|medium/i.test(name)
+                      );
+                      fontCache.set(item.fontName, { name, bold });
+                    }
+                  } catch (_) {}
                   resolve();
                 });
               } catch (_) {
+                clearTimeout(timer);
                 resolve();
               }
             })
@@ -94,7 +126,9 @@ export class PDFManager {
         }
       }
       if (fontPromises.length > 0) {
-        await Promise.all(fontPromises);
+        try {
+          await Promise.all(fontPromises);
+        } catch (_) {}
       }
     }
 
@@ -266,6 +300,15 @@ export class PDFManager {
     this.pagesMeta.forEach((m, idx) => {
       m.pageIndex = idx;
     });
+
+    const newExtracted = new Map<number, ExtractedTextItem[]>();
+    for (const [pIdx, items] of this.extractedTexts.entries()) {
+      if (pIdx === pageIndex) continue;
+      const targetIdx = pIdx > pageIndex ? pIdx - 1 : pIdx;
+      items.forEach((item) => { item.pageIndex = targetIdx; });
+      newExtracted.set(targetIdx, items);
+    }
+    this.extractedTexts = newExtracted;
     this.thumbnailDataUrls.clear();
   }
 
@@ -288,6 +331,15 @@ export class PDFManager {
     this.pagesMeta.forEach((m, idx) => {
       m.pageIndex = idx;
     });
+
+    const newExtracted = new Map<number, ExtractedTextItem[]>();
+    for (const [pIdx, items] of this.extractedTexts.entries()) {
+      const targetIdx = pIdx >= newIndex ? pIdx + 1 : pIdx;
+      items.forEach((item) => { item.pageIndex = targetIdx; });
+      newExtracted.set(targetIdx, items);
+    }
+    newExtracted.set(newIndex, []);
+    this.extractedTexts = newExtracted;
     this.thumbnailDataUrls.clear();
     return newIndex;
   }
@@ -306,6 +358,20 @@ export class PDFManager {
     this.pagesMeta.forEach((m, idx) => {
       m.pageIndex = idx;
     });
+
+    const newExtracted = new Map<number, ExtractedTextItem[]>();
+    for (const [pIdx, items] of this.extractedTexts.entries()) {
+      const targetIdx = pIdx >= newIndex ? pIdx + 1 : pIdx;
+      items.forEach((item) => { item.pageIndex = targetIdx; });
+      newExtracted.set(targetIdx, items);
+    }
+    const origItems = this.extractedTexts.get(pageIndex) || [];
+    newExtracted.set(newIndex, origItems.map((item, idx) => ({
+      ...item,
+      id: `text-block-${newIndex}-${idx}`,
+      pageIndex: newIndex,
+    })));
+    this.extractedTexts = newExtracted;
     this.thumbnailDataUrls.clear();
     return newIndex;
   }
@@ -317,6 +383,20 @@ export class PDFManager {
     this.pagesMeta.forEach((m, idx) => {
       m.pageIndex = idx;
     });
+
+    const extractedList: ExtractedTextItem[][] = [];
+    for (let i = 0; i < this.pagesMeta.length; i++) {
+      extractedList.push(this.extractedTexts.get(i) || []);
+    }
+    const [movedExtracted] = extractedList.splice(fromIndex, 1);
+    extractedList.splice(toIndex, 0, movedExtracted);
+
+    const newExtracted = new Map<number, ExtractedTextItem[]>();
+    extractedList.forEach((items, idx) => {
+      items.forEach((item) => { item.pageIndex = idx; });
+      newExtracted.set(idx, items);
+    });
+    this.extractedTexts = newExtracted;
     this.thumbnailDataUrls.clear();
   }
 

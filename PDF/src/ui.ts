@@ -644,11 +644,13 @@ export class PDFEditorUI {
           e.preventDefault();
           const changeId = selectedPatch.getAttribute('data-id');
           if (changeId) {
-            const item = this.pdfManager.getExtractedTexts(this.activePageIndex).find((t) => t.id === changeId);
+            const curChange = this.trueEditManager.getChange(changeId);
+            const targetPageIdx = curChange ? curChange.pageIndex : this.activePageIndex;
+            const item = this.pdfManager.getExtractedTexts(targetPageIdx).find((t) => t.id === changeId);
             if (item) {
               this.trueEditManager.startOrUpdateEdit(item, '', 'DM Sans', item.fontSize, '#000000', true);
             } else {
-              const change = this.trueEditManager.getChange(changeId);
+              const change = curChange || this.trueEditManager.getChange(changeId);
               if (change) {
                 change.deleted = true;
                 change.newText = '';
@@ -907,7 +909,10 @@ export class PDFEditorUI {
       await this.pdfManager.renderPageToCanvas(i, canvas, this.currentScale);
 
       // Pre-sample and cache exact text color for all extracted text items on this page
-      const pageTextItems = this.pdfManager.getExtractedTexts(i);
+      let pageTextItems = this.pdfManager.getExtractedTexts(i);
+      if (!pageTextItems || pageTextItems.length === 0) {
+        pageTextItems = await this.pdfManager.ensurePageTextExtracted(i);
+      }
       for (const tItem of pageTextItems) {
         if (!tItem.color) {
           tItem.color = this.sampleTextColorFromCanvas(canvas, tItem.x, tItem.y, tItem.width, tItem.height);
@@ -915,22 +920,22 @@ export class PDFEditorUI {
       }
 
       // Match overlays dimensions to canvas size
-      const cssWidth = canvas.style.width;
-      const cssHeight = canvas.style.height;
+      const cssWidth = canvas.style.width || `${Math.floor(canvas.width / (window.devicePixelRatio || 1))}px`;
+      const cssHeight = canvas.style.height || `${Math.floor(canvas.height / (window.devicePixelRatio || 1))}px`;
       trueEditLayer.style.width = cssWidth;
       trueEditLayer.style.height = cssHeight;
       annLayer.style.width = cssWidth;
       annLayer.style.height = cssHeight;
       freehandCanvas.style.width = cssWidth;
       freehandCanvas.style.height = cssHeight;
-      freehandCanvas.width = parseInt(cssWidth, 10);
-      freehandCanvas.height = parseInt(cssHeight, 10);
+      freehandCanvas.width = parseInt(cssWidth, 10) || canvas.width;
+      freehandCanvas.height = parseInt(cssHeight, 10) || canvas.height;
 
       this.setupPageInteraction(i, pageContainer, freehandCanvas);
     }
 
     this.renderCurrentPageAnnotations();
-    this.renderTrueEditOverlays();
+    await this.renderTrueEditOverlays();
   }
 
   private setupPageInteraction(pageIndex: number, pageContainer: HTMLElement, freehandCanvas: HTMLCanvasElement) {
@@ -1310,16 +1315,20 @@ export class PDFEditorUI {
   }
 
   // Render TrueEdit Overlays (Pro direct text editing on existing PDF content!)
-  private renderTrueEditOverlays() {
+  private async renderTrueEditOverlays() {
     const pagesMeta = this.pdfManager.getPagesMeta();
 
     for (let pageIdx = 0; pageIdx < pagesMeta.length; pageIdx++) {
-      const container = document.getElementById(`trueEditLayer-${pageIdx}`);
-      if (!container) continue;
+      try {
+        const container = document.getElementById(`trueEditLayer-${pageIdx}`);
+        if (!container) continue;
 
-      container.innerHTML = '';
-      const textItems = this.pdfManager.getExtractedTexts(pageIdx);
-      const changes = this.trueEditManager.getChangesForPage(pageIdx);
+        container.innerHTML = '';
+        let textItems = this.pdfManager.getExtractedTexts(pageIdx);
+        if (!textItems || textItems.length === 0) {
+          textItems = await this.pdfManager.ensurePageTextExtracted(pageIdx);
+        }
+        const changes = this.trueEditManager.getChangesForPage(pageIdx);
 
       // 1. Render deleted patches FIRST (silent background whiteout masks at original coordinates)
       for (const change of changes) {
@@ -1557,7 +1566,9 @@ export class PDFEditorUI {
           if (!item.text || item.text.trim().length === 0 || item.width < 3 || item.height < 3) continue;
 
           // Check if this item is covered/occluded by an active modified patch or whiteout
-          if (this.isItemOccluded(item, changes, pageIdx)) continue;
+          try {
+            if (this.isItemOccluded(item, changes, pageIdx)) continue;
+          } catch (_) {}
 
           const box = document.createElement('div');
           box.className = 'trueedit-hover-box';
@@ -1565,8 +1576,8 @@ export class PDFEditorUI {
           box.title = `Click to edit: "${item.text}"`;
           box.style.left = `${item.x * this.currentScale}px`;
           box.style.top = `${item.y * this.currentScale}px`;
-          box.style.width = `${Math.max(16, item.width * this.currentScale)}px`;
-          box.style.height = `${item.height * this.currentScale}px`;
+          box.style.width = `${Math.max(16, (item.width || 20) * this.currentScale)}px`;
+          box.style.height = `${Math.max(12, (item.height || 14) * this.currentScale)}px`;
 
           box.addEventListener('mousedown', (e) => {
             e.preventDefault();
@@ -1585,8 +1596,11 @@ export class PDFEditorUI {
           container.appendChild(box);
         }
       }
+    } catch (pageErr) {
+      console.error(`Failed rendering TrueEdit overlay for page ${pageIdx}:`, pageErr);
     }
   }
+}
 
   private sampleTextColorFromCanvas(
     canvas: HTMLCanvasElement,
@@ -3266,6 +3280,7 @@ export class PDFEditorUI {
     document.querySelectorAll('.thumb-item').forEach((item, idx) => {
       item.classList.toggle('active', idx === pageIndex);
     });
+    this.renderTrueEditOverlays();
   }
 
   private updateViewbar() {
