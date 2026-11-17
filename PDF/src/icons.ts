@@ -76,6 +76,16 @@ export const ICONS = {
     </svg>
   `,
 
+  snip: `
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 7V4h3"/>
+      <path d="M17 4h3v3"/>
+      <path d="M4 17v3h3"/>
+      <path d="M17 20h3v-3"/>
+      <rect x="7" y="7" width="10" height="10" rx="1" stroke-dasharray="2 2"/>
+    </svg>
+  `,
+
   chevronDown: `
     <svg width="10" height="6" viewBox="0 0 10 6" fill="currentColor">
       <path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>

@@ -364,17 +364,17 @@ export class ExportEngine {
         const wasMoved = change.origX !== undefined && change.origY !== undefined && (Math.abs(change.x - change.origX) > 1 || Math.abs(change.y - change.origY) > 1);
 
         // Precise typographic metrics:
-        // In standard typography (Helvetica, Arial, Times, Roboto, DM Sans):
-        // Descenders ('g', 'j', 'p', 'q', 'y') extend ~0.20-0.22 * fontSize below baseline.
-        // Ascenders ('b', 'd', 'h', 'k', 'l') and capitals ('A'-'Z') extend ~0.72-0.78 * fontSize above baseline.
-        // Accents reach at most ~0.82 * fontSize above baseline.
-        // Tight bounds prevent the mask from overflowing upwards into adjacent table headers, rows, or borders!
-        const descender = Math.max(1.5, change.fontSize * 0.22);
-        const ascender = Math.max(5.5, change.fontSize * 0.82);
+        // Descenders ('g', 'j', 'p', 'q', 'y', commas, serifs, underlines) can reach 0.28-0.35 * fontSize below baseline.
+        // We set descender to Math.max(3.2, change.fontSize * 0.36) so 100% of the old text bottom is erased cleanly without leaving any faint line or remnant!
+        // Ascenders ('b', 'd', 'h', 'k', 'l', capitals) reach 0.72-0.78 * fontSize above baseline.
+        // Setting ascender to Math.max(5.5, change.fontSize * 0.80) ensures maskTop = origBaseY + ascender stays safely below the gray table header!
+        const descender = Math.max(3.2, change.fontSize * 0.36);
+        const ascender = Math.max(5.5, change.fontSize * 0.80);
         const maskHeight = ascender + descender;
         const maskY = origBaseY - descender;
-        const maskX = Math.max(0, origX - 1.0);
-        const maskWidth = Math.max(8, origWidth + 2.0);
+        const padX = 2.0;
+        const maskX = Math.max(0, origX - padX);
+        const maskWidth = Math.max(10, origWidth + padX * 2);
 
         const bgColor = hexToRgb(change.backgroundColor || '#ffffff');
 
@@ -411,9 +411,9 @@ export class ExportEngine {
             ? change.pdfBaselineY
             : pageHeight - change.y - change.fontSize * 0.85;
           const targetX = change.pdfX !== undefined ? change.pdfX : change.x;
-          const newMaskX = Math.max(0, targetX - 1.0);
+          const newMaskX = Math.max(0, targetX - padX);
           const newMaskY = targetBaselineY - descender;
-          const newMaskWidth = Math.max(8, (change.width || origWidth) + 2.0);
+          const newMaskWidth = Math.max(10, (change.width || origWidth) + padX * 2);
           newPage.drawRectangle({
             x: newMaskX,
             y: newMaskY,

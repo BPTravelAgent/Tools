@@ -287,6 +287,9 @@ export class PDFEditorUI {
                 <button class="tool-btn" data-tool="whiteout" title="Whiteout / Redact section">
                   ${ICONS.whiteout}
                 </button>
+                <button class="tool-btn" data-tool="snip" id="btnSnipArea" title="Snip & Clone (Photoshop-style: Drag to capture any area/image on PDF and paste/move anywhere)">
+                  ${ICONS.snip}
+                </button>
               </div>
 
               <div class="toolbar-divider"></div>
@@ -611,6 +614,23 @@ export class PDFEditorUI {
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
         e.preventDefault();
         this.annotationManager.redo();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
+        const copied = this.annotationManager.copySelectedAnnotation();
+        if (copied) {
+          e.preventDefault();
+        }
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
+        const targetPage = this.getVisiblePageIndex();
+        const pasted = this.annotationManager.pasteAnnotation(targetPage);
+        if (pasted) {
+          e.preventDefault();
+        }
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
+        const selId = this.annotationManager.getSelectedId();
+        if (selId) {
+          e.preventDefault();
+          this.annotationManager.duplicateAnnotation(selId);
+        }
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
         const selId = this.annotationManager.getSelectedId();
         if (selId) {
@@ -829,6 +849,7 @@ export class PDFEditorUI {
 
     const body = document.querySelector('.ilovepdf-app');
     body?.classList.toggle('tool-eraser-active', tool === 'eraser' || tool === 'whiteout');
+    body?.classList.toggle('tool-snip-active', tool === 'snip');
 
     const scroller = document.getElementById('viewportScroller');
     if (scroller) {
@@ -836,9 +857,7 @@ export class PDFEditorUI {
         scroller.classList.add('cursor-hand');
       } else if (tool === 'text') {
         scroller.classList.add('cursor-text');
-      } else if (tool === 'freehand') {
-        scroller.classList.add('cursor-crosshair');
-      } else if (tool === 'eraser' || tool === 'whiteout') {
+      } else if (tool === 'freehand' || tool === 'eraser' || tool === 'whiteout' || tool === 'snip') {
         scroller.classList.add('cursor-crosshair');
       } else {
         scroller.className = 'viewport-scroller';
@@ -1050,6 +1069,136 @@ export class PDFEditorUI {
 
         window.addEventListener('mousemove', onDragMove);
         window.addEventListener('mouseup', onDragUp);
+        return;
+      }
+
+      // Handle Snip & Clone Tool (Photoshop-style marquee area copy & paste)
+      if (this.currentTool === 'snip') {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const rect = pageContainer.getBoundingClientRect();
+        const startX = (e.clientX - rect.left) / this.currentScale;
+        const startY = (e.clientY - rect.top) / this.currentScale;
+
+        const previewBox = document.createElement('div');
+        previewBox.className = 'snip-drag-preview';
+        previewBox.style.left = `${startX * this.currentScale}px`;
+        previewBox.style.top = `${startY * this.currentScale}px`;
+        previewBox.style.width = '0px';
+        previewBox.style.height = '0px';
+
+        const dimBadge = document.createElement('div');
+        dimBadge.className = 'snip-dim-badge';
+        dimBadge.textContent = '0 × 0';
+        previewBox.appendChild(dimBadge);
+        pageContainer.appendChild(previewBox);
+
+        let hasDragged = false;
+        const onSnipMove = (moveEv: MouseEvent) => {
+          hasDragged = true;
+          const curX = (moveEv.clientX - rect.left) / this.currentScale;
+          const curY = (moveEv.clientY - rect.top) / this.currentScale;
+          const left = Math.min(startX, curX);
+          const top = Math.min(startY, curY);
+          const width = Math.abs(curX - startX);
+          const height = Math.abs(curY - startY);
+
+          previewBox.style.left = `${left * this.currentScale}px`;
+          previewBox.style.top = `${top * this.currentScale}px`;
+          previewBox.style.width = `${width * this.currentScale}px`;
+          previewBox.style.height = `${height * this.currentScale}px`;
+          dimBadge.textContent = `${Math.round(width)} × ${Math.round(height)}`;
+        };
+
+        const onSnipUp = (upEv: MouseEvent) => {
+          window.removeEventListener('mousemove', onSnipMove);
+          window.removeEventListener('mouseup', onSnipUp);
+          document.querySelectorAll('.snip-drag-preview').forEach((p) => p.remove());
+
+          if (!hasDragged) return;
+
+          const endX = (upEv.clientX - rect.left) / this.currentScale;
+          const endY = (upEv.clientY - rect.top) / this.currentScale;
+          const finalLeft = Math.min(startX, endX);
+          const finalTop = Math.min(startY, endY);
+          const finalWidth = Math.abs(endX - startX);
+          const finalHeight = Math.abs(endY - startY);
+
+          if (finalWidth < 8 || finalHeight < 8) return;
+
+          const canvas = document.getElementById(`pdfCanvas-${pageIndex}`) as HTMLCanvasElement | null;
+          if (!canvas) return;
+
+          const cssW = parseFloat(canvas.style.width) || canvas.width;
+          const cssH = parseFloat(canvas.style.height) || canvas.height;
+          const scaleX = canvas.width / cssW;
+          const scaleY = canvas.height / cssH;
+
+          const sX = Math.max(0, Math.floor(finalLeft * this.currentScale * scaleX));
+          const sY = Math.max(0, Math.floor(finalTop * this.currentScale * scaleY));
+          const sW = Math.max(4, Math.min(canvas.width - sX, Math.floor(finalWidth * this.currentScale * scaleX)));
+          const sH = Math.max(4, Math.min(canvas.height - sY, Math.floor(finalHeight * this.currentScale * scaleY)));
+
+          const offCanvas = document.createElement('canvas');
+          offCanvas.width = sW;
+          offCanvas.height = sH;
+          const offCtx = offCanvas.getContext('2d');
+          if (!offCtx) return;
+
+          // 1. Draw base PDF canvas pixels
+          offCtx.drawImage(canvas, sX, sY, sW, sH, 0, 0, sW, sH);
+
+          // 2. Overlay any freehand drawing on top
+          const fhCanvas = document.getElementById(`freehandCanvas-${pageIndex}`) as HTMLCanvasElement | null;
+          if (fhCanvas) {
+            const fhCssW = parseFloat(fhCanvas.style.width) || fhCanvas.width;
+            const fhCssH = parseFloat(fhCanvas.style.height) || fhCanvas.height;
+            const fhScaleX = fhCanvas.width / fhCssW;
+            const fhScaleY = fhCanvas.height / fhCssH;
+            const fhSX = Math.max(0, Math.floor(finalLeft * this.currentScale * fhScaleX));
+            const fhSY = Math.max(0, Math.floor(finalTop * this.currentScale * fhScaleY));
+            const fhSW = Math.max(4, Math.min(fhCanvas.width - fhSX, Math.floor(finalWidth * this.currentScale * fhScaleX)));
+            const fhSH = Math.max(4, Math.min(fhCanvas.height - fhSY, Math.floor(finalHeight * this.currentScale * fhScaleY)));
+            offCtx.drawImage(fhCanvas, fhSX, fhSY, fhSW, fhSH, 0, 0, sW, sH);
+          }
+
+          const dataUrl = offCanvas.toDataURL('image/png');
+
+          // Place the cloned image onto the document (offset slightly by +15px)
+          const placeX = Math.round(finalLeft + 15);
+          const placeY = Math.round(finalTop + 15);
+          const newImgAnn = this.annotationManager.addImage(
+            pageIndex,
+            placeX,
+            placeY,
+            dataUrl,
+            Math.round(finalWidth),
+            Math.round(finalHeight)
+          );
+
+          // Switch back to 'select' tool and select newly cloned item
+          this.setTool('select');
+          this.annotationManager.setSelectedId(newImgAnn.id);
+          this.annotationManager.copySelectedAnnotation();
+
+          // Copy to OS clipboard as image PNG (if browser supports ClipboardItem)
+          try {
+            offCanvas.toBlob((blob) => {
+              if (blob && navigator.clipboard && (window as any).ClipboardItem) {
+                navigator.clipboard.write([
+                  new (window as any).ClipboardItem({ 'image/png': blob })
+                ]).catch(() => {});
+              }
+            });
+          } catch (_) {}
+
+          // Show floating action pill for Whiteout Original
+          this.showSnipActionPill(pageIndex, finalLeft, finalTop, finalWidth, finalHeight, newImgAnn.id);
+        };
+
+        window.addEventListener('mousemove', onSnipMove);
+        window.addEventListener('mouseup', onSnipUp);
         return;
       }
 
@@ -2646,6 +2795,48 @@ export class PDFEditorUI {
     };
 
     textSpan.addEventListener('blur', onBlur);
+  }
+
+  private showSnipActionPill(
+    pageIndex: number,
+    origX: number,
+    origY: number,
+    origW: number,
+    origH: number,
+    _clonedId?: string
+  ) {
+    document.querySelectorAll('.snip-action-pill').forEach((p) => p.remove());
+
+    const pageContainer = document.getElementById(`pageContainer-${pageIndex}`);
+    if (!pageContainer) return;
+
+    const pill = document.createElement('div');
+    pill.className = 'snip-action-pill';
+    pill.style.left = `${origX * this.currentScale}px`;
+    pill.style.top = `${Math.max(4, (origY - 38) * this.currentScale)}px`;
+    pill.innerHTML = `
+      <span class="snip-pill-label">✂️ Area Cloned</span>
+      <button class="snip-btn-whiteout" title="Erase the original area underneath">Whiteout Original</button>
+      <button class="snip-btn-close" title="Dismiss">✕</button>
+    `;
+
+    pill.querySelector('.snip-btn-whiteout')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.annotationManager.addWhiteout(pageIndex, Math.round(origX), Math.round(origY), Math.round(origW), Math.round(origH));
+      pill.remove();
+    });
+
+    pill.querySelector('.snip-btn-close')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      pill.remove();
+    });
+
+    pageContainer.appendChild(pill);
+
+    // Auto-remove pill after 10 seconds
+    setTimeout(() => {
+      pill.remove();
+    }, 10000);
   }
 
   // Update Dynamic Submenu / Property Toolbar

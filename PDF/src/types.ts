@@ -8,7 +8,8 @@ export type ToolType =
   | 'freehand' 
   | 'shapes' 
   | 'whiteout' 
-  | 'eraser';
+  | 'eraser'
+  | 'snip';
 
 export type ShapeType = 
   | 'rectangle' 

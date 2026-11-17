@@ -314,6 +314,38 @@ export class AnnotationManager {
     }
   }
 
+  private clipboardAnnotation: Annotation | null = null;
+
+  copySelectedAnnotation(): Annotation | null {
+    const target = this.getSelectedAnnotation();
+    if (!target) return null;
+    this.clipboardAnnotation = JSON.parse(JSON.stringify(target));
+    return this.clipboardAnnotation;
+  }
+
+  pasteAnnotation(targetPageIndex: number): Annotation | null {
+    if (!this.clipboardAnnotation) return null;
+    const pageAnns = this.annotations.get(targetPageIndex) || [];
+    const newId = `ann-paste-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+    const pasted: Annotation = {
+      ...JSON.parse(JSON.stringify(this.clipboardAnnotation)),
+      id: newId,
+      pageIndex: targetPageIndex,
+      x: this.clipboardAnnotation.x + 20,
+      y: this.clipboardAnnotation.y + 20,
+      zIndex: pageAnns.length + 1,
+    };
+    pageAnns.push(pasted);
+    this.annotations.set(targetPageIndex, pageAnns);
+    this.selectedId = newId;
+    this.notifyChange();
+    return pasted;
+  }
+
+  hasClipboard(): boolean {
+    return this.clipboardAnnotation !== null;
+  }
+
   duplicateAnnotation(id: string): Annotation | null {
     const target = this.getSelectedAnnotation();
     if (!target || target.id !== id) return null;
