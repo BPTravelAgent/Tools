@@ -1079,6 +1079,21 @@ input[type="range"] {
   background-color: #059669;
 }
 
+.trueedit-btn-reset {
+  background-color: #f0fdf4;
+  color: #15803d;
+  border: 1px solid #bbf7d0;
+  padding: 6px 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.trueedit-btn-reset:hover {
+  background-color: #dcfce7;
+  color: #166534;
+  border-color: #86efac;
+}
+
 .trueedit-btn-delete {
   background-color: #fee2e2;
   color: #dc2626;

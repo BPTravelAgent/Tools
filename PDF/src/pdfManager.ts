@@ -12,8 +12,10 @@ export class PDFManager {
   private pagesMeta: PageMetadata[] = [];
   private extractedTexts: Map<number, ExtractedTextItem[]> = new Map();
   private thumbnailDataUrls: Map<number, string> = new Map();
+  private docSessionId: number = 0;
 
   async loadPDF(data: ArrayBuffer, fileName: string = 'document.pdf'): Promise<void> {
+    this.docSessionId++;
     this.pdfBytes = data.slice(0); // clone buffer
     this.fileName = fileName;
     this.extractedTexts.clear();
@@ -168,34 +170,68 @@ export class PDFManager {
       });
     }
 
-    // Sort by y, then x
-    rawItems.sort((a, b) => (Math.abs(a.y - b.y) > 4 ? a.y - b.y : a.x - b.x));
+    // Deduplicate occluded / superseded background layers (painter's model).
+    // When a PDF has been repeatedly edited or layered, multiple text elements may exist at the
+    // exact same coordinates, with later stream elements visually painted on top of earlier ones.
+    const activeRawItems: ExtractedTextItem[] = [];
+    for (let i = 0; i < rawItems.length; i++) {
+      const it = rawItems[i];
+      const isOccludedByLater = rawItems.some((later, j) => {
+        if (j <= i) return false;
+        // Same horizontal line (within 4 PDF points)
+        if (Math.abs(later.y - it.y) > 4) return false;
+
+        // Check horizontal overlap
+        const startOverlap = Math.max(it.x, later.x);
+        const endOverlap = Math.min(it.x + it.width, later.x + later.width);
+        const overlapWidth = endOverlap - startOverlap;
+        const minW = Math.min(it.width, later.width);
+
+        // If they start at almost the same x (within 8px), or have substantial horizontal overlap (>= 50%),
+        // according to the PDF painter's model, the later item is drawn on top and supersedes the earlier one
+        if (Math.abs(later.x - it.x) <= 8) return true;
+        if (minW > 10 && overlapWidth > minW * 0.5) return true;
+
+        return false;
+      });
+
+      if (!isOccludedByLater) {
+        activeRawItems.push(it);
+      }
+    }
+
+    // Sort active items by y, then x
+    activeRawItems.sort((a, b) => (Math.abs(a.y - b.y) > 4 ? a.y - b.y : a.x - b.x));
 
     const merged: ExtractedTextItem[] = [];
     let curr: ExtractedTextItem | null = null;
 
-    for (let idx = 0; idx < rawItems.length; idx++) {
-      const item = rawItems[idx];
+    for (let idx = 0; idx < activeRawItems.length; idx++) {
+      const item = activeRawItems[idx];
       if (!curr) {
-        curr = { ...item, id: `text-block-${pageIndex}-${idx}` };
+        curr = { ...item, id: `text-block-s${this.docSessionId}-${pageIndex}-${idx}` };
         continue;
       }
 
       const sameLine = Math.abs(item.y - curr.y) <= 4;
-      const adjacent = item.x >= curr.x && (item.x - (curr.x + curr.width)) <= Math.max(16, curr.fontSize * 1.2);
+      const gap = item.x - (curr.x + curr.width);
+      // Only merge if the item follows the current item in reading flow (gap >= -3px for kerning)
+      // and is within word-spacing distance (gap <= 16px or 1.2 * fontSize).
+      // If gap < -3px, they overlap horizontally and are separate elements.
+      const adjacent = gap >= -3 && gap <= Math.max(16, curr.fontSize * 1.2);
       const sameSize = Math.abs(item.fontSize - curr.fontSize) <= 3;
 
       if (sameLine && adjacent && sameSize) {
-        const needsSpace = (item.x - (curr.x + curr.width)) > curr.fontSize * 0.2;
+        const needsSpace = gap > curr.fontSize * 0.2;
         curr.text += (needsSpace ? ' ' : '') + item.text;
-        curr.width = (item.x + item.width) - curr.x;
+        curr.width = Math.max(curr.width, (item.x + item.width) - curr.x);
         curr.height = Math.max(curr.height, item.height);
         curr.bold = curr.bold || item.bold;
       } else {
         if (curr.text.replace(/[\s\u0000-\u0020\u00a0\u2000-\u200f\ufeff]/g, '').length > 0) {
           merged.push(curr);
         }
-        curr = { ...item, id: `text-block-${pageIndex}-${idx}` };
+        curr = { ...item, id: `text-block-s${this.docSessionId}-${pageIndex}-${idx}` };
       }
     }
     if (curr && curr.text.replace(/[\s\u0000-\u0020\u00a0\u2000-\u200f\ufeff]/g, '').length > 0) {
@@ -518,7 +554,7 @@ export class PDFManager {
     const origItems = this.extractedTexts.get(pageIndex) || [];
     newExtracted.set(newIndex, origItems.map((item, idx) => ({
       ...item,
-      id: `text-block-${newIndex}-${idx}`,
+      id: `text-block-s${this.docSessionId}-${newIndex}-${idx}`,
       pageIndex: newIndex,
     })));
     this.extractedTexts = newExtracted;

@@ -1456,7 +1456,17 @@ export class PDFEditorUI {
         if (!textItems || textItems.length === 0) {
           textItems = await this.pdfManager.ensurePageTextExtracted(pageIdx);
         }
-        const changes = this.trueEditManager.getChangesForPage(pageIdx);
+        const rawChanges = this.trueEditManager.getChangesForPage(pageIdx);
+        // Guard against stale changes whose originalText no longer matches the current document elements
+        const changes: TrueEditTextChange[] = [];
+        for (const ch of rawChanges) {
+          const matchedItem = textItems.find((t) => t.id === ch.id);
+          if (matchedItem && ch.originalText && matchedItem.text && ch.originalText !== matchedItem.text) {
+            this.trueEditManager.revertChange(ch.id);
+            continue;
+          }
+          changes.push(ch);
+        }
 
       // 1. Render deleted patches FIRST (silent background whiteout masks at original coordinates)
       for (const change of changes) {
@@ -1850,15 +1860,22 @@ export class PDFEditorUI {
     document.querySelectorAll('.font-picker-dropdown').forEach((el) => el.remove());
 
     const existingChange = this.trueEditManager.getChange(item.id);
-    const initialText = existingChange ? existingChange.newText : item.text;
+    // CRITICAL GUARD: Only accept existingChange if it legitimately belongs to this exact item.
+    // If originalText does not match item.text, the change is stale (from a previous session or mismatched ID).
+    const isChangeValid = !!(existingChange && (!existingChange.originalText || existingChange.originalText === item.text));
+    if (existingChange && !isChangeValid) {
+      this.trueEditManager.revertChange(item.id);
+    }
+    const activeChange = isChangeValid ? existingChange : undefined;
+    const initialText = activeChange ? activeChange.newText : item.text;
 
     // Detect original font style and weight
-    let isBold = existingChange ? existingChange.bold : (item.bold ?? false);
+    let isBold = activeChange ? activeChange.bold : (item.bold ?? false);
     const fn = (item.fontName || '').toLowerCase();
     if (!isBold && /bold|black|heavy|w[7-9]|semibold|medium/i.test(fn)) {
       isBold = true;
     }
-    let isItalic = existingChange ? existingChange.italic : /italic|oblique/i.test(fn);
+    let isItalic = activeChange ? activeChange.italic : /italic|oblique/i.test(fn);
 
     // Precise font family detection (check sans-serif first to prevent false match on "sans-serif")
     const isSans =
@@ -1888,8 +1905,8 @@ export class PDFEditorUI {
     const isMono = fn.includes('mono') || fn.includes('courier') || fn.includes('consolas') || fn.includes('menlo');
 
     let detectedFont = 'Arial';
-    if (existingChange) {
-      detectedFont = existingChange.fontFamily;
+    if (activeChange) {
+      detectedFont = activeChange.fontFamily;
     } else if (isMono) {
       detectedFont = 'Courier';
     } else if (isSerif) {
@@ -1900,13 +1917,13 @@ export class PDFEditorUI {
       detectedFont = 'Arial';
     }
 
-    let currentFontSize = existingChange ? existingChange.fontSize : item.fontSize;
-    let currentAlign: 'left' | 'center' | 'right' = existingChange?.align || 'left';
+    let currentFontSize = activeChange ? activeChange.fontSize : item.fontSize;
+    let currentAlign: 'left' | 'center' | 'right' = activeChange?.align || 'left';
 
     // Sample exact color from canvas or extracted item
     const pageCanvas = document.getElementById(`pdfCanvas-${item.pageIndex}`) as HTMLCanvasElement | null;
-    let detectedColor = existingChange ? existingChange.color : (item.color || '#000000');
-    if (!existingChange) {
+    let detectedColor = activeChange ? activeChange.color : (item.color || '#000000');
+    if (!activeChange) {
       if (item.color) {
         detectedColor = item.color;
       } else if (pageCanvas) {
@@ -1988,9 +2005,9 @@ export class PDFEditorUI {
     editorInput.style.textAlign = currentAlign;
 
     // Populate editor with existing spans or text
-    if (existingChange && existingChange.spans && existingChange.spans.length > 0) {
+    if (activeChange && activeChange.spans && activeChange.spans.length > 0) {
       editorInput.innerHTML = '';
-      for (const sp of existingChange.spans) {
+      for (const sp of activeChange.spans) {
         const parts = sp.text.split('\n');
         for (let p = 0; p < parts.length; p++) {
           if (p > 0) editorInput.appendChild(document.createElement('br'));
@@ -2243,6 +2260,12 @@ export class PDFEditorUI {
     btnSave.innerText = '✓ Save';
     btnSave.title = 'Save text changes (Ctrl+Enter)';
 
+    const btnReset = document.createElement('button');
+    btnReset.type = 'button';
+    btnReset.className = 'trueedit-pop-btn trueedit-btn-reset';
+    btnReset.innerText = '↺ Original';
+    btnReset.title = 'Revert to original PDF text';
+
     const btnDelete = document.createElement('button');
     btnDelete.type = 'button';
     btnDelete.className = 'trueedit-pop-btn trueedit-btn-delete';
@@ -2257,6 +2280,7 @@ export class PDFEditorUI {
 
     row1.appendChild(editorInput);
     row1.appendChild(btnSave);
+    row1.appendChild(btnReset);
     row1.appendChild(btnDelete);
     row1.appendChild(btnCancel);
 
@@ -2579,6 +2603,13 @@ export class PDFEditorUI {
     btnSave.addEventListener('click', (e) => {
       e.stopPropagation();
       finishEdit();
+    });
+
+    btnReset.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.trueEditManager.revertChange(item.id);
+      isCommitted = true;
+      closePopover();
     });
 
     btnDelete.addEventListener('click', (e) => {
