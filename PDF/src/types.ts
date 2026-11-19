@@ -9,7 +9,8 @@ export type ToolType =
   | 'shapes' 
   | 'whiteout' 
   | 'eraser'
-  | 'snip';
+  | 'snip'
+  | 'crop';
 
 export type ShapeType = 
   | 'rectangle' 
@@ -148,4 +149,7 @@ export interface PageMetadata {
   height: number;
   scale: number;
   isBlankPage?: boolean;
+  isImagePage?: boolean;
+  imageSrc?: string;
+  cropBox?: { x: number; y: number; width: number; height: number };
 }

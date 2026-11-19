@@ -160,6 +160,7 @@ export class PDFEditorUI {
   private activePageIndex: number = 0;
   private isDrawingFreehand: boolean = false;
   private currentFreehandPoints: { x: number; y: number }[] = [];
+  private activeCropState: { pageIndex: number; x: number; y: number; width: number; height: number } | null = null;
 
   // Cached DOM elements
   private root: HTMLElement;
@@ -207,6 +208,10 @@ export class PDFEditorUI {
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>
               <span>Open PDF</span>
             </button>
+            <button id="btnHeaderImagesToPdf" class="btn btn-outline" title="Create a new PDF from one or more images" style="display: inline-flex; align-items: center; gap: 6px;">
+              ${ICONS.image}
+              <span>Images to PDF</span>
+            </button>
             <button id="btnLoadSample" class="btn btn-outline" title="Try editing with preloaded sample PDF">
               Try Sample PDF
             </button>
@@ -222,9 +227,14 @@ export class PDFEditorUI {
           <aside class="sidebar-thumbnails" id="sidebarThumbnails">
             <div class="thumbnails-header">
               <span>Pages</span>
-              <button id="btnAddBlankPage" class="btn-icon" title="Add blank page">
-                ${ICONS.plus}
-              </button>
+              <div style="display: flex; align-items: center; gap: 4px;">
+                <button id="btnAddBlankPage" class="btn-icon" title="Add blank page">
+                  ${ICONS.plus}
+                </button>
+                <button id="btnAddImagePage" class="btn-icon" title="Add Image as New Page">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                </button>
+              </div>
             </div>
             <div class="thumbnails-list" id="thumbnailsList"></div>
             <div class="thumbnails-toggle" id="thumbnailsToggle" title="Toggle page previews">
@@ -290,6 +300,22 @@ export class PDFEditorUI {
                 <button class="tool-btn" data-tool="snip" id="btnSnipArea" title="Snip & Clone (Photoshop-style: Drag to capture any area/image on PDF and paste/move anywhere)">
                   ${ICONS.snip}
                 </button>
+                <button class="tool-btn" data-tool="crop" id="btnToolCrop" title="Crop Page (Trim margins, crop to box, or auto-trim borders)">
+                  ${ICONS.crop}
+                </button>
+                <div class="dropdown-wrapper">
+                  <button class="tool-btn" id="btnRotateDropdown" title="Rotate Page / Document">
+                    ${ICONS.rotateCw} ${ICONS.chevronDown}
+                  </button>
+                  <div class="rotate-menu" id="rotateMenu">
+                    <div class="rotate-option" data-rotate="cw-page">${ICONS.rotateCw} Rotate Page Right (90°)</div>
+                    <div class="rotate-option" data-rotate="ccw-page">${ICONS.rotateCcw} Rotate Page Left (90°)</div>
+                    <div class="rotate-option" data-rotate="180-page">⟲ Rotate Page 180°</div>
+                    <div class="shape-divider"></div>
+                    <div class="rotate-option" data-rotate="cw-all">${ICONS.rotateCw} Rotate All Pages Right (90°)</div>
+                    <div class="rotate-option" data-rotate="ccw-all">${ICONS.rotateCcw} Rotate All Pages Left (90°)</div>
+                  </div>
+                </div>
               </div>
 
               <div class="toolbar-divider"></div>
@@ -319,16 +345,21 @@ export class PDFEditorUI {
                 <div class="uploader-card">
                   <h1 class="uploader-title">PDF Editor</h1>
                   <p class="uploader-subtitle">
-                    Edit PDF documents with professional tools. Add text, shapes, comments, draw signatures, or 
+                    Edit PDF documents with professional tools. Add text, images, shapes, crop margins, rotate pages, or 
                     use <strong>TrueEdit™ Pro</strong> to modify existing text directly!
                   </p>
                   
                   <div class="uploader-dropzone" id="uploaderDropzone">
-                    <input type="file" id="pdfFileInput" accept="application/pdf" style="display:none;" />
-                    <button class="btn btn-crimson btn-large" id="btnSelectFile">
-                      ${ICONS.upload} Select PDF file
-                    </button>
-                    <div class="drop-text">or drop PDF here</div>
+                    <input type="file" id="pdfFileInput" accept="application/pdf,image/*" multiple style="display:none;" />
+                    <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
+                      <button class="btn btn-crimson btn-large" id="btnSelectFile">
+                        ${ICONS.upload} Select PDF file
+                      </button>
+                      <button class="btn btn-large btn-images-to-pdf" id="btnSelectImages">
+                        ${ICONS.image} Images to PDF
+                      </button>
+                    </div>
+                    <div class="drop-text">or drop PDF or Images (JPG, PNG, WebP) here</div>
                     <button class="btn btn-link" id="btnSampleInside">
                       Or click here to test with Sample Document
                     </button>
@@ -363,6 +394,13 @@ export class PDFEditorUI {
               <button class="viewbar-btn" id="btnFitPage" title="Fit to page">
                 ${ICONS.fitPage}
               </button>
+              <div class="viewbar-sep"></div>
+              <button class="viewbar-btn" id="btnViewbarRotateLeft" title="Rotate Current Page Left (90°)">
+                ${ICONS.rotateCcw}
+              </button>
+              <button class="viewbar-btn" id="btnViewbarRotateRight" title="Rotate Current Page Right (90°)">
+                ${ICONS.rotateCw}
+              </button>
             </div>
           </main>
 
@@ -381,6 +419,8 @@ export class PDFEditorUI {
 
         <!-- Hidden input for image uploads -->
         <input type="file" id="imageFileInput" accept="image/*" style="display:none;" />
+        <input type="file" id="imagesToPdfInput" accept="image/*" multiple style="display:none;" />
+        <input type="file" id="addImagePageInput" accept="image/*" multiple style="display:none;" />
 
         <!-- Processing Modal -->
         <div class="modal-backdrop hidden" id="processingModal">
@@ -434,13 +474,50 @@ export class PDFEditorUI {
     });
 
     fileInput.addEventListener('change', async (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0];
-      if (file) {
-        await this.handleFile(file);
+      const files = Array.from((e.target as HTMLInputElement).files || []);
+      if (files.length === 0) return;
+      const pdfFile = files.find((f) => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
+      if (pdfFile) {
+        await this.handleFile(pdfFile);
+      } else {
+        const imageFiles = files.filter((f) => f.type.startsWith('image/'));
+        if (imageFiles.length > 0) {
+          await this.handleImagesToPDF(imageFiles);
+        }
       }
     });
 
-    // Drag and drop PDF
+    // Images to PDF Buttons and Input
+    const imagesToPdfInput = document.getElementById('imagesToPdfInput') as HTMLInputElement;
+    document.getElementById('btnSelectImages')?.addEventListener('click', () => {
+      imagesToPdfInput.value = '';
+      imagesToPdfInput.click();
+    });
+    document.getElementById('btnHeaderImagesToPdf')?.addEventListener('click', () => {
+      imagesToPdfInput.value = '';
+      imagesToPdfInput.click();
+    });
+    imagesToPdfInput?.addEventListener('change', async (e) => {
+      const files = Array.from((e.target as HTMLInputElement).files || []);
+      if (files.length > 0) {
+        await this.handleImagesToPDF(files);
+      }
+    });
+
+    // Add Image as New Page
+    const addImagePageInput = document.getElementById('addImagePageInput') as HTMLInputElement;
+    document.getElementById('btnAddImagePage')?.addEventListener('click', () => {
+      addImagePageInput.value = '';
+      addImagePageInput.click();
+    });
+    addImagePageInput?.addEventListener('change', async (e) => {
+      const files = Array.from((e.target as HTMLInputElement).files || []);
+      if (files.length > 0) {
+        await this.handleAddImagePages(files);
+      }
+    });
+
+    // Drag and drop PDF or Images
     const dropzone = document.getElementById('uploaderDropzone');
     dropzone?.addEventListener('dragover', (e) => {
       e.preventDefault();
@@ -452,9 +529,16 @@ export class PDFEditorUI {
     dropzone?.addEventListener('drop', async (e) => {
       e.preventDefault();
       dropzone.classList.remove('drag-over');
-      const file = e.dataTransfer?.files?.[0];
-      if (file && file.type === 'application/pdf') {
-        await this.handleFile(file);
+      const files = Array.from(e.dataTransfer?.files || []);
+      if (files.length === 0) return;
+      const pdfFile = files.find((f) => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
+      if (pdfFile) {
+        await this.handleFile(pdfFile);
+      } else {
+        const imageFiles = files.filter((f) => f.type.startsWith('image/'));
+        if (imageFiles.length > 0) {
+          await this.handleImagesToPDF(imageFiles);
+        }
       }
     });
 
@@ -584,11 +668,49 @@ export class PDFEditorUI {
       });
     });
 
+    // Rotate dropdown toggle
+    const btnRotateDropdown = document.getElementById('btnRotateDropdown');
+    const rotateMenu = document.getElementById('rotateMenu');
+    btnRotateDropdown?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      rotateMenu?.classList.toggle('active');
+    });
+
+    // Rotate options selection
+    const rotateOptions = document.querySelectorAll('.rotate-option');
+    rotateOptions.forEach((opt) => {
+      opt.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const action = opt.getAttribute('data-rotate');
+        rotateMenu?.classList.remove('active');
+        if (action === 'cw-page') {
+          this.rotateCurrentPage(90);
+        } else if (action === 'ccw-page') {
+          this.rotateCurrentPage(-90);
+        } else if (action === '180-page') {
+          this.rotateCurrentPage(180);
+        } else if (action === 'cw-all') {
+          this.rotateAllPages(90);
+        } else if (action === 'ccw-all') {
+          this.rotateAllPages(-90);
+        }
+      });
+    });
+
+    // Viewbar quick rotate buttons
+    document.getElementById('btnViewbarRotateLeft')?.addEventListener('click', () => {
+      this.rotateCurrentPage(-90);
+    });
+    document.getElementById('btnViewbarRotateRight')?.addEventListener('click', () => {
+      this.rotateCurrentPage(90);
+    });
+
     // Close dropdown on outside click
     document.addEventListener('click', (e) => {
       const target = e.target as HTMLElement;
       if (!target.closest('.dropdown-wrapper')) {
         document.getElementById('shapesMenu')?.classList.remove('active');
+        document.getElementById('rotateMenu')?.classList.remove('active');
       }
     });
 
@@ -859,11 +981,17 @@ export class PDFEditorUI {
         scroller.classList.add('cursor-hand');
       } else if (tool === 'text') {
         scroller.classList.add('cursor-text');
-      } else if (tool === 'freehand' || tool === 'eraser' || tool === 'whiteout' || tool === 'snip') {
+      } else if (tool === 'freehand' || tool === 'eraser' || tool === 'whiteout' || tool === 'snip' || tool === 'crop') {
         scroller.classList.add('cursor-crosshair');
       } else {
         scroller.className = 'viewport-scroller';
       }
+    }
+
+    if (tool === 'crop') {
+      this.renderCropOverlay(this.activePageIndex);
+    } else {
+      this.removeCropOverlay();
     }
 
     this.updateSubmenu();
@@ -3088,6 +3216,34 @@ export class PDFEditorUI {
           🧹 Eraser Mode: Click any text, drawing, or shape to erase it directly. Or click & drag on the page to redact / whiteout an area.
         </span>
       `;
+    } else if (this.currentTool === 'crop') {
+      const meta = this.pdfManager.getPagesMeta()[this.activePageIndex];
+      const hasCrop = !!(meta && meta.cropBox);
+      sub.innerHTML = `
+        <div class="prop-group" style="align-items: center; gap: 8px;">
+          <span style="display: inline-flex; align-items: center; gap: 5px; font-weight: 700; color: #0284c7; font-size: 13px;">
+            ${ICONS.crop} Crop Page ${this.activePageIndex + 1}
+          </span>
+          <button class="btn btn-sm btn-primary" id="btnCropApply" style="padding: 4px 12px; font-size: 12px; display: inline-flex; align-items: center; gap: 4px;">
+            ✓ Apply Crop
+          </button>
+          <button class="btn btn-sm btn-outline" id="btnCropApplyAll" style="padding: 4px 10px; font-size: 12px;" title="Apply this crop frame to all pages in document">
+            Apply to All Pages
+          </button>
+          <button class="btn btn-sm btn-secondary" id="btnCropAutoTrim" style="padding: 4px 10px; font-size: 12px; background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0;" title="Automatically detect content and trim empty white borders">
+            🪄 Auto-Trim Margins
+          </button>
+          ${hasCrop ? `<button class="btn btn-sm btn-text-danger" id="btnCropReset" style="padding: 4px 8px; font-size: 12px;" title="Reset crop and restore full page">↺ Reset Margins</button>` : ''}
+          <button class="btn btn-sm btn-text" id="btnCropCancel" style="padding: 4px 8px; font-size: 12px;">
+            Cancel
+          </button>
+        </div>
+      `;
+      document.getElementById('btnCropApply')?.addEventListener('click', () => this.applyCrop(false));
+      document.getElementById('btnCropApplyAll')?.addEventListener('click', () => this.applyCrop(true));
+      document.getElementById('btnCropAutoTrim')?.addEventListener('click', () => this.autoTrimMargins(this.activePageIndex));
+      document.getElementById('btnCropReset')?.addEventListener('click', () => this.resetCrop(this.activePageIndex));
+      document.getElementById('btnCropCancel')?.addEventListener('click', () => this.setTool('select'));
     } else {
       sub.innerHTML = `
         <span class="submenu-hint">
@@ -3228,7 +3384,8 @@ export class PDFEditorUI {
       const actions = document.createElement('div');
       actions.className = 'thumb-actions';
       actions.innerHTML = `
-        <button class="thumb-act-btn" data-act="rot-cw" title="Rotate clockwise 90°">${ICONS.rotateCw}</button>
+        <button class="thumb-act-btn" data-act="rot-ccw" title="Rotate left 90°">${ICONS.rotateCcw}</button>
+        <button class="thumb-act-btn" data-act="rot-cw" title="Rotate right 90°">${ICONS.rotateCw}</button>
         <button class="thumb-act-btn" data-act="del" title="Delete page">${ICONS.trash}</button>
       `;
 
@@ -3248,11 +3405,18 @@ export class PDFEditorUI {
       });
 
       // Actions
-      actions.querySelector('[data-act="rot-cw"]')?.addEventListener('click', (e) => {
+      actions.querySelector('[data-act="rot-ccw"]')?.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        this.pdfManager.rotatePage(i, -90);
+        await this.renderDocumentPages();
+        await this.renderThumbnails();
+      });
+
+      actions.querySelector('[data-act="rot-cw"]')?.addEventListener('click', async (e) => {
         e.stopPropagation();
         this.pdfManager.rotatePage(i, 90);
-        this.renderDocumentPages();
-        this.renderThumbnails();
+        await this.renderDocumentPages();
+        await this.renderThumbnails();
       });
 
       actions.querySelector('[data-act="del"]')?.addEventListener('click', (e) => {
@@ -3377,6 +3541,376 @@ export class PDFEditorUI {
 
   private hideProcessingModal() {
     document.getElementById('processingModal')?.classList.add('hidden');
+  }
+
+  // Rotate current active page
+  private async rotateCurrentPage(deltaDeg: number) {
+    if (this.pdfManager.getPageCount() === 0) return;
+    this.pdfManager.rotatePage(this.activePageIndex, deltaDeg);
+    await this.renderDocumentPages();
+    await this.renderThumbnails();
+    this.scrollToPage(this.activePageIndex);
+  }
+
+  // Rotate all pages in document
+  private async rotateAllPages(deltaDeg: number) {
+    if (this.pdfManager.getPageCount() === 0) return;
+    this.pdfManager.rotateAllPages(deltaDeg);
+    await this.renderDocumentPages();
+    await this.renderThumbnails();
+    this.scrollToPage(this.activePageIndex);
+  }
+
+  // Convert multiple image files directly to a new PDF document
+  private async handleImagesToPDF(files: File[]) {
+    if (!files || files.length === 0) return;
+    try {
+      this.showProcessingModal('Converting Images to PDF...', 'Embedding images into high-resolution pages...');
+      const pdfBytes = await ExportEngine.createPDFFromImages(files);
+      const fileName = files.length === 1 
+        ? files[0].name.replace(/\.[^/.]+$/, '') + '.pdf'
+        : `Images_Document_${Date.now()}.pdf`;
+      await this.loadPDFBuffer(pdfBytes.buffer as ArrayBuffer, fileName);
+    } catch (err) {
+      this.hideProcessingModal();
+      console.error('Failed to convert images to PDF:', err);
+      alert('Could not convert images to PDF: ' + (err as Error).message);
+    }
+  }
+
+  // Add one or more images as new full pages in current PDF
+  private async handleAddImagePages(files: File[]) {
+    if (!files || files.length === 0) return;
+    try {
+      this.showProcessingModal('Adding Image Pages...', 'Processing image dimensions...');
+      let lastIndex = this.activePageIndex;
+      for (const file of files) {
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+
+        const { natW, natH } = await new Promise<{ natW: number; natH: number }>((resolve) => {
+          const img = new Image();
+          img.onload = () => resolve({ natW: img.naturalWidth || img.width || 800, natH: img.naturalHeight || img.height || 1100 });
+          img.onerror = () => resolve({ natW: 800, natH: 1100 });
+          img.src = dataUrl;
+        });
+
+        lastIndex = this.pdfManager.addImagePage(dataUrl, natW, natH, lastIndex);
+      }
+      this.hideProcessingModal();
+      await this.renderDocumentPages();
+      await this.renderThumbnails();
+      this.scrollToPage(lastIndex);
+    } catch (err) {
+      this.hideProcessingModal();
+      console.error('Failed to add image page:', err);
+      alert('Could not add image page: ' + (err as Error).message);
+    }
+  }
+
+  // Render Interactive Crop Overlay on Active Page
+  private renderCropOverlay(pageIndex: number) {
+    this.removeCropOverlay();
+    const pageContainer = document.getElementById(`pageContainer-${pageIndex}`);
+    if (!pageContainer) return;
+
+    const meta = this.pdfManager.getPageMeta(pageIndex);
+    if (!meta) return;
+
+    const pageW = meta.width * this.currentScale;
+    const pageH = meta.height * this.currentScale;
+
+    let initX: number, initY: number, initW: number, initH: number;
+    if (meta.cropBox) {
+      initX = meta.cropBox.x * this.currentScale;
+      initY = meta.cropBox.y * this.currentScale;
+      initW = meta.cropBox.width * this.currentScale;
+      initH = meta.cropBox.height * this.currentScale;
+    } else {
+      initW = Math.round(pageW * 0.9);
+      initH = Math.round(pageH * 0.9);
+      initX = Math.round((pageW - initW) / 2);
+      initY = Math.round((pageH - initH) / 2);
+    }
+
+    this.activeCropState = {
+      pageIndex,
+      x: initX,
+      y: initY,
+      width: initW,
+      height: initH,
+    };
+
+    const overlay = document.createElement('div');
+    overlay.className = 'crop-overlay';
+    overlay.id = 'activeCropOverlay';
+
+    // 4 Shades around crop box
+    const shadeTop = document.createElement('div');
+    shadeTop.className = 'crop-shade';
+    const shadeBottom = document.createElement('div');
+    shadeBottom.className = 'crop-shade';
+    const shadeLeft = document.createElement('div');
+    shadeLeft.className = 'crop-shade';
+    const shadeRight = document.createElement('div');
+    shadeRight.className = 'crop-shade';
+
+    // Crop box
+    const box = document.createElement('div');
+    box.className = 'crop-box';
+
+    // Rule of thirds grid lines
+    const gridH1 = document.createElement('div');
+    gridH1.className = 'crop-grid-line horizontal';
+    gridH1.style.top = '33.33%';
+    const gridH2 = document.createElement('div');
+    gridH2.className = 'crop-grid-line horizontal';
+    gridH2.style.top = '66.66%';
+    const gridV1 = document.createElement('div');
+    gridV1.className = 'crop-grid-line vertical';
+    gridV1.style.left = '33.33%';
+    const gridV2 = document.createElement('div');
+    gridV2.className = 'crop-grid-line vertical';
+    gridV2.style.left = '66.66%';
+    box.appendChild(gridH1);
+    box.appendChild(gridH2);
+    box.appendChild(gridV1);
+    box.appendChild(gridV2);
+
+    // Dimension badge
+    const badge = document.createElement('div');
+    badge.className = 'crop-badge';
+    box.appendChild(badge);
+
+    // 8 Resize handles
+    const handlePositions = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
+    handlePositions.forEach((pos) => {
+      const h = document.createElement('div');
+      h.className = `crop-handle handle-${pos}`;
+      h.setAttribute('data-handle', pos);
+      box.appendChild(h);
+    });
+
+    overlay.appendChild(shadeTop);
+    overlay.appendChild(shadeBottom);
+    overlay.appendChild(shadeLeft);
+    overlay.appendChild(shadeRight);
+    overlay.appendChild(box);
+    pageContainer.appendChild(overlay);
+
+    const updateBoxUI = () => {
+      if (!this.activeCropState) return;
+      const { x, y, width: w, height: h } = this.activeCropState;
+
+      box.style.left = `${x}px`;
+      box.style.top = `${y}px`;
+      box.style.width = `${w}px`;
+      box.style.height = `${h}px`;
+
+      shadeTop.style.top = '0px';
+      shadeTop.style.left = '0px';
+      shadeTop.style.width = '100%';
+      shadeTop.style.height = `${Math.max(0, y)}px`;
+
+      shadeBottom.style.top = `${y + h}px`;
+      shadeBottom.style.left = '0px';
+      shadeBottom.style.width = '100%';
+      shadeBottom.style.height = `${Math.max(0, pageH - (y + h))}px`;
+
+      shadeLeft.style.top = `${y}px`;
+      shadeLeft.style.left = '0px';
+      shadeLeft.style.width = `${Math.max(0, x)}px`;
+      shadeLeft.style.height = `${h}px`;
+
+      shadeRight.style.top = `${y}px`;
+      shadeRight.style.left = `${x + w}px`;
+      shadeRight.style.width = `${Math.max(0, pageW - (x + w))}px`;
+      shadeRight.style.height = `${h}px`;
+
+      const ptW = Math.round(w / this.currentScale);
+      const ptH = Math.round(h / this.currentScale);
+      badge.innerText = `✂ ${ptW} × ${ptH} pt`;
+    };
+
+    updateBoxUI();
+
+    // Box move / handle resize events
+    let isDragging = false;
+    let dragMode: 'move' | string = 'move';
+    let startMouseX = 0;
+    let startMouseY = 0;
+    let startBox = { x: initX, y: initY, w: initW, h: initH };
+
+    const onMouseDown = (e: MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const handle = (e.target as HTMLElement).getAttribute('data-handle');
+      dragMode = handle || 'move';
+      isDragging = true;
+      startMouseX = e.clientX;
+      startMouseY = e.clientY;
+      startBox = {
+        x: this.activeCropState!.x,
+        y: this.activeCropState!.y,
+        w: this.activeCropState!.width,
+        h: this.activeCropState!.height,
+      };
+
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
+    };
+
+    const onMouseMove = (e: MouseEvent) => {
+      if (!isDragging || !this.activeCropState) return;
+      const dx = e.clientX - startMouseX;
+      const dy = e.clientY - startMouseY;
+      const minSize = Math.max(30, 24 * this.currentScale);
+
+      let newX = startBox.x;
+      let newY = startBox.y;
+      let newW = startBox.w;
+      let newH = startBox.h;
+
+      if (dragMode === 'move') {
+        newX = Math.max(0, Math.min(pageW - startBox.w, startBox.x + dx));
+        newY = Math.max(0, Math.min(pageH - startBox.h, startBox.y + dy));
+      } else {
+        if (dragMode.includes('e')) {
+          newW = Math.max(minSize, Math.min(pageW - startBox.x, startBox.w + dx));
+        }
+        if (dragMode.includes('s')) {
+          newH = Math.max(minSize, Math.min(pageH - startBox.y, startBox.h + dy));
+        }
+        if (dragMode.includes('w')) {
+          const maxLeftShift = startBox.x + startBox.w - minSize;
+          newX = Math.max(0, Math.min(maxLeftShift, startBox.x + dx));
+          newW = startBox.w - (newX - startBox.x);
+        }
+        if (dragMode.includes('n')) {
+          const maxTopShift = startBox.y + startBox.h - minSize;
+          newY = Math.max(0, Math.min(maxTopShift, startBox.y + dy));
+          newH = startBox.h - (newY - startBox.y);
+        }
+      }
+
+      this.activeCropState.x = Math.round(newX);
+      this.activeCropState.y = Math.round(newY);
+      this.activeCropState.width = Math.round(newW);
+      this.activeCropState.height = Math.round(newH);
+      updateBoxUI();
+    };
+
+    const onMouseUp = () => {
+      isDragging = false;
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    };
+
+    box.addEventListener('mousedown', onMouseDown);
+  }
+
+  // Remove crop overlay from document
+  private removeCropOverlay() {
+    this.activeCropState = null;
+    document.querySelectorAll('.crop-overlay').forEach((el) => el.remove());
+  }
+
+  // Apply crop to current page or all pages
+  private async applyCrop(applyToAll: boolean = false) {
+    if (!this.activeCropState) return;
+
+    const pdfCropX = Math.max(0, Math.round(this.activeCropState.x / this.currentScale));
+    const pdfCropY = Math.max(0, Math.round(this.activeCropState.y / this.currentScale));
+    const pdfCropW = Math.max(20, Math.round(this.activeCropState.width / this.currentScale));
+    const pdfCropH = Math.max(20, Math.round(this.activeCropState.height / this.currentScale));
+
+    const cropBox = { x: pdfCropX, y: pdfCropY, width: pdfCropW, height: pdfCropH };
+
+    if (applyToAll) {
+      this.pdfManager.setAllPagesCrop(cropBox);
+    } else {
+      this.pdfManager.setPageCrop(this.activeCropState.pageIndex, cropBox);
+    }
+
+    this.removeCropOverlay();
+    this.setTool('select');
+    await this.renderDocumentPages();
+    await this.renderThumbnails();
+  }
+
+  // Reset / remove crop on active page
+  private async resetCrop(pageIndex: number) {
+    this.pdfManager.setPageCrop(pageIndex, null);
+    this.removeCropOverlay();
+    this.setTool('select');
+    await this.renderDocumentPages();
+    await this.renderThumbnails();
+  }
+
+  // Auto-Trim Margins by inspecting canvas pixels
+  private autoTrimMargins(pageIndex: number) {
+    const canvas = document.getElementById(`pdfCanvas-${pageIndex}`) as HTMLCanvasElement | null;
+    if (!canvas || !this.activeCropState) return;
+
+    try {
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      if (!ctx) return;
+
+      const w = canvas.width;
+      const h = canvas.height;
+      const imgData = ctx.getImageData(0, 0, w, h);
+      const data = imgData.data;
+
+      let minX = w, minY = h, maxX = 0, maxY = 0;
+      const step = 2; // high-speed 2-pixel stride
+      for (let y = 0; y < h; y += step) {
+        for (let x = 0; x < w; x += step) {
+          const idx = (y * w + x) * 4;
+          const r = data[idx];
+          const g = data[idx + 1];
+          const b = data[idx + 2];
+          const a = data[idx + 3];
+
+          // Pixel has content if not transparent and not white
+          if (a > 30 && (r < 240 || g < 240 || b < 240)) {
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+          }
+        }
+      }
+
+      const meta = this.pdfManager.getPageMeta(pageIndex);
+      const pageW = (meta ? meta.width : 595) * this.currentScale;
+      const pageH = (meta ? meta.height : 842) * this.currentScale;
+
+      if (maxX > minX && maxY > minY) {
+        const dprX = w / pageW;
+        const dprY = h / pageH;
+        const pad = 16 * this.currentScale; // 16px comfortable padding
+
+        const cropX = Math.max(0, Math.round((minX / dprX) - pad));
+        const cropY = Math.max(0, Math.round((minY / dprY) - pad));
+        const cropW = Math.min(pageW - cropX, Math.round(((maxX - minX) / dprX) + pad * 2));
+        const cropH = Math.min(pageH - cropY, Math.round(((maxY - minY) / dprY) + pad * 2));
+
+        this.activeCropState.x = cropX;
+        this.activeCropState.y = cropY;
+        this.activeCropState.width = Math.max(40, cropW);
+        this.activeCropState.height = Math.max(40, cropH);
+
+        // Re-render crop overlay with the trimmed box
+        this.renderCropOverlay(pageIndex);
+      }
+    } catch (err) {
+      console.warn('Auto-trim margins error:', err);
+    }
   }
 }
 

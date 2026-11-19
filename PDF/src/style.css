@@ -2009,6 +2009,141 @@ input[type="range"] {
 }
 
 
+/* --------------------------------------------------------------------------
+   Page Crop Tool & Overlay
+   -------------------------------------------------------------------------- */
+.crop-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 1200;
+  overflow: hidden;
+  user-select: none;
+}
+
+.crop-shade {
+  position: absolute;
+  background: rgba(15, 23, 42, 0.6);
+  pointer-events: auto;
+  cursor: default;
+}
+
+.crop-box {
+  position: absolute;
+  border: 2px solid #0070f3;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.9), inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+  pointer-events: auto;
+  cursor: move;
+  touch-action: none;
+  background: rgba(0, 112, 243, 0.05);
+}
+
+.crop-grid-line {
+  position: absolute;
+  background: rgba(255, 255, 255, 0.4);
+  pointer-events: none;
+}
+.crop-grid-line.horizontal {
+  left: 0;
+  right: 0;
+  height: 1px;
+}
+.crop-grid-line.vertical {
+  top: 0;
+  bottom: 0;
+  width: 1px;
+}
+
+.crop-handle {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  background: #ffffff;
+  border: 2px solid #0070f3;
+  border-radius: 2px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  z-index: 10;
+  pointer-events: auto;
+  transform: translate(-50%, -50%);
+}
+
+.crop-handle.handle-nw { top: 0; left: 0; cursor: nwse-resize; }
+.crop-handle.handle-n  { top: 0; left: 50%; cursor: ns-resize; }
+.crop-handle.handle-ne { top: 0; left: 100%; cursor: nesw-resize; }
+.crop-handle.handle-e  { top: 50%; left: 100%; cursor: ew-resize; }
+.crop-handle.handle-se { top: 100%; left: 100%; cursor: nwse-resize; }
+.crop-handle.handle-s  { top: 100%; left: 50%; cursor: ns-resize; }
+.crop-handle.handle-sw { top: 100%; left: 0; cursor: nesw-resize; }
+.crop-handle.handle-w  { top: 50%; left: 0; cursor: ew-resize; }
+
+.crop-badge {
+  position: absolute;
+  top: -28px;
+  left: 0;
+  background: #0f172a;
+  color: #ffffff;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  z-index: 20;
+}
+
+.rotate-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  padding: 6px;
+  display: none;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 1000;
+  min-width: 200px;
+}
+.rotate-menu.active {
+  display: flex;
+}
+.rotate-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  font-size: 13px;
+  color: #374151;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.rotate-option:hover {
+  background: #f1f5f9;
+  color: #0284c7;
+}
+
+.btn-images-to-pdf {
+  background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%) !important;
+  color: #ffffff !important;
+  border: none !important;
+  font-weight: 600 !important;
+}
+.btn-images-to-pdf:hover {
+  background: linear-gradient(135deg, #0369a1 0%, #075985 100%) !important;
+  transform: translateY(-1px);
+}
+
 .hidden {
   display: none !important;
 }

@@ -331,11 +331,49 @@ export class ExportEngine {
       const meta = pagesMeta[i];
       let newPage: any;
 
-      if (meta.isBlankPage) {
+      if (meta.isImagePage && meta.imageSrc) {
+        newPage = outputDoc.addPage([meta.width, meta.height]);
+        try {
+          const imgBytes = dataUriToUint8Array(meta.imageSrc);
+          let embedded: any;
+          if (meta.imageSrc.startsWith('data:image/png')) {
+            try {
+              embedded = await outputDoc.embedPng(imgBytes);
+            } catch (_) {
+              embedded = await outputDoc.embedJpg(imgBytes);
+            }
+          } else {
+            try {
+              embedded = await outputDoc.embedJpg(imgBytes);
+            } catch (_) {
+              embedded = await outputDoc.embedPng(imgBytes);
+            }
+          }
+          newPage.drawImage(embedded, {
+            x: 0,
+            y: 0,
+            width: meta.width,
+            height: meta.height,
+          });
+        } catch (err) {
+          console.error('Failed to embed image page:', err);
+        }
+      } else if (meta.isBlankPage) {
         newPage = outputDoc.addPage([meta.width, meta.height]);
       } else {
         const [copiedPage] = await outputDoc.copyPages(originalDoc, [meta.originalPageNumber - 1]);
         newPage = outputDoc.addPage(copiedPage);
+      }
+
+      // Apply cropBox if defined (clips both visible content and page boundary)
+      if (meta.cropBox) {
+        const origPageH = newPage.getHeight();
+        const pdfCropX = meta.cropBox.x;
+        const pdfCropY = origPageH - meta.cropBox.y - meta.cropBox.height;
+        const pdfCropW = meta.cropBox.width;
+        const pdfCropH = meta.cropBox.height;
+        newPage.setCropBox(pdfCropX, pdfCropY, pdfCropW, pdfCropH);
+        newPage.setMediaBox(pdfCropX, pdfCropY, pdfCropW, pdfCropH);
       }
 
       // Apply rotation if needed
@@ -787,5 +825,82 @@ export class ExportEngine {
     link.click();
     document.body.removeChild(link);
     setTimeout(() => URL.revokeObjectURL(url), 10000);
+  }
+
+  static async createPDFFromImages(imageFiles: File[]): Promise<Uint8Array> {
+    const doc = await PDFDocument.create();
+
+    for (const file of imageFiles) {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
+      const { bytes, format, width, height } = await new Promise<{
+        bytes: Uint8Array;
+        format: 'png' | 'jpg';
+        width: number;
+        height: number;
+      }>((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+          const natW = img.naturalWidth || img.width || 800;
+          const natH = img.naturalHeight || img.height || 1100;
+          const canvas = document.createElement('canvas');
+          canvas.width = natW;
+          canvas.height = natH;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            reject(new Error('Cannot create canvas context'));
+            return;
+          }
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, natW, natH);
+          ctx.drawImage(img, 0, 0, natW, natH);
+
+          const isPng = file.type === 'image/png';
+          const outDataUrl = canvas.toDataURL(isPng ? 'image/png' : 'image/jpeg', 0.95);
+          const rawBytes = dataUriToUint8Array(outDataUrl);
+          resolve({
+            bytes: rawBytes,
+            format: isPng ? 'png' : 'jpg',
+            width: natW,
+            height: natH,
+          });
+        };
+        img.onerror = reject;
+        img.src = dataUrl;
+      });
+
+      let embedded: any;
+      if (format === 'png') {
+        try {
+          embedded = await doc.embedPng(bytes);
+        } catch (_) {
+          embedded = await doc.embedJpg(bytes);
+        }
+      } else {
+        try {
+          embedded = await doc.embedJpg(bytes);
+        } catch (_) {
+          embedded = await doc.embedPng(bytes);
+        }
+      }
+
+      // Standard conversion: 96 DPI screen pixels to 72 DPI PDF points (0.75x ratio)
+      const ptW = Math.max(100, Math.round(width * 0.75));
+      const ptH = Math.max(100, Math.round(height * 0.75));
+      const page = doc.addPage([ptW, ptH]);
+      page.drawImage(embedded, {
+        x: 0,
+        y: 0,
+        width: ptW,
+        height: ptH,
+      });
+    }
+
+    return await doc.save();
   }
 }

@@ -215,20 +215,87 @@ export class PDFManager {
     const meta = this.pagesMeta[pageIndex];
     if (!meta) throw new Error(`Page index ${pageIndex} not found`);
 
-    if (meta.isBlankPage) {
-      const dpr = window.devicePixelRatio || 1;
-      const cssWidth = meta.width * scale;
-      const cssHeight = meta.height * scale;
-      canvas.width = cssWidth * dpr;
-      canvas.height = cssHeight * dpr;
-      canvas.style.width = `${cssWidth}px`;
-      canvas.style.height = `${cssHeight}px`;
+    const dpr = Math.max(2, window.devicePixelRatio || 1);
+
+    // If page has an active cropBox, render uncropped page offscreen and blit cropped region
+    if (meta.cropBox) {
+      const cropW = meta.cropBox.width * scale;
+      const cropH = meta.cropBox.height * scale;
+      canvas.width = Math.floor(cropW * dpr);
+      canvas.height = Math.floor(cropH * dpr);
+      canvas.style.width = `${Math.floor(cropW)}px`;
+      canvas.style.height = `${Math.floor(cropH)}px`;
+
+      const offscreen = document.createElement('canvas');
+      const savedCrop = meta.cropBox;
+      meta.cropBox = undefined;
+      await this.renderPageToCanvas(pageIndex, offscreen, scale);
+      meta.cropBox = savedCrop;
 
       const ctx = canvas.getContext('2d');
       if (ctx) {
-        ctx.scale(dpr, dpr);
         ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, cssWidth, cssHeight);
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        const sx = Math.floor(savedCrop.x * scale * dpr);
+        const sy = Math.floor(savedCrop.y * scale * dpr);
+        const sw = Math.floor(savedCrop.width * scale * dpr);
+        const sh = Math.floor(savedCrop.height * scale * dpr);
+        ctx.drawImage(offscreen, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+      }
+      return { width: cropW, height: cropH };
+    }
+
+    // If page is an embedded Image Page
+    if (meta.isImagePage && meta.imageSrc) {
+      const cssWidth = meta.width * scale;
+      const cssHeight = meta.height * scale;
+      canvas.width = Math.floor(cssWidth * dpr);
+      canvas.height = Math.floor(cssHeight * dpr);
+      canvas.style.width = `${Math.floor(cssWidth)}px`;
+      canvas.style.height = `${Math.floor(cssHeight)}px`;
+
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+
+        await new Promise<void>((resolve) => {
+          const img = new Image();
+          img.onload = () => {
+            ctx.save();
+            if (meta.rotation !== 0) {
+              ctx.translate(canvas.width / 2, canvas.height / 2);
+              ctx.rotate((meta.rotation * Math.PI) / 180);
+              const drawW = (meta.rotation % 180 === 0 ? canvas.width : canvas.height);
+              const drawH = (meta.rotation % 180 === 0 ? canvas.height : canvas.width);
+              ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
+            } else {
+              ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            }
+            ctx.restore();
+            resolve();
+          };
+          img.onerror = () => resolve();
+          img.src = meta.imageSrc!;
+        });
+      }
+      return { width: cssWidth, height: cssHeight };
+    }
+
+    if (meta.isBlankPage) {
+      const cssWidth = meta.width * scale;
+      const cssHeight = meta.height * scale;
+      canvas.width = Math.floor(cssWidth * dpr);
+      canvas.height = Math.floor(cssHeight * dpr);
+      canvas.style.width = `${Math.floor(cssWidth)}px`;
+      canvas.style.height = `${Math.floor(cssHeight)}px`;
+
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
       }
       return { width: cssWidth, height: cssHeight };
     }
@@ -237,7 +304,6 @@ export class PDFManager {
     const rotation = (page.rotate + meta.rotation) % 360;
 
     // Retina / High-DPI supersampling (at least 2x or devicePixelRatio) for crystal-clear sharp text
-    const dpr = Math.max(2, window.devicePixelRatio || 1);
     const viewport = page.getViewport({ scale, rotation });
 
     canvas.width = Math.floor(viewport.width * dpr);
@@ -286,9 +352,93 @@ export class PDFManager {
     const meta = this.pagesMeta[pageIndex];
     if (meta) {
       meta.rotation = (meta.rotation + deltaDeg + 360) % 360;
+      if (Math.abs(deltaDeg) % 180 !== 0) {
+        const tmp = meta.width;
+        meta.width = meta.height;
+        meta.height = tmp;
+      }
       // Invalidate thumbnail
       this.thumbnailDataUrls.delete(pageIndex);
     }
+  }
+
+  rotateAllPages(deltaDeg: number): void {
+    this.pagesMeta.forEach((meta, idx) => {
+      meta.rotation = (meta.rotation + deltaDeg + 360) % 360;
+      if (Math.abs(deltaDeg) % 180 !== 0) {
+        const tmp = meta.width;
+        meta.width = meta.height;
+        meta.height = tmp;
+      }
+      this.thumbnailDataUrls.delete(idx);
+    });
+  }
+
+  setPageCrop(pageIndex: number, cropBox: { x: number; y: number; width: number; height: number } | null): void {
+    const meta = this.pagesMeta[pageIndex];
+    if (meta) {
+      meta.cropBox = cropBox ? { ...cropBox } : undefined;
+      this.thumbnailDataUrls.delete(pageIndex);
+    }
+  }
+
+  setAllPagesCrop(cropBox: { x: number; y: number; width: number; height: number } | null): void {
+    if (!cropBox) {
+      this.pagesMeta.forEach((meta, idx) => {
+        meta.cropBox = undefined;
+        this.thumbnailDataUrls.delete(idx);
+      });
+      return;
+    }
+    const refMeta = this.pagesMeta[0];
+    const leftRatio = refMeta ? cropBox.x / refMeta.width : 0;
+    const topRatio = refMeta ? cropBox.y / refMeta.height : 0;
+    const widthRatio = refMeta ? cropBox.width / refMeta.width : 1;
+    const heightRatio = refMeta ? cropBox.height / refMeta.height : 1;
+
+    this.pagesMeta.forEach((meta, idx) => {
+      meta.cropBox = {
+        x: Math.round(meta.width * leftRatio),
+        y: Math.round(meta.height * topRatio),
+        width: Math.round(meta.width * widthRatio),
+        height: Math.round(meta.height * heightRatio),
+      };
+      this.thumbnailDataUrls.delete(idx);
+    });
+  }
+
+  addImagePage(imageSrc: string, naturalWidth: number, naturalHeight: number, afterPageIndex?: number): number {
+    const insertIdx = afterPageIndex !== undefined ? afterPageIndex + 1 : this.pagesMeta.length;
+    // Standard conversion: 96 DPI screen pixels to 72 DPI PDF points (0.75x ratio)
+    const ptWidth = Math.max(100, Math.round(naturalWidth * 0.75));
+    const ptHeight = Math.max(100, Math.round(naturalHeight * 0.75));
+
+    const newMeta: PageMetadata = {
+      pageIndex: insertIdx,
+      originalPageNumber: -1,
+      rotation: 0,
+      width: ptWidth,
+      height: ptHeight,
+      scale: 1.0,
+      isImagePage: true,
+      imageSrc,
+    };
+
+    this.pagesMeta.splice(insertIdx, 0, newMeta);
+    this.pagesMeta.forEach((m, idx) => {
+      m.pageIndex = idx;
+    });
+
+    const newExtracted = new Map<number, ExtractedTextItem[]>();
+    for (const [pIdx, items] of this.extractedTexts.entries()) {
+      const targetIdx = pIdx >= insertIdx ? pIdx + 1 : pIdx;
+      items.forEach((item) => { item.pageIndex = targetIdx; });
+      newExtracted.set(targetIdx, items);
+    }
+    newExtracted.set(insertIdx, []);
+    this.extractedTexts = newExtracted;
+    this.thumbnailDataUrls.clear();
+    return insertIdx;
   }
 
   deletePage(pageIndex: number): void {
