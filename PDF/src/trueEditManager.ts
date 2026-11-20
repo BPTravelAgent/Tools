@@ -119,6 +119,46 @@ export class TrueEditManager {
     this.notify();
   }
 
+  movePage(fromIndex: number, toIndex: number) {
+    if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0) return;
+    for (const change of this.textChanges.values()) {
+      if (change.pageIndex === fromIndex) {
+        change.pageIndex = toIndex;
+      } else if (fromIndex < toIndex) {
+        if (change.pageIndex > fromIndex && change.pageIndex <= toIndex) {
+          change.pageIndex--;
+        }
+      } else {
+        if (change.pageIndex >= toIndex && change.pageIndex < fromIndex) {
+          change.pageIndex++;
+        }
+      }
+    }
+    this.notify();
+  }
+
+  removePage(pageIndex: number) {
+    const toDelete: string[] = [];
+    for (const [id, change] of this.textChanges.entries()) {
+      if (change.pageIndex === pageIndex) {
+        toDelete.push(id);
+      } else if (change.pageIndex > pageIndex) {
+        change.pageIndex--;
+      }
+    }
+    toDelete.forEach((id) => this.textChanges.delete(id));
+    this.notify();
+  }
+
+  duplicatePage(pageIndex: number) {
+    for (const change of this.textChanges.values()) {
+      if (change.pageIndex > pageIndex) {
+        change.pageIndex++;
+      }
+    }
+    this.notify();
+  }
+
   clearAll() {
     this.textChanges.clear();
     this.activeEditingId = null;

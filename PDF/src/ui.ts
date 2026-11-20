@@ -163,6 +163,13 @@ export class PDFEditorUI {
   private activeCropState: { pageIndex: number; x: number; y: number; width: number; height: number } | null = null;
   private editingAnnotationId: string | null = null;
 
+  // Document size and advanced operations state
+  private currentFileSize: number = 0;
+  private pendingDonorBuffer: ArrayBuffer | null = null;
+  private pendingDonorPageCount: number = 0;
+  private lastCompressedBytes: Uint8Array | null = null;
+  private draggedThumbnailIndex: number | null = null;
+
   // Cached DOM elements
   private root: HTMLElement;
   private previewPagesContainer!: HTMLElement;
@@ -205,6 +212,30 @@ export class PDFEditorUI {
             </div>
           </div>
           <div class="header-right">
+            <!-- Live File Size Badge -->
+            <div id="fileSizeBadge" class="file-size-badge" title="Document Size in KB / MB" style="display: none; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; padding: 5px 9px; border-radius: 6px; background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1;">
+              <span>📄</span>
+              <span id="fileSizeText">0 KB</span>
+            </div>
+
+            <!-- Merge / Insert PDF Button -->
+            <button id="btnHeaderMergePDF" class="btn btn-outline" title="Merge another PDF or insert selected pages" style="display: none; align-items: center; gap: 6px;">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+              <span>Merge PDF</span>
+            </button>
+
+            <!-- Compress PDF Button -->
+            <button id="btnHeaderCompress" class="btn btn-outline" title="Compress PDF to reduce file size (KB / MB)" style="display: none; align-items: center; gap: 6px;">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+              <span>Compress</span>
+            </button>
+
+            <!-- Save as Images Button -->
+            <button id="btnHeaderExportImages" class="btn btn-outline" title="Save selected or all pages as PNG/JPG or ZIP" style="display: none; align-items: center; gap: 6px;">
+              ${ICONS.image}
+              <span>Save as Images</span>
+            </button>
+
             <button id="btnHeaderOpenPDF" class="btn btn-outline btn-open-doc" title="Open another PDF document (clears previous document edits)" style="display: inline-flex; align-items: center; gap: 6px;">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>
               <span>Open PDF</span>
@@ -229,6 +260,9 @@ export class PDFEditorUI {
             <div class="thumbnails-header">
               <span>Pages</span>
               <div style="display: flex; align-items: center; gap: 4px;">
+                <button id="btnSidebarMergePDF" class="btn-icon" title="Merge / Insert pages from another PDF">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+                </button>
                 <button id="btnAddBlankPage" class="btn-icon" title="Add blank page">
                   ${ICONS.plus}
                 </button>
@@ -382,6 +416,13 @@ export class PDFEditorUI {
                 ${ICONS.chevronRight}
               </button>
               <div class="viewbar-sep"></div>
+              <button class="viewbar-btn" id="btnViewbarMoveUp" title="Move page up (earlier in document)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="18 15 12 9 6 15"/></svg>
+              </button>
+              <button class="viewbar-btn" id="btnViewbarMoveDown" title="Move page down (later in document)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+              </button>
+              <div class="viewbar-sep"></div>
               <button class="viewbar-btn" id="btnZoomOut" title="Zoom out">
                 ${ICONS.zoomOut}
               </button>
@@ -422,6 +463,7 @@ export class PDFEditorUI {
         <input type="file" id="imageFileInput" accept="image/*" style="display:none;" />
         <input type="file" id="imagesToPdfInput" accept="image/*" multiple style="display:none;" />
         <input type="file" id="addImagePageInput" accept="image/*" multiple style="display:none;" />
+        <input type="file" id="mergeFileInput" accept="application/pdf" style="display:none;" />
 
         <!-- Processing Modal -->
         <div class="modal-backdrop hidden" id="processingModal">
@@ -433,6 +475,222 @@ export class PDFEditorUI {
             </p>
             <div class="progress-bar-container">
               <div class="progress-bar-fill" id="progressBarFill" style="width: 0%"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Merge / Insert PDF Modal -->
+        <div class="modal-backdrop hidden" id="mergeModal">
+          <div class="modal-card modal-card-wide">
+            <div class="modal-header-custom">
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span style="font-size:20px;">➕</span>
+                <h2 class="modal-title" style="margin:0; font-size:18px;">Merge & Insert Pages from Another PDF</h2>
+              </div>
+              <button class="modal-close-btn" id="btnCloseMergeModal">&times;</button>
+            </div>
+            <div class="modal-body-custom">
+              <div class="merge-dropzone" id="mergeDropzone">
+                <div class="merge-drop-icon">📁</div>
+                <div style="font-weight:600; margin-bottom:4px; font-size:14px; color:#1e293b;">Choose a PDF to merge or insert pages from</div>
+                <div style="font-size:12px; color:#64748b; margin-bottom:12px;">Select any external PDF file on your computer</div>
+                <button type="button" class="btn btn-crimson" id="btnBrowseMergeFile">Select PDF File</button>
+              </div>
+
+              <div id="mergeFileInfoSection" class="hidden" style="margin-top:16px;">
+                <div class="file-summary-card">
+                  <div style="display:flex; align-items:center; justify-content:space-between;">
+                    <div>
+                      <div style="font-weight:600; font-size:14px; color:#1e293b;" id="mergeFileName">Document.pdf</div>
+                      <div style="font-size:12px; color:#64748b; margin-top:2px;" id="mergeFileMeta">0 Pages | 0 KB</div>
+                    </div>
+                    <button type="button" class="btn btn-outline" id="btnChangeMergeFile" style="font-size:12px; padding:4px 8px;">Change PDF</button>
+                  </div>
+                </div>
+
+                <div class="merge-options-grid">
+                  <div class="merge-option-group">
+                    <label class="merge-label">Pages to Insert:</label>
+                    <div class="radio-card-wrap">
+                      <label class="radio-card">
+                        <input type="radio" name="mergePageScope" value="all" checked />
+                        <span>All Pages (1 to <span id="mergeTotalPagesText">1</span>)</span>
+                      </label>
+                      <label class="radio-card">
+                        <input type="radio" name="mergePageScope" value="selected" />
+                        <span>Selected Pages only:</span>
+                      </label>
+                      <input type="text" id="mergeSelectedPagesInput" class="custom-range-input" placeholder="e.g. 1, 3 or 1-2" disabled />
+                    </div>
+                  </div>
+
+                  <div class="merge-option-group">
+                    <label class="merge-label">Insert Position in Current Document:</label>
+                    <div class="radio-card-wrap">
+                      <label class="radio-card">
+                        <input type="radio" name="mergePosition" value="current" checked />
+                        <span>After Current Page (Page <span id="mergeCurrentPageText">1</span>)</span>
+                      </label>
+                      <label class="radio-card">
+                        <input type="radio" name="mergePosition" value="end" />
+                        <span>At the End of document</span>
+                      </label>
+                      <label class="radio-card">
+                        <input type="radio" name="mergePosition" value="start" />
+                        <span>At the Beginning (before Page 1)</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="modal-footer-custom">
+              <button type="button" class="btn btn-outline" id="btnCancelMerge">Cancel</button>
+              <button type="button" class="btn btn-primary" id="btnConfirmMerge" disabled>Insert Pages</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Compress PDF Modal -->
+        <div class="modal-backdrop hidden" id="compressModal">
+          <div class="modal-card modal-card-wide">
+            <div class="modal-header-custom">
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span style="font-size:20px;">⚡</span>
+                <h2 class="modal-title" style="margin:0; font-size:18px;">Compress PDF - Reduce File Size</h2>
+              </div>
+              <button class="modal-close-btn" id="btnCloseCompressModal">&times;</button>
+            </div>
+            <div class="modal-body-custom">
+              <div class="current-size-banner">
+                <div>Current Document Size: <strong id="compressCurrentSizeText" style="color:#0f172a;">0 KB</strong></div>
+                <div style="font-size:12px; color:#64748b; margin-top:2px;">Optimize pages to shrink file size for email, WhatsApp, or web portals</div>
+              </div>
+
+              <div class="compress-cards-container" id="compressPresetsSection">
+                <div class="compress-preset-card active" data-preset="recommended">
+                  <div class="preset-badge">Recommended</div>
+                  <div class="preset-title">Balanced Quality</div>
+                  <div class="preset-desc">Medium compression (~50% smaller). Sharp text, smooth images. Perfect for everyday sharing.</div>
+                  <div class="preset-est">~50% Size Reduction</div>
+                </div>
+
+                <div class="compress-preset-card" data-preset="extreme">
+                  <div class="preset-title">Extreme Compression</div>
+                  <div class="preset-desc">Maximum reduction (~70% smaller). Ideal for strict attachment limits (&lt; 500 KB).</div>
+                  <div class="preset-est">~70% Size Reduction</div>
+                </div>
+
+                <div class="compress-preset-card" data-preset="high">
+                  <div class="preset-title">High Quality</div>
+                  <div class="preset-desc">Light compression (~25% smaller). Maximum clarity for printing and high-res archiving.</div>
+                  <div class="preset-est">~25% Size Reduction</div>
+                </div>
+              </div>
+
+              <!-- Compress Progress -->
+              <div id="compressProgressSection" class="hidden" style="margin-top:16px;">
+                <div style="font-size:13px; font-weight:600; margin-bottom:8px; color:#1e293b;" id="compressStatusText">Optimizing pages...</div>
+                <div class="progress-bar-container">
+                  <div class="progress-bar-fill" id="compressProgressBarFill" style="width: 0%"></div>
+                </div>
+              </div>
+
+              <!-- Compress Result Banner -->
+              <div id="compressResultSection" class="hidden" style="margin-top:16px;">
+                <div class="compress-result-box">
+                  <div style="font-size:28px;">🎉</div>
+                  <div>
+                    <div style="font-weight:700; font-size:16px; color:#15803d;" id="compressResultTitle">PDF Compressed Successfully!</div>
+                    <div style="font-size:13px; color:#334155; margin-top:4px;" id="compressResultStats">Original: 1.4 MB ➔ Compressed: 420 KB (Saved 70%)</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="modal-footer-custom" id="compressFooterDefault">
+              <button type="button" class="btn btn-outline" id="btnCancelCompress">Cancel</button>
+              <button type="button" class="btn btn-crimson" id="btnStartCompress">⚡ Compress PDF</button>
+            </div>
+            <div class="modal-footer-custom hidden" id="compressFooterDone">
+              <button type="button" class="btn btn-outline" id="btnApplyCompressedToEditor">🔄 Load in Editor</button>
+              <button type="button" class="btn btn-primary" id="btnDownloadCompressed">📥 Download Compressed PDF</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Export Pages to Image Modal -->
+        <div class="modal-backdrop hidden" id="exportImagesModal">
+          <div class="modal-card">
+            <div class="modal-header-custom">
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span style="font-size:20px;">🖼️</span>
+                <h2 class="modal-title" style="margin:0; font-size:18px;">Export Pages as Images</h2>
+              </div>
+              <button class="modal-close-btn" id="btnCloseExportImagesModal">&times;</button>
+            </div>
+            <div class="modal-body-custom">
+              <div class="merge-option-group" style="margin-bottom:14px;">
+                <label class="merge-label">Image Format:</label>
+                <div style="display:flex; gap:12px;">
+                  <label class="radio-card" style="flex:1;">
+                    <input type="radio" name="exportImgFormat" value="png" checked />
+                    <span>PNG (Lossless & Sharp)</span>
+                  </label>
+                  <label class="radio-card" style="flex:1;">
+                    <input type="radio" name="exportImgFormat" value="jpeg" />
+                    <span>JPEG (Compact Size)</span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="merge-option-group" style="margin-bottom:14px;">
+                <label class="merge-label">Image Resolution:</label>
+                <div style="display:flex; gap:12px;">
+                  <label class="radio-card" style="flex:1;">
+                    <input type="radio" name="exportImgDpi" value="2.0" checked />
+                    <span>Ultra HD (300 DPI / Crisp 2x)</span>
+                  </label>
+                  <label class="radio-card" style="flex:1;">
+                    <input type="radio" name="exportImgDpi" value="1.0" />
+                    <span>Standard (150 DPI / Normal 1x)</span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="merge-option-group">
+                <label class="merge-label">Pages to Export:</label>
+                <div class="radio-card-wrap">
+                  <label class="radio-card">
+                    <input type="radio" name="exportImgScope" value="current" checked />
+                    <span>Current Page only (Page <span id="exportImgCurrentPage">1</span>)</span>
+                  </label>
+                  <label class="radio-card">
+                    <input type="radio" name="exportImgScope" value="all" />
+                    <span>All Pages (1 to <span id="exportImgTotalPages">1</span>)</span>
+                  </label>
+                  <label class="radio-card">
+                    <input type="radio" name="exportImgScope" value="custom" />
+                    <span>Custom Range:</span>
+                  </label>
+                  <input type="text" id="exportImgCustomRange" class="custom-range-input" placeholder="e.g. 1, 3 or 1-2" disabled />
+                </div>
+              </div>
+
+              <div style="font-size:12px; color:#64748b; background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:8px 12px; margin-top:14px;">
+                💡 <em>Single page will download directly as an image. Multiple pages will be bundled and downloaded as a ZIP archive.</em>
+              </div>
+
+              <!-- Export Image Progress -->
+              <div id="exportImgProgressSection" class="hidden" style="margin-top:14px;">
+                <div style="font-size:13px; font-weight:600; margin-bottom:8px; color:#1e293b;" id="exportImgStatusText">Rendering pages...</div>
+                <div class="progress-bar-container">
+                  <div class="progress-bar-fill" id="exportImgProgressBarFill" style="width: 0%"></div>
+                </div>
+              </div>
+            </div>
+            <div class="modal-footer-custom">
+              <button type="button" class="btn btn-outline" id="btnCancelExportImages">Cancel</button>
+              <button type="button" class="btn btn-crimson" id="btnStartExportImages">Export Images</button>
             </div>
           </div>
         </div>
@@ -887,6 +1145,146 @@ export class PDFEditorUI {
         }, 80);
       }, { passive: true });
     }
+    // Viewbar Move Page Up / Down
+    document.getElementById('btnViewbarMoveUp')?.addEventListener('click', async () => {
+      if (this.activePageIndex > 0) {
+        await this.movePage(this.activePageIndex, this.activePageIndex - 1);
+      }
+    });
+
+    document.getElementById('btnViewbarMoveDown')?.addEventListener('click', async () => {
+      if (this.activePageIndex < this.pdfManager.getPageCount() - 1) {
+        await this.movePage(this.activePageIndex, this.activePageIndex + 1);
+      }
+    });
+
+    // Merge Modal Open / Close
+    const openMerge = () => this.openMergeModal();
+    document.getElementById('btnHeaderMergePDF')?.addEventListener('click', openMerge);
+    document.getElementById('btnSidebarMergePDF')?.addEventListener('click', openMerge);
+    document.getElementById('btnCloseMergeModal')?.addEventListener('click', () => {
+      document.getElementById('mergeModal')?.classList.add('hidden');
+    });
+    document.getElementById('btnCancelMerge')?.addEventListener('click', () => {
+      document.getElementById('mergeModal')?.classList.add('hidden');
+    });
+
+    const mergeFileInput = document.getElementById('mergeFileInput') as HTMLInputElement;
+    document.getElementById('btnBrowseMergeFile')?.addEventListener('click', () => {
+      if (mergeFileInput) {
+        mergeFileInput.value = '';
+        mergeFileInput.click();
+      }
+    });
+    document.getElementById('btnChangeMergeFile')?.addEventListener('click', () => {
+      if (mergeFileInput) {
+        mergeFileInput.value = '';
+        mergeFileInput.click();
+      }
+    });
+
+    mergeFileInput?.addEventListener('change', async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (file) {
+        await this.handleMergeFileSelected(file);
+      }
+    });
+
+    const mergeDropzone = document.getElementById('mergeDropzone');
+    mergeDropzone?.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      mergeDropzone.classList.add('drag-over');
+    });
+    mergeDropzone?.addEventListener('dragleave', () => {
+      mergeDropzone.classList.remove('drag-over');
+    });
+    mergeDropzone?.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      mergeDropzone.classList.remove('drag-over');
+      const file = e.dataTransfer?.files?.[0];
+      if (file && (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'))) {
+        await this.handleMergeFileSelected(file);
+      }
+    });
+
+    // Toggle custom page range input in Merge modal
+    document.querySelectorAll('input[name="mergePageScope"]').forEach((radio) => {
+      radio.addEventListener('change', (e) => {
+        const val = (e.target as HTMLInputElement).value;
+        const customInput = document.getElementById('mergeSelectedPagesInput') as HTMLInputElement;
+        if (customInput) {
+          customInput.disabled = val !== 'selected';
+          if (val === 'selected') customInput.focus();
+        }
+      });
+    });
+
+    document.getElementById('btnConfirmMerge')?.addEventListener('click', async () => {
+      await this.executeMerge();
+    });
+
+    // Compress Modal
+    document.getElementById('btnHeaderCompress')?.addEventListener('click', () => {
+      this.openCompressModal();
+    });
+    document.getElementById('btnCloseCompressModal')?.addEventListener('click', () => {
+      document.getElementById('compressModal')?.classList.add('hidden');
+    });
+    document.getElementById('btnCancelCompress')?.addEventListener('click', () => {
+      document.getElementById('compressModal')?.classList.add('hidden');
+    });
+
+    // Preset cards selection
+    document.querySelectorAll('.compress-preset-card').forEach((card) => {
+      card.addEventListener('click', () => {
+        document.querySelectorAll('.compress-preset-card').forEach((c) => c.classList.remove('active'));
+        card.classList.add('active');
+      });
+    });
+
+    document.getElementById('btnStartCompress')?.addEventListener('click', async () => {
+      await this.executeCompression();
+    });
+
+    document.getElementById('btnDownloadCompressed')?.addEventListener('click', () => {
+      if (this.lastCompressedBytes) {
+        ExportEngine.downloadBytes(this.lastCompressedBytes, this.pdfManager.getFileName().replace(/\.pdf$/i, '_compressed.pdf'));
+        document.getElementById('compressModal')?.classList.add('hidden');
+      }
+    });
+
+    document.getElementById('btnApplyCompressedToEditor')?.addEventListener('click', async () => {
+      if (this.lastCompressedBytes) {
+        document.getElementById('compressModal')?.classList.add('hidden');
+        await this.loadPDFBuffer(this.lastCompressedBytes.buffer as ArrayBuffer, this.pdfManager.getFileName());
+      }
+    });
+
+    // Export Images Modal
+    document.getElementById('btnHeaderExportImages')?.addEventListener('click', () => {
+      this.openExportImagesModal();
+    });
+    document.getElementById('btnCloseExportImagesModal')?.addEventListener('click', () => {
+      document.getElementById('exportImagesModal')?.classList.add('hidden');
+    });
+    document.getElementById('btnCancelExportImages')?.addEventListener('click', () => {
+      document.getElementById('exportImagesModal')?.classList.add('hidden');
+    });
+
+    document.querySelectorAll('input[name="exportImgScope"]').forEach((radio) => {
+      radio.addEventListener('change', (e) => {
+        const val = (e.target as HTMLInputElement).value;
+        const customInput = document.getElementById('exportImgCustomRange') as HTMLInputElement;
+        if (customInput) {
+          customInput.disabled = val !== 'custom';
+          if (val === 'custom') customInput.focus();
+        }
+      });
+    });
+
+    document.getElementById('btnStartExportImages')?.addEventListener('click', async () => {
+      await this.executeExportImages();
+    });
   }
 
   private getVisiblePageIndex(): number {
@@ -927,6 +1325,7 @@ export class PDFEditorUI {
       document.querySelectorAll('.font-picker-dropdown').forEach((el) => el.remove());
 
       await this.pdfManager.loadPDF(buffer, fileName);
+      this.updateFileSizeBadge(buffer.byteLength);
       this.hideProcessingModal();
 
       // Reset file input value so selecting the same file again triggers change event
@@ -3527,6 +3926,58 @@ export class PDFEditorUI {
       const thumbItem = document.createElement('div');
       thumbItem.className = `thumb-item ${i === this.activePageIndex ? 'active' : ''}`;
       thumbItem.id = `thumbItem-${i}`;
+      thumbItem.setAttribute('draggable', 'true');
+
+      // Drag and drop events for reordering
+      thumbItem.addEventListener('dragstart', (e) => {
+        this.draggedThumbnailIndex = i;
+        thumbItem.classList.add('dragging');
+        if (e.dataTransfer) {
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('text/plain', i.toString());
+        }
+      });
+
+      thumbItem.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        if (this.draggedThumbnailIndex === null || this.draggedThumbnailIndex === i) return;
+        const rect = thumbItem.getBoundingClientRect();
+        const midY = rect.top + rect.height / 2;
+        thumbItem.classList.remove('drag-over-top', 'drag-over-bottom');
+        if (e.clientY < midY) {
+          thumbItem.classList.add('drag-over-top');
+        } else {
+          thumbItem.classList.add('drag-over-bottom');
+        }
+      });
+
+      thumbItem.addEventListener('dragleave', () => {
+        thumbItem.classList.remove('drag-over-top', 'drag-over-bottom');
+      });
+
+      thumbItem.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        thumbItem.classList.remove('drag-over-top', 'drag-over-bottom');
+        const fromIdx = this.draggedThumbnailIndex;
+        if (fromIdx === null || fromIdx === i) return;
+
+        const rect = thumbItem.getBoundingClientRect();
+        const midY = rect.top + rect.height / 2;
+        let toIdx = e.clientY < midY ? i : i + 1;
+        if (fromIdx < toIdx) toIdx--; // adjust for removal
+        toIdx = Math.max(0, Math.min(toIdx, pagesMeta.length - 1));
+
+        if (fromIdx !== toIdx) {
+          await this.movePage(fromIdx, toIdx);
+        }
+      });
+
+      thumbItem.addEventListener('dragend', () => {
+        this.draggedThumbnailIndex = null;
+        document.querySelectorAll('.thumb-item').forEach((el) => {
+          el.classList.remove('dragging', 'drag-over-top', 'drag-over-bottom');
+        });
+      });
 
       const img = document.createElement('img');
       img.className = 'thumb-img';
@@ -3536,13 +3987,25 @@ export class PDFEditorUI {
       pageNumber.className = 'thumb-number';
       pageNumber.innerText = (i + 1).toString();
 
-      // Page action buttons overlay (rotate CW, rotate CCW, delete)
+      // Page action buttons overlay (Up, Down, Duplicate, Quick Image Export, Rotate Left/Right, Delete)
       const actions = document.createElement('div');
       actions.className = 'thumb-actions';
       actions.innerHTML = `
+        <button class="thumb-act-btn" data-act="move-up" title="Move page up (earlier in document)" ${i === 0 ? 'disabled style="opacity:0.3;cursor:not-allowed;"' : ''}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="18 15 12 9 6 15"/></svg>
+        </button>
+        <button class="thumb-act-btn" data-act="move-down" title="Move page down (later in document)" ${i === pagesMeta.length - 1 ? 'disabled style="opacity:0.3;cursor:not-allowed;"' : ''}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <button class="thumb-act-btn" data-act="dup" title="Duplicate page">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        </button>
+        <button class="thumb-act-btn" data-act="export-img" title="Download page as image (PNG)">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+        </button>
         <button class="thumb-act-btn" data-act="rot-ccw" title="Rotate left 90°">${ICONS.rotateCcw}</button>
         <button class="thumb-act-btn" data-act="rot-cw" title="Rotate right 90°">${ICONS.rotateCw}</button>
-        <button class="thumb-act-btn" data-act="del" title="Delete page">${ICONS.trash}</button>
+        <button class="thumb-act-btn thumb-act-del" data-act="del" title="Delete page">${ICONS.trash}</button>
       `;
 
       thumbItem.appendChild(img);
@@ -3561,6 +4024,45 @@ export class PDFEditorUI {
       });
 
       // Actions
+      actions.querySelector('[data-act="move-up"]')?.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if (i > 0) {
+          await this.movePage(i, i - 1);
+        }
+      });
+
+      actions.querySelector('[data-act="move-down"]')?.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if (i < this.pdfManager.getPageCount() - 1) {
+          await this.movePage(i, i + 1);
+        }
+      });
+
+      actions.querySelector('[data-act="dup"]')?.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await this.duplicatePage(i);
+      });
+
+      actions.querySelector('[data-act="export-img"]')?.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        try {
+          this.showProcessingModal('Exporting image...', `Generating high-res PNG for page ${i + 1}...`);
+          await ExportEngine.exportSinglePageImage(
+            this.pdfManager,
+            this.annotationManager,
+            this.trueEditManager,
+            i,
+            'png',
+            2.0,
+            this.pdfManager.getFileName()
+          );
+          this.hideProcessingModal();
+        } catch (err) {
+          this.hideProcessingModal();
+          alert('Failed to export page as image: ' + (err as Error).message);
+        }
+      });
+
       actions.querySelector('[data-act="rot-ccw"]')?.addEventListener('click', async (e) => {
         e.stopPropagation();
         this.pdfManager.rotatePage(i, -90);
@@ -3575,16 +4077,399 @@ export class PDFEditorUI {
         await this.renderThumbnails();
       });
 
-      actions.querySelector('[data-act="del"]')?.addEventListener('click', (e) => {
+      actions.querySelector('[data-act="del"]')?.addEventListener('click', async (e) => {
         e.stopPropagation();
-        if (confirm(`Are you sure you want to delete page ${i + 1}?`)) {
-          this.pdfManager.deletePage(i);
-          this.activePageIndex = Math.max(0, this.activePageIndex - 1);
-          this.renderDocumentPages();
-          this.renderThumbnails();
-          this.updateViewbar();
-        }
+        await this.deletePage(i);
       });
+    }
+  }
+
+  // Page reordering, duplication & deletion methods
+  async movePage(fromIndex: number, toIndex: number) {
+    if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0) return;
+    const pageCount = this.pdfManager.getPageCount();
+    if (fromIndex >= pageCount || toIndex >= pageCount) return;
+
+    this.pdfManager.movePage(fromIndex, toIndex);
+    this.annotationManager.movePage(fromIndex, toIndex);
+    this.trueEditManager.movePage(fromIndex, toIndex);
+
+    this.activePageIndex = toIndex;
+    await this.renderDocumentPages();
+    await this.renderThumbnails();
+    this.scrollToPage(toIndex);
+    this.updateViewbar();
+  }
+
+  async duplicatePage(pageIndex: number) {
+    const newIndex = this.pdfManager.duplicatePage(pageIndex);
+    this.annotationManager.duplicatePage(pageIndex);
+    this.trueEditManager.duplicatePage(pageIndex);
+
+    this.activePageIndex = newIndex;
+    await this.renderDocumentPages();
+    await this.renderThumbnails();
+    this.scrollToPage(newIndex);
+    this.updateViewbar();
+  }
+
+  async deletePage(pageIndex: number) {
+    if (this.pdfManager.getPageCount() <= 1) {
+      alert('A document must have at least one page.');
+      return;
+    }
+    if (confirm(`Are you sure you want to delete page ${pageIndex + 1}?`)) {
+      this.pdfManager.deletePage(pageIndex);
+      this.annotationManager.removePage(pageIndex);
+      this.trueEditManager.removePage(pageIndex);
+
+      this.activePageIndex = Math.max(0, Math.min(pageIndex, this.pdfManager.getPageCount() - 1));
+      await this.renderDocumentPages();
+      await this.renderThumbnails();
+      this.scrollToPage(this.activePageIndex);
+      this.updateViewbar();
+    }
+  }
+
+  // Update live file size badge in header
+  private updateFileSizeBadge(byteLength?: number) {
+    if (byteLength !== undefined) {
+      this.currentFileSize = byteLength;
+    } else {
+      const origBytes = this.pdfManager.getOriginalBytes();
+      this.currentFileSize = origBytes ? origBytes.byteLength : 0;
+    }
+
+    const badge = document.getElementById('fileSizeBadge');
+    const textEl = document.getElementById('fileSizeText');
+    const btnMerge = document.getElementById('btnHeaderMergePDF');
+    const btnCompress = document.getElementById('btnHeaderCompress');
+    const btnExportImgs = document.getElementById('btnHeaderExportImages');
+
+    if (badge && textEl) {
+      if (this.currentFileSize > 0) {
+        badge.style.display = 'inline-flex';
+        textEl.innerText = this.formatBytes(this.currentFileSize);
+        if (btnMerge) btnMerge.style.display = 'inline-flex';
+        if (btnCompress) btnCompress.style.display = 'inline-flex';
+        if (btnExportImgs) btnExportImgs.style.display = 'inline-flex';
+      } else {
+        badge.style.display = 'none';
+        if (btnMerge) btnMerge.style.display = 'none';
+        if (btnCompress) btnCompress.style.display = 'none';
+        if (btnExportImgs) btnExportImgs.style.display = 'none';
+      }
+    }
+  }
+
+  private formatBytes(bytes: number): string {
+    if (!bytes || bytes <= 0) return '0 KB';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  }
+
+  private parsePageRange(rangeStr: string, totalPages: number): number[] {
+    const indices = new Set<number>();
+    const parts = rangeStr.split(/[,;\s]+/).map((s) => s.trim()).filter(Boolean);
+
+    for (const part of parts) {
+      if (part.includes('-')) {
+        const [startStr, endStr] = part.split('-');
+        const start = parseInt(startStr, 10);
+        const end = parseInt(endStr, 10);
+        if (!isNaN(start) && !isNaN(end)) {
+          const min = Math.max(1, Math.min(start, end));
+          const max = Math.min(totalPages, Math.max(start, end));
+          for (let p = min; p <= max; p++) {
+            indices.add(p - 1);
+          }
+        }
+      } else {
+        const p = parseInt(part, 10);
+        if (!isNaN(p) && p >= 1 && p <= totalPages) {
+          indices.add(p - 1);
+        }
+      }
+    }
+    return Array.from(indices).sort((a, b) => a - b);
+  }
+
+  // Merge modal logic
+  private openMergeModal() {
+    if (this.pdfManager.getPageCount() === 0) {
+      alert('Please open a PDF document first.');
+      return;
+    }
+    const modal = document.getElementById('mergeModal');
+    if (!modal) return;
+    this.pendingDonorBuffer = null;
+    this.pendingDonorPageCount = 0;
+
+    document.getElementById('mergeDropzone')?.classList.remove('hidden');
+    document.getElementById('mergeFileInfoSection')?.classList.add('hidden');
+    const confirmBtn = document.getElementById('btnConfirmMerge') as HTMLButtonElement | null;
+    if (confirmBtn) confirmBtn.disabled = true;
+
+    const curPageEl = document.getElementById('mergeCurrentPageText');
+    if (curPageEl) curPageEl.innerText = (this.activePageIndex + 1).toString();
+
+    modal.classList.remove('hidden');
+  }
+
+  private async handleMergeFileSelected(file: File) {
+    try {
+      this.showProcessingModal('Reading external PDF...', 'Analyzing pages...');
+      const buffer = await file.arrayBuffer();
+      const info = await ExportEngine.getPDFInfo(new Uint8Array(buffer));
+      this.hideProcessingModal();
+
+      if (info.pageCount === 0) {
+        alert('Selected PDF contains no pages.');
+        return;
+      }
+
+      this.pendingDonorBuffer = buffer;
+      this.pendingDonorPageCount = info.pageCount;
+
+      document.getElementById('mergeDropzone')?.classList.add('hidden');
+      document.getElementById('mergeFileInfoSection')?.classList.remove('hidden');
+
+      const nameEl = document.getElementById('mergeFileName');
+      if (nameEl) nameEl.innerText = file.name;
+      const metaEl = document.getElementById('mergeFileMeta');
+      if (metaEl) metaEl.innerText = `${info.pageCount} ${info.pageCount === 1 ? 'Page' : 'Pages'} | ${this.formatBytes(file.size)}`;
+
+      const totalEl = document.getElementById('mergeTotalPagesText');
+      if (totalEl) totalEl.innerText = info.pageCount.toString();
+
+      const confirmBtn = document.getElementById('btnConfirmMerge') as HTMLButtonElement | null;
+      if (confirmBtn) confirmBtn.disabled = false;
+    } catch (err) {
+      this.hideProcessingModal();
+      alert('Failed to parse selected PDF: ' + (err as Error).message);
+    }
+  }
+
+  private async executeMerge() {
+    if (!this.pendingDonorBuffer || this.pendingDonorPageCount <= 0) {
+      alert('Please select a valid PDF file first.');
+      return;
+    }
+
+    const scopeRadio = document.querySelector('input[name="mergePageScope"]:checked') as HTMLInputElement | null;
+    const scope = scopeRadio ? scopeRadio.value : 'all';
+
+    let donorIndices: number[] = [];
+    if (scope === 'all') {
+      for (let i = 0; i < this.pendingDonorPageCount; i++) donorIndices.push(i);
+    } else {
+      const customInput = document.getElementById('mergeSelectedPagesInput') as HTMLInputElement | null;
+      const rangeStr = customInput?.value.trim() || '';
+      donorIndices = this.parsePageRange(rangeStr, this.pendingDonorPageCount);
+      if (donorIndices.length === 0) {
+        alert(`Please enter valid page numbers between 1 and ${this.pendingDonorPageCount} (e.g. 1, 3).`);
+        return;
+      }
+    }
+
+    const posRadio = document.querySelector('input[name="mergePosition"]:checked') as HTMLInputElement | null;
+    const position = (posRadio?.value || 'current') as 'start' | 'current' | 'end';
+
+    document.getElementById('mergeModal')?.classList.add('hidden');
+
+    try {
+      this.showProcessingModal('Merging PDF...', `Inserting ${donorIndices.length} page(s) into document...`);
+
+      // 1. Export current edited state to preserve any text edits and annotations
+      const currentBytes = await ExportEngine.exportPDF(
+        this.pdfManager,
+        this.annotationManager,
+        this.trueEditManager,
+        (pct, stat) => this.updateProcessingProgress(pct * 0.4, stat)
+      );
+
+      // 2. Merge pages using pdf-lib
+      this.updateProcessingProgress(50, 'Copying and merging PDF pages...');
+      const mergedBytes = await ExportEngine.mergeExternalPDF(
+        currentBytes,
+        new Uint8Array(this.pendingDonorBuffer),
+        donorIndices,
+        position,
+        this.activePageIndex
+      );
+
+      // 3. Load merged PDF as active document
+      this.updateProcessingProgress(80, 'Rendering updated document...');
+      await this.loadPDFBuffer(mergedBytes.buffer as ArrayBuffer, this.pdfManager.getFileName());
+
+      this.hideProcessingModal();
+      confetti({ particleCount: 80, spread: 60, origin: { y: 0.6 } });
+    } catch (err) {
+      this.hideProcessingModal();
+      console.error('Merge failed:', err);
+      alert('Failed to merge PDF: ' + (err as Error).message);
+    }
+  }
+
+  // Compress modal logic
+  private openCompressModal() {
+    if (this.pdfManager.getPageCount() === 0) {
+      alert('Please open a PDF document first.');
+      return;
+    }
+    const modal = document.getElementById('compressModal');
+    if (!modal) return;
+
+    this.lastCompressedBytes = null;
+    document.getElementById('compressPresetsSection')?.classList.remove('hidden');
+    document.getElementById('compressFooterDefault')?.classList.remove('hidden');
+    document.getElementById('compressProgressSection')?.classList.add('hidden');
+    document.getElementById('compressResultSection')?.classList.add('hidden');
+    document.getElementById('compressFooterDone')?.classList.add('hidden');
+
+    const sizeEl = document.getElementById('compressCurrentSizeText');
+    if (sizeEl) sizeEl.innerText = this.formatBytes(this.currentFileSize);
+
+    modal.classList.remove('hidden');
+  }
+
+  private async executeCompression() {
+    const activePresetEl = document.querySelector('.compress-preset-card.active') as HTMLElement | null;
+    const preset = activePresetEl?.getAttribute('data-preset') || 'recommended';
+
+    let config = { scale: 1.5, quality: 0.75 };
+    if (preset === 'extreme') {
+      config = { scale: 1.25, quality: 0.55 };
+    } else if (preset === 'high') {
+      config = { scale: 2.0, quality: 0.85 };
+    }
+
+    document.getElementById('compressPresetsSection')?.classList.add('hidden');
+    document.getElementById('compressFooterDefault')?.classList.add('hidden');
+    document.getElementById('compressProgressSection')?.classList.remove('hidden');
+
+    const statusEl = document.getElementById('compressStatusText');
+    const barEl = document.getElementById('compressProgressBarFill');
+
+    try {
+      const compressedBytes = await ExportEngine.compressPDF(
+        this.pdfManager,
+        this.annotationManager,
+        this.trueEditManager,
+        config,
+        (percent, status) => {
+          if (barEl) barEl.style.width = `${percent}%`;
+          if (statusEl) statusEl.innerText = status;
+        }
+      );
+
+      this.lastCompressedBytes = compressedBytes;
+      const origSz = this.currentFileSize || 1;
+      const newSz = compressedBytes.byteLength;
+      const savedPercent = Math.max(0, Math.round(((origSz - newSz) / origSz) * 100));
+
+      document.getElementById('compressProgressSection')?.classList.add('hidden');
+      document.getElementById('compressResultSection')?.classList.remove('hidden');
+      document.getElementById('compressFooterDone')?.classList.remove('hidden');
+
+      const statsEl = document.getElementById('compressResultStats');
+      if (statsEl) {
+        statsEl.innerText = `Original: ${this.formatBytes(origSz)} ➔ Compressed: ${this.formatBytes(newSz)} (Reduced by ${savedPercent}%!)`;
+      }
+      confetti({ particleCount: 70, spread: 60, origin: { y: 0.6 } });
+    } catch (err) {
+      document.getElementById('compressProgressSection')?.classList.add('hidden');
+      document.getElementById('compressPresetsSection')?.classList.remove('hidden');
+      document.getElementById('compressFooterDefault')?.classList.remove('hidden');
+      alert('Compression error: ' + (err as Error).message);
+    }
+  }
+
+  // Export Images modal logic
+  private openExportImagesModal() {
+    if (this.pdfManager.getPageCount() === 0) {
+      alert('Please open a PDF document first.');
+      return;
+    }
+    const modal = document.getElementById('exportImagesModal');
+    if (!modal) return;
+
+    const curPageEl = document.getElementById('exportImgCurrentPage');
+    if (curPageEl) curPageEl.innerText = (this.activePageIndex + 1).toString();
+
+    const totalEl = document.getElementById('exportImgTotalPages');
+    if (totalEl) totalEl.innerText = this.pdfManager.getPageCount().toString();
+
+    document.getElementById('exportImgProgressSection')?.classList.add('hidden');
+    modal.classList.remove('hidden');
+  }
+
+  private async executeExportImages() {
+    const totalPages = this.pdfManager.getPageCount();
+    const formatRadio = document.querySelector('input[name="exportImgFormat"]:checked') as HTMLInputElement | null;
+    const format = (formatRadio?.value || 'png') as 'png' | 'jpeg';
+
+    const dpiRadio = document.querySelector('input[name="exportImgDpi"]:checked') as HTMLInputElement | null;
+    const scale = parseFloat(dpiRadio?.value || '2.0');
+
+    const scopeRadio = document.querySelector('input[name="exportImgScope"]:checked') as HTMLInputElement | null;
+    const scope = scopeRadio ? scopeRadio.value : 'current';
+
+    let pageIndices: number[] = [];
+    if (scope === 'current') {
+      pageIndices = [this.activePageIndex];
+    } else if (scope === 'all') {
+      for (let i = 0; i < totalPages; i++) pageIndices.push(i);
+    } else {
+      const customInput = document.getElementById('exportImgCustomRange') as HTMLInputElement | null;
+      const rangeStr = customInput?.value.trim() || '';
+      pageIndices = this.parsePageRange(rangeStr, totalPages);
+      if (pageIndices.length === 0) {
+        alert(`Please enter valid page numbers between 1 and ${totalPages} (e.g. 1, 3).`);
+        return;
+      }
+    }
+
+    const progressSection = document.getElementById('exportImgProgressSection');
+    const statusText = document.getElementById('exportImgStatusText');
+    const barEl = document.getElementById('exportImgProgressBarFill');
+    progressSection?.classList.remove('hidden');
+
+    try {
+      if (pageIndices.length === 1) {
+        if (statusText) statusText.innerText = 'Generating image...';
+        if (barEl) barEl.style.width = '70%';
+        await ExportEngine.exportSinglePageImage(
+          this.pdfManager,
+          this.annotationManager,
+          this.trueEditManager,
+          pageIndices[0],
+          format,
+          scale,
+          this.pdfManager.getFileName()
+        );
+      } else {
+        await ExportEngine.exportPagesToZip(
+          this.pdfManager,
+          this.annotationManager,
+          this.trueEditManager,
+          pageIndices,
+          format,
+          scale,
+          this.pdfManager.getFileName(),
+          (percent, status) => {
+            if (barEl) barEl.style.width = `${percent}%`;
+            if (statusText) statusText.innerText = status;
+          }
+        );
+      }
+
+      document.getElementById('exportImagesModal')?.classList.add('hidden');
+      confetti({ particleCount: 70, spread: 60, origin: { y: 0.6 } });
+    } catch (err) {
+      progressSection?.classList.add('hidden');
+      alert('Failed to export images: ' + (err as Error).message);
     }
   }
 

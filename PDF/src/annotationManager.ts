@@ -425,6 +425,64 @@ export class AnnotationManager {
     }
   }
 
+  movePage(fromIndex: number, toIndex: number) {
+    if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0) return;
+    const maxPage = Math.max(0, ...Array.from(this.annotations.keys()), fromIndex, toIndex);
+    const pages: (Annotation[] | undefined)[] = [];
+    for (let i = 0; i <= maxPage; i++) {
+      pages.push(this.annotations.get(i));
+    }
+    const [moved] = pages.splice(fromIndex, 1);
+    pages.splice(toIndex, 0, moved);
+
+    this.annotations.clear();
+    pages.forEach((list, idx) => {
+      if (list && list.length > 0) {
+        list.forEach((ann) => { ann.pageIndex = idx; });
+        this.annotations.set(idx, list);
+      }
+    });
+    this.notifyChange();
+  }
+
+  removePage(pageIndex: number) {
+    this.annotations.delete(pageIndex);
+    const newAnns = new Map<number, Annotation[]>();
+    for (const [pIdx, list] of this.annotations.entries()) {
+      if (pIdx > pageIndex) {
+        list.forEach((ann) => { ann.pageIndex = pIdx - 1; });
+        newAnns.set(pIdx - 1, list);
+      } else {
+        newAnns.set(pIdx, list);
+      }
+    }
+    this.annotations = newAnns;
+    this.notifyChange();
+  }
+
+  duplicatePage(pageIndex: number) {
+    const newAnns = new Map<number, Annotation[]>();
+    for (const [pIdx, list] of this.annotations.entries()) {
+      if (pIdx > pageIndex) {
+        list.forEach((ann) => { ann.pageIndex = pIdx + 1; });
+        newAnns.set(pIdx + 1, list);
+      } else {
+        newAnns.set(pIdx, list);
+      }
+    }
+    const origList = this.annotations.get(pageIndex) || [];
+    const duplicatedList = origList.map((ann) => ({
+      ...ann,
+      id: `ann-copy-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      pageIndex: pageIndex + 1,
+    }));
+    if (duplicatedList.length > 0) {
+      newAnns.set(pageIndex + 1, duplicatedList);
+    }
+    this.annotations = newAnns;
+    this.notifyChange();
+  }
+
   clearAll(pageIndex?: number) {
     if (pageIndex !== undefined) {
       this.annotations.delete(pageIndex);

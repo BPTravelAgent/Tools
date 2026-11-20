@@ -1,6 +1,7 @@
 import { PDFDocument, rgb, degrees, StandardFonts } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import UPNG from '@pdf-lib/upng';
+import JSZip from 'jszip';
 import { fontManager } from './fontManager';
 import { getAssetUrl } from './utils';
 import type { PDFManager } from './pdfManager';
@@ -902,5 +903,348 @@ export class ExportEngine {
     }
 
     return await doc.save();
+  }
+
+  /**
+   * Merges selected pages from an external PDF into the current PDF
+   */
+  static async mergeExternalPDF(
+    currentPDFBytes: Uint8Array,
+    donorPDFBytes: Uint8Array,
+    donorPageIndices: number[],
+    insertPosition: 'start' | 'current' | 'end',
+    currentPageIndex: number
+  ): Promise<Uint8Array> {
+    const currentDoc = await PDFDocument.load(currentPDFBytes, { ignoreEncryption: true });
+    const donorDoc = await PDFDocument.load(donorPDFBytes, { ignoreEncryption: true });
+
+    // Clamp page indices
+    const maxDonorPage = donorDoc.getPageCount();
+    const validIndices = donorPageIndices.filter((idx) => idx >= 0 && idx < maxDonorPage);
+    if (validIndices.length === 0) {
+      throw new Error('No valid pages selected from the external PDF.');
+    }
+
+    const copiedPages = await currentDoc.copyPages(donorDoc, validIndices);
+
+    let insertAt = 0;
+    if (insertPosition === 'start') {
+      insertAt = 0;
+    } else if (insertPosition === 'current') {
+      insertAt = Math.min(currentPageIndex + 1, currentDoc.getPageCount());
+    } else {
+      insertAt = currentDoc.getPageCount();
+    }
+
+    for (let i = 0; i < copiedPages.length; i++) {
+      currentDoc.insertPage(insertAt + i, copiedPages[i]);
+    }
+
+    return await currentDoc.save();
+  }
+
+  /**
+   * Retrieves page count of an external PDF file
+   */
+  static async getPDFInfo(bytes: Uint8Array): Promise<{ pageCount: number }> {
+    const doc = await PDFDocument.load(bytes, { ignoreEncryption: true });
+    return { pageCount: doc.getPageCount() };
+  }
+
+  /**
+   * Renders a document page with all TrueEdit modifications and annotations to a high-res image Blob
+   */
+  static async renderPageToImageBlob(
+    pdfManager: PDFManager,
+    annotationManager: AnnotationManager,
+    trueEditManager: TrueEditManager,
+    pageIndex: number,
+    format: 'png' | 'jpeg',
+    scale: number = 2.0
+  ): Promise<Blob> {
+    const meta = pdfManager.getPageMeta(pageIndex);
+    if (!meta) throw new Error(`Page ${pageIndex + 1} not found`);
+
+    const canvas = document.createElement('canvas');
+    await pdfManager.renderPageToCanvas(pageIndex, canvas, scale);
+
+    const ptWidth = meta.cropBox ? meta.cropBox.width : meta.width;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      const dpr = canvas.width / (ptWidth * scale);
+      const drawScale = scale * dpr;
+
+      // 1. Draw TrueEdit text changes (whiteout backgrounds and new text)
+      const trueEditChanges = trueEditManager.getChangesForPage(pageIndex);
+      for (const change of trueEditChanges) {
+        ctx.fillStyle = change.backgroundColor || '#ffffff';
+        ctx.fillRect(
+          (change.origX ?? change.x) * drawScale,
+          (change.origY ?? change.y) * drawScale,
+          (change.origWidth ?? change.width) * drawScale,
+          (change.origHeight ?? change.height) * drawScale
+        );
+
+        if (!change.deleted && change.newText) {
+          ctx.font = `${change.bold ? 'bold ' : ''}${change.italic ? 'italic ' : ''}${change.fontSize * drawScale}px "${change.fontFamily || 'DM Sans'}", sans-serif`;
+          ctx.fillStyle = change.color || '#000000';
+          ctx.textBaseline = 'top';
+
+          if (change.spans && change.spans.length > 0) {
+            let curX = change.x * drawScale;
+            for (const span of change.spans) {
+              const spanSize = (span.fontSize || change.fontSize || 12) * drawScale;
+              ctx.font = `${span.bold ? 'bold ' : ''}${span.italic ? 'italic ' : ''}${spanSize}px "${span.fontFamily || change.fontFamily || 'DM Sans'}", sans-serif`;
+              ctx.fillStyle = span.color || change.color || '#000000';
+              ctx.fillText(span.text, curX, change.y * drawScale);
+              curX += ctx.measureText(span.text).width;
+            }
+          } else {
+            ctx.fillText(change.newText, change.x * drawScale, change.y * drawScale);
+          }
+        }
+      }
+
+      // 2. Draw annotations
+      const anns = annotationManager.getAnnotations(pageIndex);
+      for (const ann of anns) {
+        ctx.save();
+        ctx.globalAlpha = ann.opacity ?? 1.0;
+
+        if (ann.type === 'whiteout') {
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(ann.x * drawScale, ann.y * drawScale, ann.width * drawScale, ann.height * drawScale);
+        } else if (ann.type === 'text') {
+          const textAnn = ann as TextAnnotation;
+          if (textAnn.backgroundColor && textAnn.backgroundColor !== 'transparent') {
+            ctx.fillStyle = textAnn.backgroundColor;
+            ctx.fillRect(textAnn.x * drawScale, textAnn.y * drawScale, textAnn.width * drawScale, textAnn.height * drawScale);
+          }
+          ctx.font = `${textAnn.bold ? 'bold ' : ''}${textAnn.italic ? 'italic ' : ''}${textAnn.fontSize * drawScale}px "${textAnn.fontFamily || 'DM Sans'}", sans-serif`;
+          ctx.fillStyle = textAnn.color || '#000000';
+          ctx.textBaseline = 'top';
+          ctx.fillText(textAnn.text, textAnn.x * drawScale, textAnn.y * drawScale);
+        } else if (ann.type === 'shape') {
+          const shapeAnn = ann as ShapeAnnotation;
+          ctx.strokeStyle = shapeAnn.strokeColor || '#E5322D';
+          ctx.lineWidth = (shapeAnn.strokeWidth || 2) * drawScale;
+          ctx.fillStyle = shapeAnn.fillColor && shapeAnn.fillColor !== 'transparent' ? shapeAnn.fillColor : 'transparent';
+
+          if (shapeAnn.shape === 'rectangle') {
+            if (shapeAnn.fillColor && shapeAnn.fillColor !== 'transparent') {
+              ctx.fillRect(shapeAnn.x * drawScale, shapeAnn.y * drawScale, shapeAnn.width * drawScale, shapeAnn.height * drawScale);
+            }
+            ctx.strokeRect(shapeAnn.x * drawScale, shapeAnn.y * drawScale, shapeAnn.width * drawScale, shapeAnn.height * drawScale);
+          } else if (shapeAnn.shape === 'ellipse') {
+            ctx.beginPath();
+            const cx = (shapeAnn.x + shapeAnn.width / 2) * drawScale;
+            const cy = (shapeAnn.y + shapeAnn.height / 2) * drawScale;
+            const rx = (shapeAnn.width / 2) * drawScale;
+            const ry = (shapeAnn.height / 2) * drawScale;
+            ctx.ellipse(cx, cy, Math.max(1, rx), Math.max(1, ry), 0, 0, Math.PI * 2);
+            if (shapeAnn.fillColor && shapeAnn.fillColor !== 'transparent') ctx.fill();
+            ctx.stroke();
+          } else if (shapeAnn.shape === 'line') {
+            ctx.beginPath();
+            ctx.moveTo(shapeAnn.x * drawScale, shapeAnn.y * drawScale);
+            ctx.lineTo((shapeAnn.x + shapeAnn.width) * drawScale, (shapeAnn.y + shapeAnn.height) * drawScale);
+            ctx.stroke();
+          }
+        } else if (ann.type === 'freehand') {
+          const fh = ann as FreehandAnnotation;
+          if (fh.points && fh.points.length > 1) {
+            ctx.strokeStyle = fh.strokeColor || '#E5322D';
+            ctx.lineWidth = (fh.strokeWidth || 3) * drawScale;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.beginPath();
+            ctx.moveTo(fh.points[0].x * drawScale, fh.points[0].y * drawScale);
+            for (let p = 1; p < fh.points.length; p++) {
+              ctx.lineTo(fh.points[p].x * drawScale, fh.points[p].y * drawScale);
+            }
+            ctx.stroke();
+          }
+        } else if (ann.type === 'image') {
+          const imgAnn = ann as ImageAnnotation;
+          if (imgAnn.src) {
+            const img = new Image();
+            img.src = imgAnn.src;
+            if (img.complete && img.naturalWidth > 0) {
+              ctx.drawImage(img, imgAnn.x * drawScale, imgAnn.y * drawScale, imgAnn.width * drawScale, imgAnn.height * drawScale);
+            }
+          }
+        }
+        ctx.restore();
+      }
+    }
+
+    return new Promise<Blob>((resolve, reject) => {
+      const mime = format === 'jpeg' ? 'image/jpeg' : 'image/png';
+      const quality = format === 'jpeg' ? 0.92 : undefined;
+      canvas.toBlob((blob) => {
+        if (blob) resolve(blob);
+        else reject(new Error('Failed to create image blob from page canvas'));
+      }, mime, quality);
+    });
+  }
+
+  /**
+   * Downloads a single page as an image
+   */
+  static async exportSinglePageImage(
+    pdfManager: PDFManager,
+    annotationManager: AnnotationManager,
+    trueEditManager: TrueEditManager,
+    pageIndex: number,
+    format: 'png' | 'jpeg',
+    scale: number = 2.0,
+    baseFileName: string = 'document'
+  ): Promise<void> {
+    const blob = await ExportEngine.renderPageToImageBlob(
+      pdfManager,
+      annotationManager,
+      trueEditManager,
+      pageIndex,
+      format,
+      scale
+    );
+    const cleanBaseName = baseFileName.replace(/\.pdf$/i, '');
+    const ext = format === 'jpeg' ? 'jpg' : 'png';
+    const pageNumPadded = String(pageIndex + 1).padStart(2, '0');
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${cleanBaseName}_page_${pageNumPadded}.${ext}`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  }
+
+  /**
+   * Renders multiple pages and bundles them into a ZIP archive
+   */
+  static async exportPagesToZip(
+    pdfManager: PDFManager,
+    annotationManager: AnnotationManager,
+    trueEditManager: TrueEditManager,
+    pageIndices: number[],
+    format: 'png' | 'jpeg',
+    scale: number = 2.0,
+    baseFileName: string = 'document',
+    onProgress?: (percent: number, status: string) => void
+  ): Promise<void> {
+    const zip = new JSZip();
+    const cleanBaseName = baseFileName.replace(/\.pdf$/i, '');
+    const ext = format === 'jpeg' ? 'jpg' : 'png';
+
+    for (let i = 0; i < pageIndices.length; i++) {
+      const pIdx = pageIndices[i];
+      onProgress?.(
+        Math.round(((i + 0.5) / pageIndices.length) * 80),
+        `Rendering page ${pIdx + 1} (${i + 1} of ${pageIndices.length})...`
+      );
+
+      const blob = await ExportEngine.renderPageToImageBlob(
+        pdfManager,
+        annotationManager,
+        trueEditManager,
+        pIdx,
+        format,
+        scale
+      );
+
+      const pageNumPadded = String(pIdx + 1).padStart(2, '0');
+      zip.file(`${cleanBaseName}_page_${pageNumPadded}.${ext}`, blob);
+    }
+
+    onProgress?.(85, 'Packaging ZIP archive...');
+    const zipBlob = await zip.generateAsync({ type: 'blob' }, (metadata) => {
+      onProgress?.(85 + Math.round(metadata.percent * 0.14), `Compressing ZIP: ${Math.round(metadata.percent)}%`);
+    });
+
+    onProgress?.(100, 'Download ready!');
+    const url = URL.createObjectURL(zipBlob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${cleanBaseName}_pages.zip`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  }
+
+  /**
+   * Compresses the PDF to reduce file size (KB / MB) with selectable quality / DPI presets
+   */
+  static async compressPDF(
+    pdfManager: PDFManager,
+    annotationManager: AnnotationManager,
+    trueEditManager: TrueEditManager,
+    options: {
+      scale: number;
+      quality: number;
+    },
+    onProgress?: (percent: number, status: string) => void
+  ): Promise<Uint8Array> {
+    const pagesMeta = pdfManager.getPagesMeta();
+    const totalPages = pagesMeta.length;
+    const outputDoc = await PDFDocument.create();
+
+    for (let i = 0; i < totalPages; i++) {
+      onProgress?.(
+        Math.round((i / totalPages) * 85),
+        `Optimizing and compressing page ${i + 1} of ${totalPages}...`
+      );
+
+      const meta = pagesMeta[i];
+      const ptWidth = meta.cropBox ? meta.cropBox.width : meta.width;
+      const ptHeight = meta.cropBox ? meta.cropBox.height : meta.height;
+
+      // 1. Render page with edits to an offscreen image blob
+      const blob = await ExportEngine.renderPageToImageBlob(
+        pdfManager,
+        annotationManager,
+        trueEditManager,
+        i,
+        'jpeg',
+        options.scale
+      );
+
+      const arrayBuffer = await blob.arrayBuffer();
+      const jpegBytes = new Uint8Array(arrayBuffer);
+      const embedded = await outputDoc.embedJpg(jpegBytes);
+
+      // 2. Add page with exact original PDF point dimensions
+      const page = outputDoc.addPage([ptWidth, ptHeight]);
+      page.drawImage(embedded, {
+        x: 0,
+        y: 0,
+        width: ptWidth,
+        height: ptHeight,
+      });
+    }
+
+    onProgress?.(90, 'Finalizing compressed document...');
+    const resultBytes = await outputDoc.save();
+    onProgress?.(100, 'Compression completed!');
+    return resultBytes;
+  }
+
+  /**
+   * Extracts selected pages to a brand new PDF document
+   */
+  static async extractPagesToPDF(
+    pdfManager: PDFManager,
+    annotationManager: AnnotationManager,
+    trueEditManager: TrueEditManager,
+    selectedPageIndices: number[]
+  ): Promise<Uint8Array> {
+    const fullBytes = await ExportEngine.exportPDF(pdfManager, annotationManager, trueEditManager);
+    const fullDoc = await PDFDocument.load(fullBytes, { ignoreEncryption: true });
+    const extractedDoc = await PDFDocument.create();
+    const copied = await extractedDoc.copyPages(fullDoc, selectedPageIndices);
+    copied.forEach((p) => extractedDoc.addPage(p));
+    return await extractedDoc.save();
   }
 }
