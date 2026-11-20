@@ -618,45 +618,93 @@ export class PDFEditorUI {
           </div>
         </div>
 
-        <!-- Export Pages to Image Modal -->
+        <!-- Export Pages to Image Modal (With Compression & Size Control) -->
         <div class="modal-backdrop hidden" id="exportImagesModal">
-          <div class="modal-card">
+          <div class="modal-card modal-card-wide">
             <div class="modal-header-custom">
               <div style="display:flex; align-items:center; gap:8px;">
                 <span style="font-size:20px;">🖼️</span>
-                <h2 class="modal-title" style="margin:0; font-size:18px;">Export Pages as Images</h2>
+                <h2 class="modal-title" style="margin:0; font-size:18px;">Export & Compress Page Images</h2>
               </div>
               <button class="modal-close-btn" id="btnCloseExportImagesModal">&times;</button>
             </div>
             <div class="modal-body-custom">
-              <div class="merge-option-group" style="margin-bottom:14px;">
-                <label class="merge-label">Image Format:</label>
-                <div style="display:flex; gap:12px;">
-                  <label class="radio-card" style="flex:1;">
-                    <input type="radio" name="exportImgFormat" value="png" checked />
-                    <span>PNG (Lossless & Sharp)</span>
-                  </label>
-                  <label class="radio-card" style="flex:1;">
-                    <input type="radio" name="exportImgFormat" value="jpeg" />
-                    <span>JPEG (Compact Size)</span>
-                  </label>
+              <!-- Live Estimated Size Banner -->
+              <div class="current-size-banner" style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; padding:10px 14px; background:#f8fafc; border:1.5px solid #e2e8f0; border-radius:8px;">
+                <div>
+                  <span style="font-size:11px; font-weight:600; color:#64748b; text-transform:uppercase; letter-spacing:0.5px; display:block;">Estimated Image File Size:</span>
+                  <strong id="exportImgEstSizeBadge" style="font-size:17px; color:#0f172a;">~400 KB per page</strong>
+                </div>
+                <div id="exportImgCompressionPill" style="font-size:12px; font-weight:700; padding:4px 10px; border-radius:12px; background:#dcfce7; color:#15803d;">
+                  📄 Balanced Compression
                 </div>
               </div>
 
+              <!-- Quick Compression Presets -->
               <div class="merge-option-group" style="margin-bottom:14px;">
-                <label class="merge-label">Image Resolution:</label>
-                <div style="display:flex; gap:12px;">
-                  <label class="radio-card" style="flex:1;">
-                    <input type="radio" name="exportImgDpi" value="2.0" checked />
-                    <span>Ultra HD (300 DPI / Crisp 2x)</span>
-                  </label>
-                  <label class="radio-card" style="flex:1;">
-                    <input type="radio" name="exportImgDpi" value="1.0" />
-                    <span>Standard (150 DPI / Normal 1x)</span>
-                  </label>
+                <label class="merge-label">⚡ Compression & File Size Presets:</label>
+                <div class="img-presets-grid" style="display:grid; grid-template-columns: repeat(3, 1fr); gap:10px;">
+                  <button type="button" class="img-preset-btn" data-preset="small">
+                    <span class="preset-name">⚡ Small File (&lt; 300 KB)</span>
+                    <span class="preset-sub">WhatsApp / Email (Max Comp.)</span>
+                  </button>
+                  <button type="button" class="img-preset-btn active" data-preset="balanced">
+                    <span class="preset-name">📄 Balanced (~600 KB)</span>
+                    <span class="preset-sub">Crisp Text (Recommended)</span>
+                  </button>
+                  <button type="button" class="img-preset-btn" data-preset="high">
+                    <span class="preset-name">💎 High Res (~1.5 MB+)</span>
+                    <span class="preset-sub">Print & Archive Quality</span>
+                  </button>
                 </div>
               </div>
 
+              <!-- Format & Resolution Grid -->
+              <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-bottom:14px;">
+                <div class="merge-option-group">
+                  <label class="merge-label">Format:</label>
+                  <div style="display:flex; gap:6px;">
+                    <label class="radio-card" style="flex:1; padding:6px 8px; font-size:12px;">
+                      <input type="radio" name="exportImgFormat" value="jpeg" checked />
+                      <span>JPEG (Small)</span>
+                    </label>
+                    <label class="radio-card" style="flex:1; padding:6px 8px; font-size:12px;">
+                      <input type="radio" name="exportImgFormat" value="webp" />
+                      <span>WebP</span>
+                    </label>
+                    <label class="radio-card" style="flex:1; padding:6px 8px; font-size:12px;">
+                      <input type="radio" name="exportImgFormat" value="png" />
+                      <span>PNG</span>
+                    </label>
+                  </div>
+                </div>
+
+                <div class="merge-option-group">
+                  <label class="merge-label">Resolution / Scale (MB Size Control):</label>
+                  <select id="exportImgDpiSelect" class="custom-select" style="width:100%; padding:7px 10px; border-radius:6px; border:1.5px solid #cbd5e1; font-size:13px; outline:none; background:#fff; cursor:pointer;">
+                    <option value="0.75">0.75x (Ultra Low MB - Draft/Scanned)</option>
+                    <option value="1.0">1.0x (Standard Web - Low MB)</option>
+                    <option value="1.5" selected>1.5x (Sharp Reading - Balanced MB)</option>
+                    <option value="2.0">2.0x (Ultra HD 300 DPI - High MB)</option>
+                  </select>
+                </div>
+              </div>
+
+              <!-- Quality / Compression Slider (For JPEG & WebP) -->
+              <div class="merge-option-group" id="imgQualitySliderGroup" style="margin-bottom:14px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:10px 14px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                  <label class="merge-label" style="margin-bottom:0; font-size:12px;">Compression & Quality Slider (MB Control):</label>
+                  <span id="imgQualityValueText" style="font-size:13px; font-weight:700; color:#E5322D;">75% Quality</span>
+                </div>
+                <input type="range" id="imgQualitySlider" min="15" max="100" value="75" step="5" style="width:100%; accent-color:#E5322D; cursor:pointer;" />
+                <div style="display:flex; justify-content:space-between; font-size:11px; color:#94a3b8; margin-top:3px;">
+                  <span>High Compression (Low KB)</span>
+                  <span>Balanced (75%)</span>
+                  <span>Maximum Quality (Higher MB)</span>
+                </div>
+              </div>
+
+              <!-- Pages to Export -->
               <div class="merge-option-group">
                 <label class="merge-label">Pages to Export:</label>
                 <div class="radio-card-wrap">
@@ -677,7 +725,7 @@ export class PDFEditorUI {
               </div>
 
               <div style="font-size:12px; color:#64748b; background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:8px 12px; margin-top:14px;">
-                💡 <em>Single page will download directly as an image. Multiple pages will be bundled and downloaded as a ZIP archive.</em>
+                💡 <em>Single page will download directly as an image. Multiple pages will be bundled into a ZIP archive.</em>
               </div>
 
               <!-- Export Image Progress -->
@@ -690,7 +738,7 @@ export class PDFEditorUI {
             </div>
             <div class="modal-footer-custom">
               <button type="button" class="btn btn-outline" id="btnCancelExportImages">Cancel</button>
-              <button type="button" class="btn btn-crimson" id="btnStartExportImages">Export Images</button>
+              <button type="button" class="btn btn-crimson" id="btnStartExportImages">🖼️ Download Image(s)</button>
             </div>
           </div>
         </div>
@@ -1269,6 +1317,65 @@ export class PDFEditorUI {
     });
     document.getElementById('btnCancelExportImages')?.addEventListener('click', () => {
       document.getElementById('exportImagesModal')?.classList.add('hidden');
+    });
+
+    // Image Compression Presets selection
+    document.querySelectorAll('.img-preset-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.img-preset-btn').forEach((b) => b.classList.remove('active'));
+        btn.classList.add('active');
+        const preset = btn.getAttribute('data-preset');
+        const dpiSelect = document.getElementById('exportImgDpiSelect') as HTMLSelectElement | null;
+        const slider = document.getElementById('imgQualitySlider') as HTMLInputElement | null;
+        const valText = document.getElementById('imgQualityValueText');
+
+        if (preset === 'small') {
+          // Small File: JPEG, scale 1.0, quality 50%
+          const jpegRadio = document.querySelector('input[name="exportImgFormat"][value="jpeg"]') as HTMLInputElement | null;
+          if (jpegRadio) jpegRadio.checked = true;
+          if (dpiSelect) dpiSelect.value = '1.0';
+          if (slider) slider.value = '50';
+          if (valText) valText.innerText = '50% Quality (High Comp.)';
+        } else if (preset === 'balanced') {
+          // Balanced: JPEG, scale 1.5, quality 75%
+          const jpegRadio = document.querySelector('input[name="exportImgFormat"][value="jpeg"]') as HTMLInputElement | null;
+          if (jpegRadio) jpegRadio.checked = true;
+          if (dpiSelect) dpiSelect.value = '1.5';
+          if (slider) slider.value = '75';
+          if (valText) valText.innerText = '75% Quality (Balanced)';
+        } else if (preset === 'high') {
+          // High Res: JPEG, scale 2.0, quality 90%
+          const jpegRadio = document.querySelector('input[name="exportImgFormat"][value="jpeg"]') as HTMLInputElement | null;
+          if (jpegRadio) jpegRadio.checked = true;
+          if (dpiSelect) dpiSelect.value = '2.0';
+          if (slider) slider.value = '90';
+          if (valText) valText.innerText = '90% Quality (Ultra HD)';
+        }
+        this.updateImageSizeEstimation();
+      });
+    });
+
+    // Format radio changes
+    document.querySelectorAll('input[name="exportImgFormat"]').forEach((radio) => {
+      radio.addEventListener('change', () => {
+        this.updateImageSizeEstimation();
+      });
+    });
+
+    // DPI Select change
+    document.getElementById('exportImgDpiSelect')?.addEventListener('change', () => {
+      this.updateImageSizeEstimation();
+    });
+
+    // Quality slider input
+    const imgSlider = document.getElementById('imgQualitySlider') as HTMLInputElement | null;
+    imgSlider?.addEventListener('input', () => {
+      const val = imgSlider.value;
+      const valText = document.getElementById('imgQualityValueText');
+      if (valText) valText.innerText = `${val}% Quality`;
+      // deselect presets when user manually slides
+      document.querySelectorAll('.img-preset-btn').forEach((b) => b.classList.remove('active'));
+      this.updateImageSizeEstimation();
     });
 
     document.querySelectorAll('input[name="exportImgScope"]').forEach((radio) => {
@@ -4043,24 +4150,9 @@ export class PDFEditorUI {
         await this.duplicatePage(i);
       });
 
-      actions.querySelector('[data-act="export-img"]')?.addEventListener('click', async (e) => {
+      actions.querySelector('[data-act="export-img"]')?.addEventListener('click', (e) => {
         e.stopPropagation();
-        try {
-          this.showProcessingModal('Exporting image...', `Generating high-res PNG for page ${i + 1}...`);
-          await ExportEngine.exportSinglePageImage(
-            this.pdfManager,
-            this.annotationManager,
-            this.trueEditManager,
-            i,
-            'png',
-            2.0,
-            this.pdfManager.getFileName()
-          );
-          this.hideProcessingModal();
-        } catch (err) {
-          this.hideProcessingModal();
-          alert('Failed to export page as image: ' + (err as Error).message);
-        }
+        this.openExportImagesModal(i);
       });
 
       actions.querySelector('[data-act="rot-ccw"]')?.addEventListener('click', async (e) => {
@@ -4386,14 +4478,22 @@ export class PDFEditorUI {
     }
   }
 
-  // Export Images modal logic
-  private openExportImagesModal() {
+  // Export Images modal logic (With full compression and file size control)
+  private openExportImagesModal(targetPageIndex?: number) {
     if (this.pdfManager.getPageCount() === 0) {
       alert('Please open a PDF document first.');
       return;
     }
     const modal = document.getElementById('exportImagesModal');
     if (!modal) return;
+
+    if (targetPageIndex !== undefined) {
+      this.activePageIndex = targetPageIndex;
+      const currentRadio = document.querySelector('input[name="exportImgScope"][value="current"]') as HTMLInputElement | null;
+      if (currentRadio) currentRadio.checked = true;
+      const customInput = document.getElementById('exportImgCustomRange') as HTMLInputElement | null;
+      if (customInput) customInput.disabled = true;
+    }
 
     const curPageEl = document.getElementById('exportImgCurrentPage');
     if (curPageEl) curPageEl.innerText = (this.activePageIndex + 1).toString();
@@ -4402,16 +4502,74 @@ export class PDFEditorUI {
     if (totalEl) totalEl.innerText = this.pdfManager.getPageCount().toString();
 
     document.getElementById('exportImgProgressSection')?.classList.add('hidden');
+    this.updateImageSizeEstimation();
     modal.classList.remove('hidden');
+  }
+
+  private updateImageSizeEstimation() {
+    const formatRadio = document.querySelector('input[name="exportImgFormat"]:checked') as HTMLInputElement | null;
+    const format = formatRadio?.value || 'jpeg';
+
+    const dpiSelect = document.getElementById('exportImgDpiSelect') as HTMLSelectElement | null;
+    const scale = parseFloat(dpiSelect?.value || '1.5');
+
+    const slider = document.getElementById('imgQualitySlider') as HTMLInputElement | null;
+    const quality = (slider ? parseInt(slider.value, 10) : 75) / 100;
+
+    const sliderGroup = document.getElementById('imgQualitySliderGroup');
+    if (sliderGroup) {
+      sliderGroup.style.opacity = format === 'png' ? '0.5' : '1.0';
+      sliderGroup.style.pointerEvents = format === 'png' ? 'none' : 'auto';
+    }
+
+    // Estimate file size based on page dimensions, scale, and format/quality
+    const meta = this.pdfManager.getPageMeta(this.activePageIndex);
+    const ptW = meta ? (meta.cropBox ? meta.cropBox.width : meta.width) : 595;
+    const ptH = meta ? (meta.cropBox ? meta.cropBox.height : meta.height) : 842;
+    const pixels = (ptW * scale) * (ptH * scale);
+
+    let estBytes = 0;
+    if (format === 'png') {
+      estBytes = Math.round(pixels * 0.55);
+    } else if (format === 'webp') {
+      estBytes = Math.round(pixels * 0.11 * Math.max(0.2, quality));
+    } else {
+      estBytes = Math.round(pixels * 0.15 * Math.max(0.25, quality));
+    }
+
+    const badge = document.getElementById('exportImgEstSizeBadge');
+    if (badge) {
+      badge.innerText = `~${this.formatBytes(estBytes)} per page`;
+    }
+
+    const pill = document.getElementById('exportImgCompressionPill');
+    if (pill) {
+      if (estBytes < 350 * 1024) {
+        pill.innerText = '⚡ High Compression (Small File)';
+        pill.style.background = '#e0f2fe';
+        pill.style.color = '#0369a1';
+      } else if (estBytes < 1000 * 1024) {
+        pill.innerText = '📄 Balanced Compression';
+        pill.style.background = '#dcfce7';
+        pill.style.color = '#15803d';
+      } else {
+        pill.innerText = '💎 High Quality / Larger Size';
+        pill.style.background = '#fef3c7';
+        pill.style.color = '#b45309';
+      }
+    }
   }
 
   private async executeExportImages() {
     const totalPages = this.pdfManager.getPageCount();
     const formatRadio = document.querySelector('input[name="exportImgFormat"]:checked') as HTMLInputElement | null;
-    const format = (formatRadio?.value || 'png') as 'png' | 'jpeg';
+    const format = (formatRadio?.value || 'jpeg') as 'png' | 'jpeg' | 'webp';
 
-    const dpiRadio = document.querySelector('input[name="exportImgDpi"]:checked') as HTMLInputElement | null;
-    const scale = parseFloat(dpiRadio?.value || '2.0');
+    const dpiSelect = document.getElementById('exportImgDpiSelect') as HTMLSelectElement | null;
+    const scale = parseFloat(dpiSelect?.value || '1.5');
+
+    const slider = document.getElementById('imgQualitySlider') as HTMLInputElement | null;
+    const quality = (slider ? parseInt(slider.value, 10) : 75) / 100;
 
     const scopeRadio = document.querySelector('input[name="exportImgScope"]:checked') as HTMLInputElement | null;
     const scope = scopeRadio ? scopeRadio.value : 'current';
@@ -4438,7 +4596,7 @@ export class PDFEditorUI {
 
     try {
       if (pageIndices.length === 1) {
-        if (statusText) statusText.innerText = 'Generating image...';
+        if (statusText) statusText.innerText = 'Generating compressed image...';
         if (barEl) barEl.style.width = '70%';
         await ExportEngine.exportSinglePageImage(
           this.pdfManager,
@@ -4447,6 +4605,7 @@ export class PDFEditorUI {
           pageIndices[0],
           format,
           scale,
+          quality,
           this.pdfManager.getFileName()
         );
       } else {
@@ -4457,6 +4616,7 @@ export class PDFEditorUI {
           pageIndices,
           format,
           scale,
+          quality,
           this.pdfManager.getFileName(),
           (percent, status) => {
             if (barEl) barEl.style.width = `${percent}%`;

@@ -959,8 +959,9 @@ export class ExportEngine {
     annotationManager: AnnotationManager,
     trueEditManager: TrueEditManager,
     pageIndex: number,
-    format: 'png' | 'jpeg',
-    scale: number = 2.0
+    format: 'png' | 'jpeg' | 'webp',
+    scale: number = 1.5,
+    quality: number = 0.8
   ): Promise<Blob> {
     const meta = pdfManager.getPageMeta(pageIndex);
     if (!meta) throw new Error(`Page ${pageIndex + 1} not found`);
@@ -1079,64 +1080,78 @@ export class ExportEngine {
     }
 
     return new Promise<Blob>((resolve, reject) => {
-      const mime = format === 'jpeg' ? 'image/jpeg' : 'image/png';
-      const quality = format === 'jpeg' ? 0.92 : undefined;
+      let mime = 'image/jpeg';
+      if (format === 'png') mime = 'image/png';
+      else if (format === 'webp') mime = 'image/webp';
+      else mime = 'image/jpeg';
+
+      const q = format === 'png' ? undefined : Math.max(0.05, Math.min(1.0, quality));
       canvas.toBlob((blob) => {
         if (blob) resolve(blob);
         else reject(new Error('Failed to create image blob from page canvas'));
-      }, mime, quality);
+      }, mime, q);
     });
   }
 
   /**
-   * Downloads a single page as an image
+   * Downloads a single page as an image with controllable compression / quality
    */
   static async exportSinglePageImage(
     pdfManager: PDFManager,
     annotationManager: AnnotationManager,
     trueEditManager: TrueEditManager,
     pageIndex: number,
-    format: 'png' | 'jpeg',
-    scale: number = 2.0,
+    format: 'png' | 'jpeg' | 'webp' = 'jpeg',
+    scale: number = 1.5,
+    quality: number = 0.8,
     baseFileName: string = 'document'
-  ): Promise<void> {
+  ): Promise<{ bytes: number; fileName: string }> {
     const blob = await ExportEngine.renderPageToImageBlob(
       pdfManager,
       annotationManager,
       trueEditManager,
       pageIndex,
       format,
-      scale
+      scale,
+      quality
     );
     const cleanBaseName = baseFileName.replace(/\.pdf$/i, '');
-    const ext = format === 'jpeg' ? 'jpg' : 'png';
+    let ext = 'jpg';
+    if (format === 'png') ext = 'png';
+    else if (format === 'webp') ext = 'webp';
+
     const pageNumPadded = String(pageIndex + 1).padStart(2, '0');
+    const outName = `${cleanBaseName}_page_${pageNumPadded}.${ext}`;
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${cleanBaseName}_page_${pageNumPadded}.${ext}`;
+    a.download = outName;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 10000);
+    return { bytes: blob.size, fileName: outName };
   }
 
   /**
-   * Renders multiple pages and bundles them into a ZIP archive
+   * Renders multiple pages and bundles them into a ZIP archive with compression / quality
    */
   static async exportPagesToZip(
     pdfManager: PDFManager,
     annotationManager: AnnotationManager,
     trueEditManager: TrueEditManager,
     pageIndices: number[],
-    format: 'png' | 'jpeg',
-    scale: number = 2.0,
+    format: 'png' | 'jpeg' | 'webp' = 'jpeg',
+    scale: number = 1.5,
+    quality: number = 0.8,
     baseFileName: string = 'document',
     onProgress?: (percent: number, status: string) => void
   ): Promise<void> {
     const zip = new JSZip();
     const cleanBaseName = baseFileName.replace(/\.pdf$/i, '');
-    const ext = format === 'jpeg' ? 'jpg' : 'png';
+    let ext = 'jpg';
+    if (format === 'png') ext = 'png';
+    else if (format === 'webp') ext = 'webp';
 
     for (let i = 0; i < pageIndices.length; i++) {
       const pIdx = pageIndices[i];
@@ -1151,7 +1166,8 @@ export class ExportEngine {
         trueEditManager,
         pIdx,
         format,
-        scale
+        scale,
+        quality
       );
 
       const pageNumPadded = String(pIdx + 1).padStart(2, '0');
