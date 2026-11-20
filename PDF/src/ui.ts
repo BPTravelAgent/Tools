@@ -161,6 +161,7 @@ export class PDFEditorUI {
   private isDrawingFreehand: boolean = false;
   private currentFreehandPoints: { x: number; y: number }[] = [];
   private activeCropState: { pageIndex: number; x: number; y: number; width: number; height: number } | null = null;
+  private editingAnnotationId: string | null = null;
 
   // Cached DOM elements
   private root: HTMLElement;
@@ -752,6 +753,12 @@ export class PDFEditorUI {
         if (selId) {
           e.preventDefault();
           this.annotationManager.duplicateAnnotation(selId);
+        }
+      } else if (e.key === 'Enter') {
+        const sel = this.annotationManager.getSelectedAnnotation();
+        if (sel && sel.type === 'text' && !this.editingAnnotationId) {
+          e.preventDefault();
+          this.startInlineAnnotationTextEdit(sel.id);
         }
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
         const selId = this.annotationManager.getSelectedId();
@@ -1351,8 +1358,12 @@ export class PDFEditorUI {
       const clickY = (e.clientY - rect.top) / this.currentScale;
 
       if (this.currentTool === 'text') {
-        this.annotationManager.addText(pageIndex, clickX, clickY, 'Double click to edit');
+        const newAnn = this.annotationManager.addText(pageIndex, clickX, clickY, 'Type text here...');
         this.setTool('select');
+        // Immediately activate inline text editing with focus so the user can start typing right away
+        setTimeout(() => {
+          this.startInlineAnnotationTextEdit(newAnn.id);
+        }, 50);
       } else if (this.currentTool === 'select') {
         // Deselect if clicking on empty space
         this.annotationManager.setSelectedId(null);
@@ -2710,10 +2721,21 @@ export class PDFEditorUI {
           textSpan.style.textAlign = t.align;
           el.appendChild(textSpan);
 
-          // Double click text to edit inline
+          // Double click text to edit inline (supports both native dblclick and quick 2-click timer)
+          let lastClickTime = 0;
           el.addEventListener('dblclick', (e) => {
             e.stopPropagation();
             this.editAnnotationTextInline(t, textSpan);
+          });
+          el.addEventListener('click', (e) => {
+            if (this.editingAnnotationId === ann.id) return;
+            const now = Date.now();
+            if (now - lastClickTime < 350) {
+              e.stopPropagation();
+              e.preventDefault();
+              this.editAnnotationTextInline(t, textSpan);
+            }
+            lastClickTime = now;
           });
         } else if (ann.type === 'shape') {
           const s = ann as ShapeAnnotation;
@@ -2737,14 +2759,15 @@ export class PDFEditorUI {
           el.appendChild(this.renderFreehandSVG(f));
         }
 
-        // Selection & Drag Handles
-        if (ann.id === selectedId && ann.type !== 'whiteout') {
+        // Selection & Drag Handles (hidden when actively editing inline)
+        if (ann.id === selectedId && ann.type !== 'whiteout' && this.editingAnnotationId !== ann.id) {
           this.attachTransformHandles(el, ann);
         }
 
         // Drag to move or erase
         el.addEventListener('mousedown', (e) => {
           if ((e.target as HTMLElement).classList.contains('transform-handle')) return;
+          if (this.editingAnnotationId === ann.id) return; // Allow normal text selection/typing when editing
           e.stopPropagation();
           if (this.currentTool === 'eraser' || this.currentTool === 'whiteout') {
             this.annotationManager.deleteAnnotation(ann.id);
@@ -2857,10 +2880,16 @@ export class PDFEditorUI {
     const startMouseY = e.clientY;
     const startAnnX = ann.x;
     const startAnnY = ann.y;
+    let hasMoved = false;
 
     const onMouseMove = (moveEvt: MouseEvent) => {
       const dx = (moveEvt.clientX - startMouseX) / this.currentScale;
       const dy = (moveEvt.clientY - startMouseY) / this.currentScale;
+
+      if (Math.hypot(dx, dy) > 2) {
+        hasMoved = true;
+      }
+      if (!hasMoved) return;
 
       this.annotationManager.updateAnnotation(
         ann.id,
@@ -2875,7 +2904,10 @@ export class PDFEditorUI {
     const onMouseUp = () => {
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
-      this.annotationManager.updateAnnotation(ann.id, {}, true); // push history snapshot
+      // Only record undo history / re-render if actually dragged to a new position!
+      if (hasMoved) {
+        this.annotationManager.updateAnnotation(ann.id, {}, true);
+      }
     };
 
     window.addEventListener('mousemove', onMouseMove);
@@ -2889,10 +2921,16 @@ export class PDFEditorUI {
     const startY = ann.y;
     const startW = ann.width;
     const startH = ann.height;
+    let hasTransformed = false;
 
     const onMouseMove = (moveEvt: MouseEvent) => {
       const dx = (moveEvt.clientX - startMouseX) / this.currentScale;
       const dy = (moveEvt.clientY - startMouseY) / this.currentScale;
+
+      if (Math.hypot(dx, dy) > 2) {
+        hasTransformed = true;
+      }
+      if (!hasTransformed) return;
 
       if (handle === 'rot') {
         const center = {
@@ -2938,36 +2976,116 @@ export class PDFEditorUI {
     const onMouseUp = () => {
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
-      this.annotationManager.updateAnnotation(ann.id, {}, true);
+      if (hasTransformed) {
+        this.annotationManager.updateAnnotation(ann.id, {}, true);
+      }
     };
 
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onMouseUp);
   }
 
+  public startInlineAnnotationTextEdit(annId: string) {
+    const ann = this.annotationManager.getSelectedAnnotation();
+    const targetAnn = (ann && ann.id === annId ? ann : this.annotationManager.getAnnotations(this.activePageIndex).find((a) => a.id === annId)) as TextAnnotation | undefined;
+    if (!targetAnn || targetAnn.type !== 'text') return;
+
+    this.annotationManager.setSelectedId(targetAnn.id);
+    const el = document.querySelector(`.annotation-item[data-id="${targetAnn.id}"]`) as HTMLElement | null;
+    if (!el) return;
+    const textSpan = el.querySelector('.annotation-text-inner') as HTMLElement | null;
+    if (!textSpan) return;
+
+    this.editAnnotationTextInline(targetAnn, textSpan);
+  }
+
   private editAnnotationTextInline(ann: TextAnnotation, textSpan: HTMLElement) {
+    if (this.editingAnnotationId === ann.id) return;
+    this.editingAnnotationId = ann.id;
+
+    const el = textSpan.closest('.annotation-item') as HTMLElement | null;
+    el?.classList.add('is-editing');
+    el?.querySelectorAll('.transform-handle').forEach((h) => ((h as HTMLElement).style.display = 'none'));
+
     textSpan.contentEditable = 'true';
-    textSpan.focus();
+    textSpan.spellcheck = false;
     textSpan.classList.add('inline-editing');
 
-    // Select all text
-    const range = document.createRange();
-    range.selectNodeContents(textSpan);
-    const sel = window.getSelection();
-    sel?.removeAllRanges();
-    sel?.addRange(range);
+    textSpan.focus();
 
-    const onBlur = () => {
+    // Select all contents so user can immediately type over placeholder or existing text
+    try {
+      const range = document.createRange();
+      range.selectNodeContents(textSpan);
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+    } catch (_) {}
+
+    // Auto-expand bounding box smoothly as user types
+    const onInput = () => {
+      if (!el) return;
+      const scrollW = Math.ceil(textSpan.scrollWidth / this.currentScale);
+      const scrollH = Math.ceil(textSpan.scrollHeight / this.currentScale);
+      if (scrollW > ann.width || scrollH > ann.height) {
+        const newW = Math.max(ann.width, scrollW + 16);
+        const newH = Math.max(ann.height, scrollH + 8);
+        el.style.width = `${newW * this.currentScale}px`;
+        el.style.height = `${newH * this.currentScale}px`;
+        ann.width = newW;
+        ann.height = newH;
+      }
+    };
+    textSpan.addEventListener('input', onInput);
+
+    let isCommitted = false;
+    let isCancelled = false;
+
+    const finishEdit = () => {
+      if (isCommitted) return;
+      isCommitted = true;
+      this.editingAnnotationId = null;
+
       textSpan.contentEditable = 'false';
       textSpan.classList.remove('inline-editing');
-      const newText = textSpan.innerText.trim();
-      if (newText) {
-        this.annotationManager.updateAnnotation(ann.id, { text: newText });
+      el?.classList.remove('is-editing');
+      textSpan.removeEventListener('input', onInput);
+      textSpan.removeEventListener('keydown', onKeyDown);
+      textSpan.removeEventListener('blur', finishEdit);
+
+      if (isCancelled) {
+        this.renderCurrentPageAnnotations();
+        return;
       }
-      textSpan.removeEventListener('blur', onBlur);
+
+      const newText = textSpan.innerText.trim();
+      if (!newText || newText === 'Type text here...' || newText === 'Double click to edit') {
+        this.annotationManager.deleteAnnotation(ann.id);
+      } else {
+        const finalW = Math.max(60, Math.ceil(textSpan.scrollWidth / this.currentScale) + 12);
+        const finalH = Math.max(24, Math.ceil(textSpan.scrollHeight / this.currentScale) + 6);
+        this.annotationManager.updateAnnotation(ann.id, {
+          text: newText,
+          width: Math.max(ann.width, finalW),
+          height: Math.max(ann.height, finalH),
+        });
+      }
     };
 
-    textSpan.addEventListener('blur', onBlur);
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        finishEdit();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        isCancelled = true;
+        textSpan.innerText = ann.text;
+        finishEdit();
+      }
+    };
+
+    textSpan.addEventListener('keydown', onKeyDown);
+    textSpan.addEventListener('blur', finishEdit);
   }
 
   private showSnipActionPill(
@@ -3021,6 +3139,9 @@ export class PDFEditorUI {
     if (sel && sel.type === 'text') {
       const t = sel as TextAnnotation;
       sub.innerHTML = `
+        <div class="prop-group">
+          <button class="prop-btn btn-edit-text-active" id="btnEditText" title="Edit text (or double-click text box)">✏️ Edit Text</button>
+        </div>
         <div class="prop-group" id="subFontPickerMount"></div>
         <div class="prop-group">
           <button class="prop-btn" id="btnFontDec">-</button>
@@ -3059,6 +3180,10 @@ export class PDFEditorUI {
       }
 
       // Handlers
+      document.getElementById('btnEditText')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.startInlineAnnotationTextEdit(t.id);
+      });
       document.getElementById('btnLayerUp')?.addEventListener('click', () => {
         this.annotationManager.bringToFront(t.id);
       });

@@ -92,6 +92,7 @@ export class AnnotationManager {
   }
 
   setSelectedId(id: string | null) {
+    if (this.selectedId === id) return;
     this.selectedId = id;
     if (this.onChangeCallback) this.onChangeCallback();
   }
