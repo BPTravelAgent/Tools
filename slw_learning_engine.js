@@ -115,20 +115,6 @@
             active: true
         },
         {
-            id: 'rule_chao_phraya_addon_08',
-            type: 'transfer_addon',
-            category: 'Transfer Addon',
-            title: 'Chao Phraya Dinner Cruise Transfer Addon',
-            pattern: 'chao phraya dinner cruise',
-            city: 'Bangkok',
-            transferPrice: 1400,
-            targetColumn: 'Transfer (Col 7)',
-            description: 'Places 1,400 THB private transfer addon directly into Transfer Column (Col 7) on Chao Phraya Dinner Cruise row.',
-            learnedFromInq: 'INQ-63378',
-            learnedAt: '2026-11-06T15:55:00.000Z',
-            active: true
-        },
-        {
             id: 'rule_domestic_flight_pairing_09',
             type: 'routing',
             category: 'Routing & Transfers',
@@ -154,10 +140,16 @@
                 window.localStorage.setItem(STORAGE_KEY, JSON.stringify(SEED_RULES));
                 return JSON.parse(JSON.stringify(SEED_RULES));
             }
-            const parsed = JSON.parse(raw);
+            let parsed = JSON.parse(raw);
             if (!Array.isArray(parsed) || parsed.length === 0) {
                 window.localStorage.setItem(STORAGE_KEY, JSON.stringify(SEED_RULES));
                 return JSON.parse(JSON.stringify(SEED_RULES));
+            }
+            // Auto-clean obsolete or invalid transfer addon rules (e.g. Chao Phraya 1400 phantom addon)
+            const cleaned = parsed.filter(r => r.id !== 'rule_chao_phraya_addon_08' && !(r.type === 'transfer_addon' && r.pattern === 'chao phraya dinner cruise'));
+            if (cleaned.length !== parsed.length) {
+                window.localStorage.setItem(STORAGE_KEY, JSON.stringify(cleaned));
+                parsed = cleaned;
             }
             return parsed;
         } catch (e) {

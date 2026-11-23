@@ -1385,16 +1385,22 @@
 
                         // If tour has dedicated private transfer addon (e.g. Pattaya City Tour private van 1200 THB), place in Transfer column (Col 7)
                         let trAddonPrice = Number(matchedTour.transferPrice) || 0;
-                        if (trAddonPrice <= 0) {
-                            try {
-                                const engine = (typeof root !== 'undefined' && root.SlwLearningEngine) ? root.SlwLearningEngine : (typeof window !== 'undefined' ? window.SlwLearningEngine : null);
-                                if (engine && typeof engine.getRules === 'function') {
-                                    const addonRule = engine.getRules().find(r => r.active !== false && r.type === 'transfer_addon' && matchedTour.name.toLowerCase().includes(r.pattern));
-                                    if (addonRule && Number(addonRule.transferPrice) > 0) {
-                                        trAddonPrice = Number(addonRule.transferPrice);
+                        const isJoinOrTicket = /join|ticket\s*only/i.test(String(matchedTour.name || '')) || /join|ticket\s*only/i.test(String(actText || ''));
+                        if (isJoinOrTicket) {
+                            trAddonPrice = 0;
+                        } else if (trAddonPrice <= 0) {
+                            const isPrivateTour = /private/i.test(String(matchedTour.name || '')) || /private/i.test(String(actText || ''));
+                            if (isPrivateTour) {
+                                try {
+                                    const engine = (typeof root !== 'undefined' && root.SlwLearningEngine) ? root.SlwLearningEngine : (typeof window !== 'undefined' ? window.SlwLearningEngine : null);
+                                    if (engine && typeof engine.getRules === 'function') {
+                                        const addonRule = engine.getRules().find(r => r.active !== false && r.type === 'transfer_addon' && r.pattern !== 'chao phraya dinner cruise' && matchedTour.name.toLowerCase().includes(r.pattern));
+                                        if (addonRule && Number(addonRule.transferPrice) > 0) {
+                                            trAddonPrice = Number(addonRule.transferPrice);
+                                        }
                                     }
-                                }
-                            } catch (e) {}
+                                } catch (e) {}
+                            }
                         }
                         if (trAddonPrice > 0) {
                             row.getCell(7).value = trAddonPrice;
@@ -1404,8 +1410,8 @@
                     }
                     row.getCell(6).border = BORDER_THIN;
 
-                    // Match Transfers (if transfer column not already filled by tour transfer addon)
-                    if (!row.getCell(7).value) {
+                    // Match Transfers (if transfer column not already filled, and this row is NOT a tour row)
+                    if (!row.getCell(7).value && !matchedTour) {
                         const matchedTransfer = matchAndConsumeTransfer(actText, remainingTransfers);
                         if (matchedTransfer) {
                             row.getCell(7).value = Number(matchedTransfer.price) || 0;
