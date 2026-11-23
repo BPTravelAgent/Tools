@@ -113,12 +113,22 @@
      */
     function cleanTourNameTags(name) {
         if (!name) return '';
-        let s = String(name).trim();
-        const tagPattern = /\s*\((?:join\s+tour|join\s+transfer|private\s+transfer|join|private|ticket\s+only|private\s+tour)\)\s*\((?:join\s+tour|join\s+transfer|private\s+transfer|join|private|ticket\s+only|private\s+tour)\)/gi;
-        while (tagPattern.test(s)) {
-            s = s.replace(tagPattern, (m, p1) => ` (${p1.trim()})`);
+        try {
+            let s = String(name).trim();
+            const tagPattern = /\s*\((join\s+tour|join\s+transfer|private\s+transfer|join|private|ticket\s+only|private\s+tour)\)\s*\((join\s+tour|join\s+transfer|private\s+transfer|join|private|ticket\s+only|private\s+tour)\)/i;
+            while (tagPattern.test(s)) {
+                s = s.replace(tagPattern, (m, t1, t2) => {
+                    const strT2 = (typeof t2 === 'string') ? t2 : '';
+                    const strT1 = (typeof t1 === 'string') ? t1 : '';
+                    const preferred = (strT2 && strT2.toLowerCase().includes('transfer')) ? strT2 : (strT1 || strT2 || '');
+                    return preferred ? ` (${preferred.trim()})` : '';
+                });
+            }
+            return s.trim();
+        } catch (e) {
+            console.warn('[cleanTourNameTags] Error cleaning tag:', e);
+            return String(name).trim();
         }
-        return s.trim();
     }
 
     /**
