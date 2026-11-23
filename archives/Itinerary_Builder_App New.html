@@ -35,19 +35,32 @@ if(!previewEl){
 let toast=document.createElement("div");
 toast.id="slw-pdf-toast";
 toast.style.cssText="position:fixed;top:24px;left:50%;transform:translateX(-50%);background:#065f46;color:#ffffff;padding:14px 24px;border-radius:12px;font-size:14px;font-weight:700;z-index:9999999;box-shadow:0 8px 30px rgba(0,0,0,0.35);display:flex;align-items:center;gap:10px;font-family:sans-serif;";
-toast.innerHTML=`<span style="font-size:18px;">⏳</span> <span>`+(isLowMb?"Low MB PDF සකසමින් පවතී (WhatsApp Optimized)...":"Full HD PDF සකසමින් පවතී...")+` කරුණාකර මොහොතක් රැඳෙන්න...</span>`;
+toast.innerHTML='<span style="font-size:18px;">⏳</span> <span>'+(isLowMb?"Low MB PDF සකසමින් පවතී (WhatsApp Optimized)...":"Full HD PDF සකසමින් පවතී...")+' කරුණාකර මොහොතක් රැඳෙන්න...</span>';
 document.body.appendChild(toast);
+
+const origW=previewEl.style.width,origMinW=previewEl.style.minWidth,origMaxW=previewEl.style.maxWidth,origFlex=previewEl.style.flexShrink,origShadow=previewEl.style.boxShadow;
+previewEl.style.width="794px";
+previewEl.style.minWidth="794px";
+previewEl.style.maxWidth="794px";
+previewEl.style.flexShrink="0";
+previewEl.style.boxShadow="none";
 previewEl.classList.add("exporting-pdf");
+
+const hiddenEls=Array.from(previewEl.querySelectorAll('.print\\:hidden, [class*="print:hidden"], .group\\/spacer, [class*="group/spacer"], .group\\/edit > span, .group\\/title > div'));
+const origDisplays=hiddenEls.map(el=>({el,display:el.style.display}));
+hiddenEls.forEach(el=>{el.style.setProperty("display","none","important");});
+
 let cleanName=((e.inq||e.title||"Tour_Itinerary").replace(/[^a-zA-Z0-9_\-]/g,"_"))+(isLowMb?"":"_HD")+".pdf";
-let imgEls=Array.from(previewEl.querySelectorAll("img")),origMap=new Map();
 const cleanup=()=>{
   previewEl.classList.remove("exporting-pdf");
+  previewEl.style.width=origW||"";
+  previewEl.style.minWidth=origMinW||"";
+  previewEl.style.maxWidth=origMaxW||"";
+  previewEl.style.flexShrink=origFlex||"";
+  previewEl.style.boxShadow=origShadow||"";
+  origDisplays.forEach(({el,display})=>{el.style.display=display;});
   a(!1);
   if(toast&&toast.parentNode)toast.parentNode.removeChild(toast);
-  imgEls.forEach(imgEl=>{
-    let entry=origMap.get(imgEl);
-    if(entry&&entry.original)imgEl.src=entry.original;
-  });
 };
 try{
   const h2c=window.html2canvas||window.html2canvasPro||(window.html2canvasExports&&window.html2canvasExports.default);
@@ -55,75 +68,19 @@ try{
   if(!h2c||!jsPdfClass){
     throw new Error("PDF generator library is still loading. Please check internet connection.");
   }
-  const maxImgWidth=isLowMb?750:1200;
-  const imgQuality=isLowMb?0.62:0.85;
-  await Promise.allSettled(imgEls.map(async(imgEl)=>{
-    if(!imgEl.src||imgEl.src.endsWith(".svg"))return;
-    origMap.set(imgEl,{original:imgEl.src});
-    try{
-      let loadedImg=null;
-      if(imgEl.src.startsWith("data:image/")){
-        let r=document.createElement("canvas");
-        let w=imgEl.naturalWidth||750,h=imgEl.naturalHeight||500;
-        if(w>maxImgWidth){h=Math.round(h*maxImgWidth/w);w=maxImgWidth;}
-        if(w>0&&h>0){
-          r.width=w;r.height=h;
-          let ctx=r.getContext("2d");
-          ctx.drawImage(imgEl,0,0,w,h);
-          let dataUrl=r.toDataURL("image/jpeg",imgQuality);
-          if(dataUrl&&dataUrl.startsWith("data:image"))imgEl.src=dataUrl;
-        }
-        return;
-      }
-      const tryLoad=(srcUrl)=>new Promise((resolve,reject)=>{
-        const img=new Image();
-        img.crossOrigin="anonymous";
-        img.onload=()=>resolve(img);
-        img.onerror=reject;
-        img.src=srcUrl;
-      });
-      try{
-        loadedImg=await Promise.race([
-          tryLoad(imgEl.src),
-          new Promise((_,rej)=>setTimeout(()=>rej(new Error("Timeout")),2500))
-        ]);
-      }catch(e1){
-        if(imgEl.src.startsWith("http")){
-          try{
-            const proxyUrl="https://images.weserv.nl/?url="+encodeURIComponent(imgEl.src)+"&w="+maxImgWidth+"&output=jpg&q="+Math.round(imgQuality*100);
-            loadedImg=await Promise.race([
-              tryLoad(proxyUrl),
-              new Promise((_,rej)=>setTimeout(()=>rej(new Error("Timeout")),3000))
-            ]);
-          }catch(e2){}
-        }
-      }
-      if(loadedImg&&loadedImg.naturalWidth>0){
-        let r=document.createElement("canvas");
-        let w=loadedImg.naturalWidth,h=loadedImg.naturalHeight;
-        if(w>maxImgWidth){h=Math.round(h*maxImgWidth/w);w=maxImgWidth;}
-        if(w>0&&h>0){
-          r.width=w;r.height=h;
-          let ctx=r.getContext("2d");
-          ctx.drawImage(loadedImg,0,0,w,h);
-          let dataUrl=r.toDataURL("image/jpeg",imgQuality);
-          if(dataUrl&&dataUrl.startsWith("data:image")){
-            imgEl.src=dataUrl;
-          }
-        }
-      }
-    }catch(err){
-      console.warn("Image pre-compress skipped:",err);
-    }
+  const imgEls=Array.from(previewEl.querySelectorAll("img"));
+  await Promise.allSettled(imgEls.map(async(img)=>{
+    if(img.complete&&img.naturalWidth>0)return;
+    if(img.decode){try{await img.decode();}catch(_){}}
   }));
-  const canvasScale=isLowMb?1.15:1.5;
-  const sliceQuality=isLowMb?0.65:0.85;
-  const canvas=await h2c(previewEl,{scale:canvasScale,useCORS:true,allowTaint:false,logging:false,backgroundColor:"#ffffff"});
+  const canvasScale=isLowMb?1.5:2.0;
+  const sliceQuality=isLowMb?0.72:0.85;
+  const canvas=await h2c(previewEl,{scale:canvasScale,useCORS:true,allowTaint:false,logging:false,backgroundColor:"#ffffff",scrollX:0,scrollY:0,windowWidth:1280});
   const pdf=new jsPdfClass({orientation:"portrait",unit:"mm",format:"a4",compress:true});
   const pdfPageWidthMm=210;
   const pdfPageHeightMm=297;
-  const pxPerMm=canvas.width/pdfPageWidthMm;
-  const pageHeightPx=Math.round(pdfPageHeightMm*pxPerMm);
+  const singlePageCssHeight=1123;
+  const pageHeightPx=Math.round(singlePageCssHeight*canvasScale);
   const totalHeightPx=canvas.height;
   let renderedHeightPx=0;
   let pageIndex=0;
@@ -145,9 +102,11 @@ try{
   cleanup();
   const pdfBlob=pdf.output("blob");
   const pdfFile=new File([pdfBlob],cleanName,{type:"application/pdf"});
-  if(preferShare&&navigator.canShare&&navigator.canShare({files:[pdfFile]})){
+  const sizeMb=(pdfBlob.size/(1024*1024)).toFixed(2);
+  const isMobile=/Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  if(isMobile&&preferShare&&navigator.canShare&&navigator.canShare({files:[pdfFile]})){
     try{
-      await navigator.share({title:(e.inq||"Tour Itinerary")+" - Sun Leisure World",text:"Tour Itinerary Quotation - Sun Leisure World",files:[pdfFile]});
+      await navigator.share({title:(e.inq||"Tour Itinerary")+" - " + brandName,text:"Tour Itinerary Quotation - " + brandName + " ("+sizeMb+" MB)",files:[pdfFile]});
       return;
     }catch(shErr){
       if(shErr.name==="AbortError")return;
@@ -165,6 +124,13 @@ try{
     if(dl.parentNode)document.body.removeChild(dl);
     URL.revokeObjectURL(blobUrl);
   },5000);
+  const successToast=document.createElement("div");
+  successToast.style.cssText="position:fixed;top:24px;left:50%;transform:translateX(-50%);background:#047857;color:#ffffff;padding:12px 24px;border-radius:12px;font-size:14px;font-weight:700;z-index:9999999;box-shadow:0 8px 30px rgba(0,0,0,0.35);display:flex;align-items:center;gap:10px;font-family:sans-serif;";
+  successToast.innerHTML='<span>✅</span> <span>'+(isLowMb?"Low MB PDF සාර්ථකව බාගත විය":"Full HD PDF සාර්ථකව බාගත විය")+' (~'+sizeMb+' MB)</span>';
+  document.body.appendChild(successToast);
+  setTimeout(()=>{
+    if(successToast.parentNode)successToast.parentNode.removeChild(successToast);
+  },4000);
 }catch(pdfErr){
   cleanup();
   console.error("Direct PDF Error:",pdfErr);
@@ -191,7 +157,32 @@ try{
               outline: none !important;
               box-shadow: none !important;
             }
-            @media print { 
+            
+/* ── PDF EXPORT VISIBILITY & PRECISION FIXES ── */
+#itinerary-preview.exporting-pdf {
+    width: 794px !important;
+    min-width: 794px !important;
+    max-width: 794px !important;
+    flex-shrink: 0 !important;
+    box-shadow: none !important;
+}
+#itinerary-preview.exporting-pdf .print\:hidden,
+#itinerary-preview.exporting-pdf [class*="print:hidden"],
+#itinerary-preview.exporting-pdf button,
+#itinerary-preview.exporting-pdf .opacity-0,
+#itinerary-preview.exporting-pdf .group\/spacer,
+#itinerary-preview.exporting-pdf [class*="group-hover"],
+#itinerary-preview.exporting-pdf input[type="color"] {
+    display: none !important;
+    visibility: hidden !important;
+}
+#itinerary-preview.exporting-pdf .editable-text {
+    outline: none !important;
+    box-shadow: none !important;
+    background: transparent !important;
+}
+
+@media print { 
       @page { margin: 0; size: A4; }
       #itinerary-preview { box-shadow: none; width: 100% !important; } 
     }
@@ -401,7 +392,7 @@ let renderBoxesForSlot=(slotId)=>{
       });
     })
   });
-};return(0,b.jsxs)(`div`,{className:`flex h-screen bg-gray-100 font-sans overflow-hidden print:h-auto print:block print:overflow-visible`,children:[(0,b.jsxs)(`div`,{className:`w-1/3 min-w-[350px] bg-white border-r border-gray-200 flex flex-col print:hidden shadow-lg z-10`,children:[(0,b.jsxs)(`div`,{className:`p-6 border-b border-gray-200 bg-green-900 text-white`,children:[(0,b.jsxs)(`h1`,{className:`text-2xl font-bold flex items-center gap-2`,children:[(0,b.jsx)(ve,{size:24}),`Itinerary Builder`]}),(0,b.jsx)(`p`,{className:`text-green-200 text-sm mt-1`,children:`Customize every detail of your tour`})]}),(0,b.jsx)(`div`,{className:`flex border-b border-gray-200 bg-gray-50 overflow-x-auto`,children:[`general`,`design`,`contact`].map(e=>(0,b.jsx)(`button`,{onClick:()=>r(e),className:`flex-1 px-4 py-3 text-sm font-medium capitalize whitespace-nowrap ${n===e?`text-green-800 border-b-2 border-green-800 bg-white`:`text-gray-500 hover:text-gray-700`}`,children:e},e))}),(0,b.jsxs)(`div`,{className:`flex-1 overflow-y-auto p-6`,children:[(0,b.jsxs)(`div`,{className:`bg-green-50 p-4 rounded-lg border border-green-100 flex items-start gap-3 mb-6`,children:[(0,b.jsx)(ve,{className:`text-green-600 shrink-0 mt-0.5`,size:20}),(0,b.jsxs)(`p`,{className:`text-sm text-green-800`,children:[(0,b.jsx)(`strong`,{children:`Pro Tip:`}),` Almost all text in the preview on the right can be edited directly by clicking on it! Try clicking the day descriptions, hotel options, or inclusions to customize them.`]})]}),n===`general`&&(0,b.jsxs)(`div`,{className:`space-y-4`,children:[(0,b.jsxs)(`div`,{children:[(0,b.jsx)(`label`,{className:`block text-sm font-medium text-gray-700 mb-1`,children:`Company Logo`}),(0,b.jsxs)(`div`,{className:`flex gap-2 mb-2`,children:[(0,b.jsx)(`input`,{type:`text`,placeholder:`Logo URL`,value:e.logo?.startsWith(`data:`)?``:e.logo,onChange:e=>d(`logo`,e.target.value),className:`flex-1 border-gray-300 rounded-md shadow-sm border p-2 text-sm`}),(0,b.jsxs)(`label`,{className:`bg-gray-100 border border-gray-300 rounded-md px-3 py-2 text-sm cursor-pointer hover:bg-gray-200 transition-colors flex items-center gap-2`,children:[(0,b.jsx)(Te,{size:14}),` Upload`,(0,b.jsx)(`input`,{type:`file`,accept:`image/*`,className:`hidden`,onChange:e=>{let t=e.target.files[0];t&&je(t,400,.8).then(e=>{d(`logo`,e)}),e.target.value=``}})]})]}),e.logo&&(0,b.jsx)(`div`,{className:`mb-6`,children:(0,b.jsx)(`img`,{src:e.logo,alt:`Logo preview`,className:`h-12 object-contain bg-gray-50 rounded p-2 border border-gray-200`})})]}),(0,b.jsxs)(`div`,{children:[(0,b.jsx)(`label`,{className:`block text-sm font-medium text-gray-700 mb-1`,children:`Cover Image`}),(0,b.jsxs)(`div`,{className:`flex gap-2 mb-2`,children:[(0,b.jsx)(`input`,{type:`text`,placeholder:`Image URL`,value:e.coverImage?.startsWith(`data:`)?``:e.coverImage,onChange:e=>d(`coverImage`,e.target.value),className:`flex-1 border-gray-300 rounded-md shadow-sm border p-2 text-sm`}),(0,b.jsxs)(`label`,{className:`bg-gray-100 border border-gray-300 rounded-md px-3 py-2 text-sm cursor-pointer hover:bg-gray-200 transition-colors flex items-center gap-2`,children:[(0,b.jsx)(Te,{size:14}),` Upload`,(0,b.jsx)(`input`,{type:`file`,accept:`image/*`,className:`hidden`,onChange:e=>{let t=e.target.files[0];t&&je(t,1e3,.5).then(e=>{d(`coverImage`,e)}),e.target.value=``}})]})]}),e.coverImage&&(0,b.jsx)(`img`,{src:e.coverImage,alt:`Cover preview`,className:`w-full h-24 object-cover rounded shadow`})]}),(0,b.jsxs)(`div`,{className:`mt-6 p-4 bg-amber-50 rounded-lg border border-amber-200`,children:[(0,b.jsx)(`h4`,{className:`font-bold text-amber-900 text-sm mb-1 flex items-center gap-1.5`,children:`📌 Custom Text Boxes & Notes`}),(0,b.jsx)(`p`,{className:`text-xs text-amber-700 mb-3`,children:`Add standalone notes, travel advice, or custom text blocks to your itinerary.`}),(0,b.jsxs)(`div`,{className:`flex flex-col gap-2`,children:[(0,b.jsxs)(`button`,{onClick:()=>{let newBox={id:Date.now(),title:`Special Note / Important Remarks`,content:`Enter your custom notes, instructions, flight details, or remarks here...`,position:`days_after`,hasTitle:!0,hasContent:!0,fontSize:15,padding:`normal`,theme:`amber`,flights:[]};d(`customBoxes`,[...(e.customBoxes||[]),newBox])},className:`w-full flex items-center justify-center gap-2 bg-amber-600 hover:bg-amber-700 text-white font-semibold py-2 px-3 rounded shadow-sm transition-colors text-xs cursor-pointer`,children:[(0,b.jsx)(be,{size:14}),`Add New Custom Text Box`]}),(0,b.jsxs)(`button`,{onClick:()=>{let newBox={id:Date.now(),title:`Flight Details & Schedule`,content:`Please arrive at the airport at least 3 hours prior to departure with valid passport and travel documents.`,position:`days_after`,hasTitle:!0,hasContent:!0,fontSize:15,padding:`normal`,theme:`blue`,flights:[{id:Date.now(),type:`departure`,airline:`SriLankan Airlines (UL 504)`,departure:`BKK Bangkok (09:15 AM)`,arrival:`CMB Colombo (11:30 AM)`,info:`Date: 15 Oct 2026 | Baggage: 30kg | Terminal 1`},{id:Date.now()+1,type:`arrival`,airline:`SriLankan Airlines (UL 505)`,departure:`CMB Colombo (18:45 PM)`,arrival:`BKK Bangkok (23:55 PM)`,info:`Date: 22 Oct 2026 | Baggage: 30kg | Terminal 1`}]};d(`customBoxes`,[...(e.customBoxes||[]),newBox])},className:`w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-3 rounded shadow-sm transition-colors text-xs cursor-pointer`,title:`Add a dedicated Flight Schedule box with Departure & Arrival details`,children:[(0,b.jsx)(`span`,{className:`text-sm shrink-0 flex items-center`,children:renderDepIcon(15)}),`Add Flight Schedule Box`]})]})]})]}),n===`design`&&(0,b.jsxs)(`div`,{className:`space-y-6`,children:[(0,b.jsxs)(`div`,{className:`bg-amber-50 p-4 rounded-lg border border-amber-100 flex items-start gap-3`,children:[(0,b.jsx)(`div`,{className:`text-amber-600 mt-0.5`,children:`ℹ️`}),(0,b.jsx)(`p`,{className:`text-sm text-amber-800`,children:`Adjust the text spacing globally to match your preferred MS Word style.`})]}),(0,b.jsxs)(`div`,{children:[(0,b.jsx)(`h3`,{className:`font-semibold text-gray-800 mb-4`,children:`Text Spacing Options`}),(0,b.jsxs)(`div`,{className:`space-y-5`,children:[(0,b.jsxs)(`div`,{children:[(0,b.jsxs)(`label`,{className:`flex justify-between text-xs font-bold text-gray-500 uppercase mb-2`,children:[(0,b.jsx)(`span`,{children:`Line Spacing`}),(0,b.jsx)(`span`,{className:`text-indigo-600`,children:e.design?.lineHeight||1.5})]}),(0,b.jsx)(`input`,{type:`range`,min:`1`,max:`2.5`,step:`0.05`,value:e.design?.lineHeight||1.5,onChange:t=>d(`design`,{...e.design||{},lineHeight:parseFloat(t.target.value)}),className:`w-full accent-indigo-600`})]}),(0,b.jsxs)(`div`,{children:[(0,b.jsxs)(`label`,{className:`flex justify-between text-xs font-bold text-gray-500 uppercase mb-2`,children:[(0,b.jsx)(`span`,{children:`Letter Spacing`}),(0,b.jsxs)(`span`,{className:`text-indigo-600`,children:[e.design?.letterSpacing||0,`px`]})]}),(0,b.jsx)(`input`,{type:`range`,min:`-1`,max:`5`,step:`0.1`,value:e.design?.letterSpacing||0,onChange:t=>d(`design`,{...e.design||{},letterSpacing:parseFloat(t.target.value)}),className:`w-full accent-indigo-600`})]})]})]})]}),n===`contact`&&(0,b.jsx)(`div`,{className:`space-y-4`,children:(0,b.jsxs)(`div`,{children:[(0,b.jsx)(`h3`,{className:`font-semibold text-gray-800 mb-2`,children:`Contact Information`}),(0,b.jsx)(`div`,{className:`space-y-3`,children:Object.entries(e.contact).map(([t,n])=>(0,b.jsxs)(`div`,{children:[(0,b.jsx)(`label`,{className:`block text-xs font-medium text-gray-500 uppercase`,children:t}),(0,b.jsx)(`input`,{type:`text`,value:n,onChange:n=>d(`contact`,{...e.contact,[t]:n.target.value}),className:`w-full border-gray-300 rounded-md shadow-sm border p-2 text-sm`})]},t))})]})})]}),(0,b.jsxs)(`div`,{className:`p-4 border-t border-gray-200 bg-gray-50 flex flex-col gap-3`,children:[(0,b.jsxs)(`div`,{className:`grid grid-cols-2 gap-2`,children:[(0,b.jsxs)(`button`,{onClick:o,className:`flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 px-3 rounded shadow-sm transition-colors text-sm`,title:`Download your data as a JSON file`,children:[(0,b.jsx)(pe,{size:16}),` Export JSON`]}),(0,b.jsxs)(`label`,{className:`flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 px-3 rounded shadow-sm transition-colors text-sm cursor-pointer`,title:`Load data from a JSON file`,children:[(0,b.jsx)(he,{size:16}),` Import JSON`,(0,b.jsx)(`input`,{type:`file`,accept:`.json`,onChange:s,className:`hidden`})]})]}),(0,b.jsx)(`div`,{className:`grid grid-cols-1 gap-2`,children:(0,b.jsxs)(`button`,{onClick:l,className:`flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-3 rounded shadow-sm transition-colors`,title:`Save your work as a fully editable HTML App`,children:[(0,b.jsx)(Se,{size:18}),` Save Project (Editable HTML)`]})}),(0,b.jsx)(`hr`,{className:`border-gray-200`}),(0,b.jsx)(`button`,{onClick:()=>c(!0,!0),disabled:i,className:`w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 px-3 rounded-lg shadow transition-colors disabled:opacity-70 disabled:cursor-not-allowed text-sm`,title:`Direct Low MB PDF (~1.5-2.5MB) optimized for WhatsApp sharing & fast mobile download`,children:i?(0,b.jsxs)(b.Fragment,{children:[(0,b.jsxs)(`svg`,{className:`animate-spin -ml-1 mr-2 h-5 w-5 text-white`,xmlns:`http://www.w3.org/2000/svg`,fill:`none`,viewBox:`0 0 24 24`,children:[(0,b.jsx)(`circle`,{className:`opacity-25`,cx:`12`,cy:`12`,r:`10`,stroke:`currentColor`,strokeWidth:`4`}),(0,b.jsx)(`path`,{className:`opacity-75`,fill:`currentColor`,d:`M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z`})]}),`Generating PDF...`]}):(0,b.jsxs)(b.Fragment,{children:[(0,b.jsx)(xe,{size:18}),`⚡ Download Low MB PDF (WhatsApp)`]})}),(0,b.jsx)(`button`,{onClick:()=>c(!0,!1),disabled:i,className:`w-full flex items-center justify-center gap-2 bg-teal-800 hover:bg-teal-900 text-white font-semibold py-2 px-3 rounded-lg shadow transition-colors disabled:opacity-70 disabled:cursor-not-allowed text-xs`,title:`Download High Definition PDF (~6-10MB) for print and HD screens`,children:(0,b.jsxs)(b.Fragment,{children:[(0,b.jsx)(xe,{size:14}),`📄 Download HD PDF (Full Quality)`]})}),(0,b.jsx)(`button`,{onClick:()=>c(!1),disabled:i,className:`w-full flex items-center justify-center gap-2 bg-green-900 hover:bg-green-950 text-white font-semibold py-2 px-3 rounded-lg shadow transition-colors disabled:opacity-70 disabled:cursor-not-allowed text-xs`,title:`Open browser print dialog for A4 vector print (Best for Desktop PC)`,children:(0,b.jsxs)(b.Fragment,{children:[(0,b.jsx)(xe,{size:14}),`🖨️ Browser Print (Desktop)`]})}),(0,b.jsxs)(`button`,{onClick:u,className:`w-full flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 text-white font-semibold py-3 px-4 rounded-lg shadow transition-colors`,title:`Save a static HTML version to send to clients`,children:[(0,b.jsx)(me,{size:20}),`Save Client Webpage (HTML)`]})]})]}),(0,b.jsx)(`div`,{className:`flex-1 overflow-y-auto bg-gray-400 p-8 print:p-0 print:bg-white flex justify-center relative print:overflow-visible print:block`,children:(0,b.jsxs)(`div`,{id:`itinerary-preview`,className:`bg-white relative shadow-2xl print:shadow-none print:overflow-visible`,style:{width:`794px`,minHeight:`1123px`,padding:`0`},children:[(0,b.jsx)(`style`,{children:`
+};return(0,b.jsxs)(`div`,{className:`flex h-screen bg-gray-100 font-sans overflow-hidden print:h-auto print:block print:overflow-visible`,children:[(0,b.jsxs)(`div`,{className:`w-1/3 min-w-[350px] bg-white border-r border-gray-200 flex flex-col print:hidden shadow-lg z-10`,children:[(0,b.jsxs)(`div`,{className:`p-6 border-b border-gray-200 bg-green-900 text-white`,children:[(0,b.jsxs)(`h1`,{className:`text-2xl font-bold flex items-center gap-2`,children:[(0,b.jsx)(ve,{size:24}),`Itinerary Builder`]}),(0,b.jsx)(`p`,{className:`text-green-200 text-sm mt-1`,children:`Customize every detail of your tour`})]}),(0,b.jsx)(`div`,{className:`flex border-b border-gray-200 bg-gray-50 overflow-x-auto`,children:[`general`,`design`,`contact`].map(e=>(0,b.jsx)(`button`,{onClick:()=>r(e),className:`flex-1 px-4 py-3 text-sm font-medium capitalize whitespace-nowrap ${n===e?`text-green-800 border-b-2 border-green-800 bg-white`:`text-gray-500 hover:text-gray-700`}`,children:e},e))}),(0,b.jsxs)(`div`,{className:`flex-1 overflow-y-auto p-6`,children:[(0,b.jsxs)(`div`,{className:`bg-green-50 p-4 rounded-lg border border-green-100 flex items-start gap-3 mb-6`,children:[(0,b.jsx)(ve,{className:`text-green-600 shrink-0 mt-0.5`,size:20}),(0,b.jsxs)(`p`,{className:`text-sm text-green-800`,children:[(0,b.jsx)(`strong`,{children:`Pro Tip:`}),` Almost all text in the preview on the right can be edited directly by clicking on it! Try clicking the day descriptions, hotel options, or inclusions to customize them.`]})]}),n===`general`&&(0,b.jsxs)(`div`,{className:`space-y-4`,children:[(0,b.jsxs)(`div`,{children:[(0,b.jsx)(`label`,{className:`block text-sm font-medium text-gray-700 mb-1`,children:`Company Logo`}),(0,b.jsxs)(`div`,{className:`flex gap-2 mb-2`,children:[(0,b.jsx)(`input`,{type:`text`,placeholder:`Logo URL`,value:e.logo?.startsWith(`data:`)?``:e.logo,onChange:e=>d(`logo`,e.target.value),className:`flex-1 border-gray-300 rounded-md shadow-sm border p-2 text-sm`}),(0,b.jsxs)(`label`,{className:`bg-gray-100 border border-gray-300 rounded-md px-3 py-2 text-sm cursor-pointer hover:bg-gray-200 transition-colors flex items-center gap-2`,children:[(0,b.jsx)(Te,{size:14}),` Upload`,(0,b.jsx)(`input`,{type:`file`,accept:`image/*`,className:`hidden`,onChange:e=>{let t=e.target.files[0];t&&je(t,400,.8).then(e=>{d(`logo`,e)}),e.target.value=``}})]})]}),e.logo&&(0,b.jsx)(`div`,{className:`mb-6`,children:(0,b.jsx)(`img`,{src:e.logo,alt:`Logo preview`,className:`h-12 object-contain bg-gray-50 rounded p-2 border border-gray-200`})})]}),(0,b.jsxs)(`div`,{children:[(0,b.jsx)(`label`,{className:`block text-sm font-medium text-gray-700 mb-1`,children:`Cover Image`}),(0,b.jsxs)(`div`,{className:`flex gap-2 mb-2`,children:[(0,b.jsx)(`input`,{type:`text`,placeholder:`Image URL`,value:e.coverImage?.startsWith(`data:`)?``:e.coverImage,onChange:e=>d(`coverImage`,e.target.value),className:`flex-1 border-gray-300 rounded-md shadow-sm border p-2 text-sm`}),(0,b.jsxs)(`label`,{className:`bg-gray-100 border border-gray-300 rounded-md px-3 py-2 text-sm cursor-pointer hover:bg-gray-200 transition-colors flex items-center gap-2`,children:[(0,b.jsx)(Te,{size:14}),` Upload`,(0,b.jsx)(`input`,{type:`file`,accept:`image/*`,className:`hidden`,onChange:e=>{let t=e.target.files[0];t&&je(t,1e3,.5).then(e=>{d(`coverImage`,e)}),e.target.value=``}})]})]}),e.coverImage&&(0,b.jsx)(`img`,{src:e.coverImage,alt:`Cover preview`,className:`w-full h-24 object-cover rounded shadow`})]}),(0,b.jsxs)(`div`,{className:`mt-6 p-4 bg-amber-50 rounded-lg border border-amber-200`,children:[(0,b.jsx)(`h4`,{className:`font-bold text-amber-900 text-sm mb-1 flex items-center gap-1.5`,children:`📌 Custom Text Boxes & Notes`}),(0,b.jsx)(`p`,{className:`text-xs text-amber-700 mb-3`,children:`Add standalone notes, travel advice, or custom text blocks to your itinerary.`}),(0,b.jsxs)(`div`,{className:`flex flex-col gap-2`,children:[(0,b.jsxs)(`button`,{onClick:()=>{let newBox={id:Date.now(),title:`Special Note / Important Remarks`,content:`Enter your custom notes, instructions, flight details, or remarks here...`,position:`days_after`,hasTitle:!0,hasContent:!0,fontSize:15,padding:`normal`,theme:`amber`,flights:[]};d(`customBoxes`,[...(e.customBoxes||[]),newBox])},className:`w-full flex items-center justify-center gap-2 bg-amber-600 hover:bg-amber-700 text-white font-semibold py-2 px-3 rounded shadow-sm transition-colors text-xs cursor-pointer`,children:[(0,b.jsx)(be,{size:14}),`Add New Custom Text Box`]}),(0,b.jsxs)(`button`,{onClick:()=>{let newBox={id:Date.now(),title:`Flight Details & Schedule`,content:`Please arrive at the airport at least 3 hours prior to departure with valid passport and travel documents.`,position:`days_after`,hasTitle:!0,hasContent:!0,fontSize:15,padding:`normal`,theme:`blue`,flights:[{id:Date.now(),type:`departure`,airline:`SriLankan Airlines (UL 504)`,departure:`BKK Bangkok (09:15 AM)`,arrival:`CMB Colombo (11:30 AM)`,info:`Date: 15 Oct 2026 | Baggage: 30kg | Terminal 1`},{id:Date.now()+1,type:`arrival`,airline:`SriLankan Airlines (UL 505)`,departure:`CMB Colombo (18:45 PM)`,arrival:`BKK Bangkok (23:55 PM)`,info:`Date: 22 Oct 2026 | Baggage: 30kg | Terminal 1`}]};d(`customBoxes`,[...(e.customBoxes||[]),newBox])},className:`w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-3 rounded shadow-sm transition-colors text-xs cursor-pointer`,title:`Add a dedicated Flight Schedule box with Departure & Arrival details`,children:[(0,b.jsx)(`span`,{className:`text-sm shrink-0 flex items-center`,children:renderDepIcon(15)}),`Add Flight Schedule Box`]})]})]})]}),n===`design`&&(0,b.jsxs)(`div`,{className:`space-y-6`,children:[(0,b.jsxs)(`div`,{className:`bg-amber-50 p-4 rounded-lg border border-amber-100 flex items-start gap-3`,children:[(0,b.jsx)(`div`,{className:`text-amber-600 mt-0.5`,children:`ℹ️`}),(0,b.jsx)(`p`,{className:`text-sm text-amber-800`,children:`Adjust the text spacing globally to match your preferred MS Word style.`})]}),(0,b.jsxs)(`div`,{children:[(0,b.jsx)(`h3`,{className:`font-semibold text-gray-800 mb-4`,children:`Text Spacing Options`}),(0,b.jsxs)(`div`,{className:`space-y-5`,children:[(0,b.jsxs)(`div`,{children:[(0,b.jsxs)(`label`,{className:`flex justify-between text-xs font-bold text-gray-500 uppercase mb-2`,children:[(0,b.jsx)(`span`,{children:`Line Spacing`}),(0,b.jsx)(`span`,{className:`text-indigo-600`,children:e.design?.lineHeight||1.5})]}),(0,b.jsx)(`input`,{type:`range`,min:`1`,max:`2.5`,step:`0.05`,value:e.design?.lineHeight||1.5,onChange:t=>d(`design`,{...e.design||{},lineHeight:parseFloat(t.target.value)}),className:`w-full accent-indigo-600`})]}),(0,b.jsxs)(`div`,{children:[(0,b.jsxs)(`label`,{className:`flex justify-between text-xs font-bold text-gray-500 uppercase mb-2`,children:[(0,b.jsx)(`span`,{children:`Letter Spacing`}),(0,b.jsxs)(`span`,{className:`text-indigo-600`,children:[e.design?.letterSpacing||0,`px`]})]}),(0,b.jsx)(`input`,{type:`range`,min:`-1`,max:`5`,step:`0.1`,value:e.design?.letterSpacing||0,onChange:t=>d(`design`,{...e.design||{},letterSpacing:parseFloat(t.target.value)}),className:`w-full accent-indigo-600`})]})]})]})]}),n===`contact`&&(0,b.jsx)(`div`,{className:`space-y-4`,children:(0,b.jsxs)(`div`,{children:[(0,b.jsx)(`h3`,{className:`font-semibold text-gray-800 mb-2`,children:`Contact Information`}),(0,b.jsx)(`div`,{className:`space-y-3`,children:Object.entries(e.contact).map(([t,n])=>(0,b.jsxs)(`div`,{children:[(0,b.jsx)(`label`,{className:`block text-xs font-medium text-gray-500 uppercase`,children:t}),(0,b.jsx)(`input`,{type:`text`,value:n,onChange:n=>d(`contact`,{...e.contact,[t]:n.target.value}),className:`w-full border-gray-300 rounded-md shadow-sm border p-2 text-sm`})]},t))})]})})]}),(0,b.jsxs)(`div`,{className:`p-4 border-t border-gray-200 bg-gray-50 flex flex-col gap-3`,children:[(0,b.jsxs)(`div`,{className:`grid grid-cols-2 gap-2`,children:[(0,b.jsxs)(`button`,{onClick:o,className:`flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 px-3 rounded shadow-sm transition-colors text-sm`,title:`Download your data as a JSON file`,children:[(0,b.jsx)(pe,{size:16}),` Export JSON`]}),(0,b.jsxs)(`label`,{className:`flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 px-3 rounded shadow-sm transition-colors text-sm cursor-pointer`,title:`Load data from a JSON file`,children:[(0,b.jsx)(he,{size:16}),` Import JSON`,(0,b.jsx)(`input`,{type:`file`,accept:`.json`,onChange:s,className:`hidden`})]})]}),(0,b.jsx)(`div`,{className:`grid grid-cols-1 gap-2`,children:(0,b.jsxs)(`button`,{onClick:l,className:`flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-3 rounded shadow-sm transition-colors`,title:`Save your work as a fully editable HTML App`,children:[(0,b.jsx)(Se,{size:18}),` Save Project (Editable HTML)`]})}),(0,b.jsx)(`hr`,{className:`border-gray-200`}),(0,b.jsx)(`button`,{onClick:()=>c(!0,!0),disabled:i,className:`w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 px-3 rounded-lg shadow transition-colors disabled:opacity-70 disabled:cursor-not-allowed text-sm`,title:`Direct Low MB PDF (~1.5-2.5MB) optimized for WhatsApp sharing & fast mobile download`,children:i?(0,b.jsxs)(b.Fragment,{children:[(0,b.jsxs)(`svg`,{className:`animate-spin -ml-1 mr-2 h-5 w-5 text-white`,xmlns:`http://www.w3.org/2000/svg`,fill:`none`,viewBox:`0 0 24 24`,children:[(0,b.jsx)(`circle`,{className:`opacity-25`,cx:`12`,cy:`12`,r:`10`,stroke:`currentColor`,strokeWidth:`4`}),(0,b.jsx)(`path`,{className:`opacity-75`,fill:`currentColor`,d:`M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z`})]}),`Generating PDF...`]}):(0,b.jsxs)(b.Fragment,{children:[(0,b.jsx)(xe,{size:18}),`⚡ Download Low MB PDF (WhatsApp)`]})}),(0,b.jsx)(`button`,{onClick:()=>c(!0,!1),disabled:i,className:`w-full flex items-center justify-center gap-2 bg-teal-800 hover:bg-teal-900 text-white font-semibold py-2 px-3 rounded-lg shadow transition-colors disabled:opacity-70 disabled:cursor-not-allowed text-xs`,title:`Download High Definition PDF (~6-10MB) for print and HD screens`,children:(0,b.jsxs)(b.Fragment,{children:[(0,b.jsx)(xe,{size:14}),`📄 Download HD PDF (Full Quality)`]})}),(0,b.jsx)(`button`,{onClick:()=>c(!1),disabled:i,className:`w-full flex items-center justify-center gap-2 bg-green-900 hover:bg-green-950 text-white font-semibold py-2 px-3 rounded-lg shadow transition-colors disabled:opacity-70 disabled:cursor-not-allowed text-xs`,title:`Open browser print dialog for A4 vector print (Best for Desktop PC)`,children:(0,b.jsxs)(b.Fragment,{children:[(0,b.jsx)(xe,{size:14}),`🖨️ Browser Print (Desktop)`]})}),(0,b.jsxs)(`button`,{onClick:u,className:`w-full flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 text-white font-semibold py-3 px-4 rounded-lg shadow transition-colors`,title:`Save a static HTML version to send to clients`,children:[(0,b.jsx)(me,{size:20}),`Save Client Webpage (HTML)`]})]})]}),(0,b.jsx)(`div`,{className:`flex-1 overflow-y-auto bg-gray-400 p-8 print:p-0 print:bg-white flex justify-center relative print:overflow-visible print:block`,children:(0,b.jsxs)(`div`,{id:`itinerary-preview`,className:`bg-white relative shadow-2xl print:shadow-none print:overflow-visible`,style:{width:`794px`,minWidth:`794px`,flexShrink:0,minHeight:`1123px`,padding:`0`},children:[(0,b.jsx)(`style`,{children:`
             @media print {
               @page { margin: 0; size: A4; }
               body { margin: 0; }
