@@ -2239,6 +2239,9 @@ function slwGoHome() {
             pricesToLoad.hasChildPrices = hasChildPrices;
             pricesToLoad.includeChildExtraBed = allowChildExtra;
             pricesToLoad.includeChildSharingBed = allowChildShare;
+            if (pricesToLoad.pricesMix && pricesToLoad.pricesMix.adult) {
+                pricesToLoad.hasMix = true;
+            }
             if (!allowChildExtra) {
                 if (pricesToLoad.prices3Star) pricesToLoad.prices3Star.childExtra = null;
                 if (pricesToLoad.prices4Star) pricesToLoad.prices4Star.childExtra = null;
@@ -2736,14 +2739,42 @@ window.slwDownloadCostingExcelFromBuilder = async function() {
             } catch(e) {}
         }
 
+        // Helper for hotel classification in Excel export
+        const getHotelRatingTxt = (h) => {
+            if (!h || !h.rating) return '';
+            if (Array.isArray(h.rating)) return h.rating.join(' ').toLowerCase();
+            return String(h.rating).toLowerCase();
+        };
+        const classifyHotelForExcel = (h) => {
+            const rTxt = getHotelRatingTxt(h);
+            const nTxt = Array.isArray(h.names) ? h.names.join(' ').toLowerCase() : String(h.names || '').toLowerCase();
+            const allTxt = (rTxt + ' ' + nTxt).toLowerCase();
+            const has3 = rTxt.includes('3*') || rTxt.includes('3 star') || rTxt.includes('3-star');
+            const has4 = rTxt.includes('4*') || rTxt.includes('4 star') || rTxt.includes('4-star');
+            const has5 = rTxt.includes('5*') || rTxt.includes('5 star') || rTxt.includes('5-star');
+            const hasMixKeyword = allTxt.includes('mix') || allTxt.includes('custom') || allTxt.includes('combination') || allTxt.includes('split');
+            const hasMultiStarsInRating = (has3 && has4) || (has3 && has5) || (has4 && has5);
+            const hasMultiStarsInAll = (allTxt.includes('3*') || allTxt.includes('3 star')) && (allTxt.includes('4*') || allTxt.includes('4 star'));
+            if (hasMixKeyword || hasMultiStarsInRating || (hasMultiStarsInAll && !rTxt.includes('4* hotel options') && !rTxt.includes('3* hotel options'))) {
+                return 'mix';
+            }
+            if (has3) return '3star';
+            if (has4) return '4star';
+            if (has5) return '5star';
+            return 'unknown';
+        };
+
         // If options in liveData has rates, use them
         if (liveData.options && liveData.options[0] && liveData.options[0].hotels) {
-            liveData.options[0].hotels.forEach(h => {
-                const r = (h.rating || '').toLowerCase();
+            const hList = liveData.options[0].hotels;
+            hList.forEach((h, idx) => {
                 const pr = h.price || (h.prices && h.prices[0] ? h.prices[0].amount : '');
-                if (r.includes('3') && !rates.p3) rates.p3 = pr;
-                if (r.includes('mix') && !rates.pMix) rates.pMix = pr;
-                if (r.includes('4') && !r.includes('mix') && !rates.p4) rates.p4 = pr;
+                const cat = classifyHotelForExcel(h);
+                if (cat === '3star' && !rates.p3) rates.p3 = pr;
+                else if (cat === 'mix' && !rates.pMix) rates.pMix = pr;
+                else if (cat === '4star' && !rates.p4) rates.p4 = pr;
+                else if (cat === '5star' && !rates.p5) rates.p5 = pr;
+                else if (hList.length >= 3 && idx === 1 && !rates.pMix) rates.pMix = pr;
             });
         }
 
@@ -2751,10 +2782,10 @@ window.slwDownloadCostingExcelFromBuilder = async function() {
         let hasMix = false;
         if (liveData.options && Array.isArray(liveData.options) && liveData.options.length > 0) {
             hasMix = liveData.options.some(opt => 
-                opt.hotels && opt.hotels.some(h => {
-                    const r = (h.rating || '').toLowerCase();
-                    const n = Array.isArray(h.names) ? h.names.join(' ').toLowerCase() : String(h.names || '').toLowerCase();
-                    return r.includes('mix') || n.includes('mix hotel');
+                opt.hotels && opt.hotels.some((h, idx) => {
+                    if (classifyHotelForExcel(h) === 'mix') return true;
+                    if (opt.hotels.length >= 3 && idx === 1) return true;
+                    return false;
                 })
             );
         } else if (costing && typeof costing.hasMix === 'boolean') {
@@ -2869,16 +2900,40 @@ window.slwApplyCostingPrices = function(targetOptionIndex = 0) {
             } catch(e) {}
         }
 
-        if (activeDoc && activeDoc.pricingSummary) {
-            costingData = activeDoc.pricingSummary;
+        if (activeDoc) {
+            const activePkgId = window.__slwActivePackageId || localStorage.getItem('SLW_ACTIVE_INQ_PACKAGE_ID') || activeDoc.activePackageId;
+            let targetPkg = null;
+            if (Array.isArray(activeDoc.packages) && activeDoc.packages.length > 0) {
+                targetPkg = (activePkgId ? activeDoc.packages.find(p => p.id === activePkgId) : null) || activeDoc.packages[0];
+            }
+            if (targetPkg && targetPkg.pricingSummary) {
+                costingData = targetPkg.pricingSummary;
+            } else if (activeDoc.pricingSummary) {
+                costingData = activeDoc.pricingSummary;
+            }
         }
 
-        if (!costingData) {
+        let latestCosting = null;
+        try {
             const pricingJson = localStorage.getItem('SLW_LATEST_COSTING_PRICES');
-            if (pricingJson) {
-                try {
-                    costingData = JSON.parse(pricingJson);
-                } catch(e) {}
+            if (pricingJson) latestCosting = JSON.parse(pricingJson);
+        } catch(e) {}
+
+        if (!costingData) {
+            costingData = latestCosting;
+        } else if (latestCosting) {
+            if (!costingData.pricesMix && latestCosting.pricesMix) {
+                costingData.pricesMix = latestCosting.pricesMix;
+            }
+            if (latestCosting.hasMix !== undefined) {
+                costingData.hasMix = costingData.hasMix || latestCosting.hasMix;
+            }
+        }
+
+        if (costingData && costingData.pricesMix && costingData.pricesMix.adult) {
+            const cleanAdult = String(costingData.pricesMix.adult).replace(/[^0-9]/g, '');
+            if (cleanAdult && cleanAdult !== '0') {
+                costingData.hasMix = true;
             }
         }
 
@@ -3189,12 +3244,17 @@ window.slwApplyCostingPrices = function(targetOptionIndex = 0) {
                     const classifyHotel = (h) => {
                         const rTxt = getRatingText(h);
                         const nTxt = Array.isArray(h.names) ? h.names.join(' ').toLowerCase() : String(h.names || '').toLowerCase();
-                        const has3 = rTxt.includes('3*') || rTxt.includes('3 star');
-                        const has4 = rTxt.includes('4*') || rTxt.includes('4 star');
-                        const has5 = rTxt.includes('5*') || rTxt.includes('5 star');
-                        const hasMixKeyword = rTxt.includes('mix') || rTxt.includes('custom') || nTxt.includes('mix') || nTxt.includes('combination');
+                        const allTxt = (rTxt + ' ' + nTxt).toLowerCase();
 
-                        if (hasMixKeyword || (has3 && has4) || (has3 && has5) || (has4 && has5)) {
+                        const has3 = rTxt.includes('3*') || rTxt.includes('3 star') || rTxt.includes('3-star');
+                        const has4 = rTxt.includes('4*') || rTxt.includes('4 star') || rTxt.includes('4-star');
+                        const has5 = rTxt.includes('5*') || rTxt.includes('5 star') || rTxt.includes('5-star');
+
+                        const hasMixKeyword = allTxt.includes('mix') || allTxt.includes('custom') || allTxt.includes('combination') || allTxt.includes('split');
+                        const hasMultiStarsInRating = (has3 && has4) || (has3 && has5) || (has4 && has5);
+                        const hasMultiStarsInAll = (allTxt.includes('3*') || allTxt.includes('3 star')) && (allTxt.includes('4*') || allTxt.includes('4 star'));
+
+                        if (hasMixKeyword || hasMultiStarsInRating || (hasMultiStarsInAll && !rTxt.includes('4* hotel options') && !rTxt.includes('3* hotel options'))) {
                             return 'mix';
                         }
                         if (has3) return '3star';
@@ -3248,9 +3308,26 @@ window.slwApplyCostingPrices = function(targetOptionIndex = 0) {
                         else otherHotels.push(h);
                     });
 
+                    const cleanNum = (val) => String(val || '').replace(/[^0-9]/g, '');
+                    const hasMixPrice = Boolean(
+                        costingData.hasMix ||
+                        (costingData.pricesMix && costingData.pricesMix.adult && cleanNum(costingData.pricesMix.adult) !== '0' && cleanNum(costingData.pricesMix.adult) !== '')
+                    );
+
                     // Fallbacks for unknown categories
                     if (!h3 && otherHotels.length > 0) h3 = otherHotels.shift();
+
+                    // Fallback for Mix Hotel if 3 hotels exist in the option and middle hotel wasn't assigned
+                    if (!hMix && opt.hotels.length >= 3 && opt.hotels[1] !== h3 && opt.hotels[1] !== h4) {
+                        hMix = opt.hotels[1];
+                        const oIdx = otherHotels.indexOf(hMix);
+                        if (oIdx !== -1) otherHotels.splice(oIdx, 1);
+                    }
+                    if (!hMix && otherHotels.length > 0 && hasMixPrice) {
+                        hMix = otherHotels.shift();
+                    }
                     if (!h4 && otherHotels.length > 0) h4 = otherHotels.shift();
+                    if (!h5 && otherHotels.length > 0) h5 = otherHotels.shift();
 
                     if (costingData.prices3Star) {
                         if (!h3) {
@@ -3260,7 +3337,7 @@ window.slwApplyCostingPrices = function(targetOptionIndex = 0) {
                         applyPricesToHotel(h3, costingData.prices3Star);
                     }
 
-                    if (costingData.hasMix && costingData.pricesMix) {
+                    if (hasMixPrice && costingData.pricesMix && costingData.pricesMix.adult) {
                         if (!hMix) {
                             const mixTitle = costingData.pricesMix.title || "Mix Hotel Option";
                             hMix = { rating: mixTitle, names: ["Mix Hotel Accommodation"], price: "", prices: [] };

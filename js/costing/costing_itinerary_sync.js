@@ -1009,6 +1009,7 @@
             const summary = {
                 title: payload?.title || document.getElementById('exportItineraryTitle')?.value || 'Tour Package',
                 pax: pax,
+                hasMix: Boolean(mixObj),
                 hasChildPrices: hasChildPrices,
                 includeChildExtraBed: includeChildExtra,
                 includeChildSharingBed: includeChildShare,
