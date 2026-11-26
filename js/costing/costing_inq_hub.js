@@ -655,6 +655,28 @@
         // 5. Initialize Multi-Package detection for this INQ
         checkSaveQuotationInqPackages(inqInput ? inqInput.value : '');
 
+        // 5b. Show Multi-Option Auto-Save notice if Option 02+ exists in workspace
+        const multiAutoBox = document.getElementById('saveQuotationMultiOptionAutoNotice');
+        const multiAutoTitle = document.getElementById('saveQuotationMultiOptionAutoTitle');
+        const multiAutoList = document.getElementById('saveQuotationMultiOptionAutoList');
+        if (multiAutoBox && multiAutoList) {
+            if (Array.isArray(window.costingOptionsList) && window.costingOptionsList.length > 1) {
+                if (typeof snapshotCurrentCostingOption === 'function') snapshotCurrentCostingOption();
+                multiAutoBox.classList.remove('hidden');
+                if (multiAutoTitle) {
+                    multiAutoTitle.innerText = `All ${window.costingOptionsList.length} Costing Options will be auto-saved together in 1 click!`;
+                }
+                multiAutoList.innerHTML = window.costingOptionsList.map((opt, idx) => {
+                    const p3 = opt.pricingSummary?.prices3Star?.adult || '';
+                    const p4 = opt.pricingSummary?.prices4Star?.adult || '';
+                    const rateTxt = p3 ? ` (3*: ${p3}${p4 ? ` | 4*: ${p4}` : ''})` : '';
+                    return `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-white border border-emerald-300 font-bold text-emerald-900">📦 ${(opt.name || ('Option ' + (idx + 1))).replace(/</g, '&lt;')}${rateTxt}</span>`;
+                }).join('');
+            } else {
+                multiAutoBox.classList.add('hidden');
+            }
+        }
+
         openModal('saveQuotationModal');
         setTimeout(() => {
             const clientInp = document.getElementById('saveQuotationClientInput');
@@ -810,10 +832,25 @@
                 }
             } catch(e) {}
 
+            if (typeof snapshotCurrentCostingOption === 'function') {
+                snapshotCurrentCostingOption();
+            }
+
+            const hasMultiWorkspaceOptions = Array.isArray(window.costingOptionsList) && window.costingOptionsList.length > 1;
+            const activeOptIdx = window.activeCostingOptionIndex || 0;
+            const activeWorkspaceOpt = hasMultiWorkspaceOptions ? window.costingOptionsList[activeOptIdx] : null;
+            const matchedExistingByActiveId = (activeWorkspaceOpt && activeWorkspaceOpt.id)
+                ? existingPackages.find(p => p.id === activeWorkspaceOpt.id)
+                : null;
+
             // Current package snapshot
             const currentPackageId = (isOverwriteMode && selectedExistingPkgId)
                 ? selectedExistingPkgId
-                : ('pkg_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6));
+                : (matchedExistingByActiveId ? matchedExistingByActiveId.id : ('pkg_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6)));
+
+            if (activeWorkspaceOpt) {
+                activeWorkspaceOpt.id = currentPackageId;
+            }
 
             const currentCostingSnapshot = {
                 hasMix: Boolean(document.getElementById('result_card_mix')?.style.display !== 'none'),
@@ -834,7 +871,7 @@
 
             const currentPackageSnapshot = {
                 id: currentPackageId,
-                packageName: packageName,
+                packageName: hasMultiWorkspaceOptions ? (activeWorkspaceOpt?.name || packageName) : packageName,
                 title: title,
                 cities: citiesSummary,
                 summary: fullSummary,
@@ -860,7 +897,109 @@
                 updatedAt: nowIso
             };
 
-            if (isOverwriteMode && selectedExistingPkgId) {
+            if (hasMultiWorkspaceOptions) {
+                const workspacePackages = window.costingOptionsList.map((opt, idx) => {
+                    if (idx === activeOptIdx) return currentPackageSnapshot;
+
+                    const sum = opt.pricingSummary || pricingSummary;
+                    const adjS = opt.pricingAdj?.settings || {};
+                    const optCities = opt.availableCities || availableCities;
+                    const optTours = opt.availableTours || availableTours;
+                    const optTrf = opt.availableTransfers || availableTransfers;
+                    const optIncExtra = Boolean(sum.includeChildExtraBed ?? adjS.includeChildExtraBed ?? includeChildExtraBed);
+                    const optIncShare = Boolean(sum.includeChildSharingBed ?? adjS.includeChildSharingBed ?? includeChildSharingBed);
+                    const optHasChild = Boolean(optIncExtra || optIncShare);
+                    const optHasMix = Boolean(sum.hasMix && sum.pricesMix?.adult);
+                    const optRates = {
+                        p3: sum.prices3Star?.adult ? cleanLkrNumber(sum.prices3Star.adult) : '',
+                        pMix: (optHasMix && sum.pricesMix?.adult) ? cleanLkrNumber(sum.pricesMix.adult) : '',
+                        p4: sum.prices4Star?.adult ? cleanLkrNumber(sum.prices4Star.adult) : '',
+                        p5: sum.prices5Star?.adult ? cleanLkrNumber(sum.prices5Star.adult) : '',
+                        childExtra3: (optIncExtra && sum.prices3Star?.childExtra) ? cleanLkrNumber(sum.prices3Star.childExtra) : '',
+                        childShare3: (optIncShare && sum.prices3Star?.childShare) ? cleanLkrNumber(sum.prices3Star.childShare) : '',
+                        childExtra4: (optIncExtra && sum.prices4Star?.childExtra) ? cleanLkrNumber(sum.prices4Star.childExtra) : '',
+                        childShare4: (optIncShare && sum.prices4Star?.childShare) ? cleanLkrNumber(sum.prices4Star.childShare) : '',
+                        childExtraMix: (optHasMix && optIncExtra && sum.pricesMix?.childExtra) ? cleanLkrNumber(sum.pricesMix.childExtra) : '',
+                        childShareMix: (optHasMix && optIncShare && sum.pricesMix?.childShare) ? cleanLkrNumber(sum.pricesMix.childShare) : ''
+                    };
+                    const existingMatch = existingPackages.find(p => p.id === opt.id) || existingPackages.find(p => p.packageName === opt.name);
+                    const optPkgId = existingMatch ? existingMatch.id : ('pkg_' + Date.now() + '_' + (idx + 1) + '_' + Math.random().toString(36).substring(2, 5));
+                    opt.id = optPkgId;
+
+                    const optCitiesSummary = (optCities || []).filter(c => c.selected !== false).map(c => (c.numberOfNights || 1) + 'N ' + c.name).join(' + ');
+                    const optFullSummary = optCitiesSummary + ' • ' + (optTours || []).filter(t => t.selected !== false).length + ' Tours • ' + (optTrf || []).filter(t => t.selected !== false).length + ' Transfers';
+                    const optItinerary = JSON.parse(JSON.stringify(itineraryPayload));
+                    optItinerary.packageName = opt.name || ('Option ' + (idx + 1));
+
+                    const optSumCopy = JSON.parse(JSON.stringify(sum));
+                    if (Array.isArray(pricingSummary?.options)) {
+                        optSumCopy.options = JSON.parse(JSON.stringify(pricingSummary.options));
+                    }
+
+                    return {
+                        id: optPkgId,
+                        packageName: opt.name || (`Option ${String(idx + 1).padStart(2, '0')}`),
+                        title: title,
+                        description: opt.diffSummary || opt.description || '',
+                        cities: optCitiesSummary || citiesSummary,
+                        summary: optFullSummary,
+                        rates: optRates,
+                        pax: Number(adjS.numPeopleTransfer) || Number(document.getElementById('num_people_transfer')?.value) || 2,
+                        transferPax: Number(adjS.numPeopleTransfer) || Number(document.getElementById('num_people_transfer')?.value) || 2,
+                        hotelDivisor: Number(adjS.numPeopleHotel) || Number(document.getElementById('num_people_hotel')?.value) || 2,
+                        paxText: sum.pax || paxText,
+                        isTplActive: Boolean(adjS.isTplActive ?? document.getElementById('check_tpl_room')?.checked),
+                        tplRoomsCount: Number(adjS.tplRoomsCount) || 1,
+                        totalRoomsCount: Number(adjS.totalRoomsCount) || 1,
+                        tplRate3: Number(adjS.tplRate3) || 800,
+                        tplRate4: Number(adjS.tplRate4) || 1000,
+                        tplRate5: Number(adjS.tplRate5) || 1200,
+                        hasChildPrices: optHasChild,
+                        includeChildExtraBed: optIncExtra,
+                        includeChildSharingBed: optIncShare,
+                        childExtraLabel: sum.childExtraLabel || 'Per Child (With Extra Bed)',
+                        childShareLabel: sum.childShareLabel || 'Per Child (Sharing Bed)',
+                        costing: {
+                            hasMix: optHasMix,
+                            hasChildPrices: optHasChild,
+                            includeChildExtraBed: optIncExtra,
+                            includeChildSharingBed: optIncShare,
+                            isTplActive: Boolean(adjS.isTplActive ?? false),
+                            tplRoomsCount: Number(adjS.tplRoomsCount) || 1,
+                            totalRoomsCount: Number(adjS.totalRoomsCount) || 1,
+                            tplRate3: Number(adjS.tplRate3) || 800,
+                            tplRate4: Number(adjS.tplRate4) || 1000,
+                            tplRate5: Number(adjS.tplRate5) || 1200,
+                            availableCities: JSON.parse(JSON.stringify(optCities)),
+                            availableTours: JSON.parse(JSON.stringify(optTours)),
+                            availableTransfers: JSON.parse(JSON.stringify(optTrf)),
+                            pricingAdj: opt.pricingAdj ? JSON.parse(JSON.stringify(opt.pricingAdj)) : pricingAdj
+                        },
+                        itinerary: optItinerary,
+                        pricingSummary: optSumCopy,
+                        updatedAt: nowIso
+                    };
+                });
+
+                if (isNewInqMode || existingPackages.length === 0) {
+                    existingPackages = workspacePackages;
+                } else {
+                    workspacePackages.forEach((wsPkg, idx) => {
+                        let foundIdx = existingPackages.findIndex(p => p.id === wsPkg.id);
+                        if (foundIdx === -1 && isOverwriteMode && selectedExistingPkgId && idx === activeOptIdx) {
+                            foundIdx = existingPackages.findIndex(p => p.id === selectedExistingPkgId);
+                        }
+                        if (foundIdx === -1) {
+                            foundIdx = existingPackages.findIndex(p => p.packageName === wsPkg.packageName);
+                        }
+                        if (foundIdx !== -1) {
+                            existingPackages[foundIdx] = wsPkg;
+                        } else {
+                            existingPackages.push(wsPkg);
+                        }
+                    });
+                }
+            } else if (isOverwriteMode && selectedExistingPkgId) {
                 const foundIdx = existingPackages.findIndex(p => p.id === selectedExistingPkgId);
                 if (foundIdx !== -1) {
                     existingPackages[foundIdx] = currentPackageSnapshot;
