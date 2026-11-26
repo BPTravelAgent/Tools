@@ -73,19 +73,19 @@ try{
     if(img.complete&&img.naturalWidth>0)return;
     if(img.decode){try{await img.decode();}catch(_){}}
   }));
-  const canvasScale=isLowMb?1.5:2.0;
-  const sliceQuality=isLowMb?0.72:0.85;
+  const canvasScale=isLowMb?1.2:1.85;
+  const initialQuality=isLowMb?0.60:0.80;
   const canvas=await h2c(previewEl,{scale:canvasScale,useCORS:true,allowTaint:false,logging:false,backgroundColor:"#ffffff",scrollX:0,scrollY:0,windowWidth:1280});
-  const pdf=new jsPdfClass({orientation:"portrait",unit:"mm",format:"a4",compress:true});
   const pdfPageWidthMm=210;
   const pdfPageHeightMm=297;
   const singlePageCssHeight=1123;
   const pageHeightPx=Math.round(singlePageCssHeight*canvasScale);
   const totalHeightPx=canvas.height;
+
+  // Pre-slice pages once so adaptive compression never re-runs html2canvas
+  const pageCanvases=[];
   let renderedHeightPx=0;
-  let pageIndex=0;
   while(renderedHeightPx<totalHeightPx-10){
-    if(pageIndex>0){pdf.addPage();}
     const currentSliceHeightPx=Math.min(pageHeightPx,totalHeightPx-renderedHeightPx);
     const pageCanvas=document.createElement("canvas");
     pageCanvas.width=canvas.width;
@@ -94,10 +94,46 @@ try{
     ctx.fillStyle="#ffffff";
     ctx.fillRect(0,0,pageCanvas.width,pageCanvas.height);
     ctx.drawImage(canvas,0,renderedHeightPx,canvas.width,currentSliceHeightPx,0,0,canvas.width,currentSliceHeightPx);
-    const pageImgData=pageCanvas.toDataURL("image/jpeg",sliceQuality);
-    pdf.addImage(pageImgData,"JPEG",0,0,pdfPageWidthMm,pdfPageHeightMm,undefined,"FAST");
+    pageCanvases.push(pageCanvas);
     renderedHeightPx+=pageHeightPx;
-    pageIndex++;
+  }
+
+  const buildPdfWithQuality=(quality,downscale=1)=>{
+    const doc=new jsPdfClass({orientation:"portrait",unit:"mm",format:"a4",compress:true});
+    pageCanvases.forEach((srcCanvas,pageIndex)=>{
+      if(pageIndex>0)doc.addPage();
+      let targetCanvas=srcCanvas;
+      if(downscale<1){
+        const scaled=document.createElement("canvas");
+        scaled.width=Math.max(1,Math.round(srcCanvas.width*downscale));
+        scaled.height=Math.max(1,Math.round(srcCanvas.height*downscale));
+        const sctx=scaled.getContext("2d");
+        sctx.fillStyle="#ffffff";
+        sctx.fillRect(0,0,scaled.width,scaled.height);
+        sctx.drawImage(srcCanvas,0,0,scaled.width,scaled.height);
+        targetCanvas=scaled;
+      }
+      const pageImgData=targetCanvas.toDataURL("image/jpeg",quality);
+      doc.addImage(pageImgData,"JPEG",0,0,pdfPageWidthMm,pdfPageHeightMm,undefined,"FAST");
+    });
+    return doc;
+  };
+
+  let pdf=buildPdfWithQuality(initialQuality,1);
+  if(isLowMb){
+    const targetBytes=2.0*1024*1024;
+    let curBlob=pdf.output("blob");
+    if(curBlob.size>targetBytes){
+      pdf=buildPdfWithQuality(0.48,1);
+      curBlob=pdf.output("blob");
+    }
+    if(curBlob.size>targetBytes){
+      pdf=buildPdfWithQuality(0.40,0.88);
+      curBlob=pdf.output("blob");
+    }
+    if(curBlob.size>2.6*1024*1024){
+      pdf=buildPdfWithQuality(0.35,0.78);
+    }
   }
   cleanup();
   const pdfBlob=pdf.output("blob");
@@ -137,7 +173,8 @@ try{
   alert("PDF සැකසීමේදී දෝෂයක් ඇති විය: "+(pdfErr.message||pdfErr)+"\nබ්‍රවුසරයේ මුද්‍රණ තිරය විවෘත කිරීමට උත්සාහ කරයි...");
   window.print();
 }
-},c=async(forceDirect=false,isLowMb=true)=>{const isStandalone=window.matchMedia("(display-mode: standalone)").matches||window.navigator.standalone===true||document.referrer.includes("android-app://");const isMobile=/Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);if(forceDirect||isStandalone||isMobile){await generateDirectPdf(true,isLowMb);return;}a(!0);try{let previewEl=document.getElementById("itinerary-preview");if(!previewEl){a(!1);window.print();return;}let t=Array.from(previewEl.querySelectorAll("img")),n=new Map();await Promise.allSettled(t.map(async(imgEl)=>{if(!imgEl.src||imgEl.src.endsWith(".svg"))return;n.set(imgEl,{original:imgEl.src});try{let r=document.createElement("canvas"),ctx=r.getContext("2d"),drawn=false;if(imgEl.complete&&imgEl.naturalWidth>0){try{let w=imgEl.naturalWidth,h=imgEl.naturalHeight;if(w>800){h=Math.round(h*800/w);w=800;}if(w>0&&h>0){r.width=w;r.height=h;ctx.drawImage(imgEl,0,0,w,h);let mime=(imgEl.src.includes(".png")||imgEl.src.startsWith("data:image/png"))?"image/png":"image/jpeg";let dataUrl=r.toDataURL(mime,0.6);if(dataUrl&&dataUrl.startsWith("data:image")){imgEl.src=dataUrl;drawn=true;}}}catch(te){}}if(!drawn){let img=new Image();img.crossOrigin="anonymous";await Promise.race([new Promise((res,rej)=>{img.onload=res;img.onerror=rej;img.src=imgEl.src;}),new Promise((_,rej)=>setTimeout(()=>rej(new Error("Timeout")),3000))]);let w=img.naturalWidth,h=img.naturalHeight;if(w>800){h=Math.round(h*800/w);w=800;}if(w>0&&h>0){r.width=w;r.height=h;ctx.drawImage(img,0,0,w,h);let mime=(imgEl.src.includes(".png")||imgEl.src.startsWith("data:image/png"))?"image/png":"image/jpeg";let dataUrl=r.toDataURL(mime,0.6);if(dataUrl&&dataUrl.startsWith("data:image")){imgEl.src=dataUrl;}}}}catch(err){}}));a(!1);await new Promise(res=>setTimeout(res,250));window.print();let restored=false;const restoreImages=()=>{if(restored)return;restored=true;t.forEach(imgEl=>{let entry=n.get(imgEl);if(entry&&entry.original)imgEl.src=entry.original;});};window.addEventListener("afterprint",restoreImages,{once:true});setTimeout(restoreImages,45000);}catch(err){console.error("Print preparation error:",err);a(!1);window.print();}},l=()=>{let t=document.documentElement.cloneNode(!0),n=t.querySelector(`#root`);n&&(n.innerHTML=``);let r=t.querySelector(`#saved-state`);r||(r=document.createElement(`script`),r.id=`saved-state`,r.type=`application/json`,t.querySelector(`head`).appendChild(r)),r.textContent=JSON.stringify(e).replace(/</g,`\\u003c`);let i=`<!DOCTYPE html>\\n`+t.outerHTML,a=new Blob([i],{type:`text/html;charset=utf-8`}),o=URL.createObjectURL(a),s=document.createElement(`a`);s.href=o,s.download=(e.inq||`Project`)+`_Editable.html`,s.click(),URL.revokeObjectURL(o)},u=()=>{let t=document.getElementById(`itinerary-preview`);if(!t)return;let n=Array.from(document.head.querySelectorAll(`style, link[rel="stylesheet"]`)).map(e=>e.outerHTML).join(`
+},c=async(forceDirect=false,isLowMb=true)=>{const isStandalone=window.matchMedia("(display-mode: standalone)").matches||window.navigator.standalone===true||document.referrer.includes("android-app://");const isMobile=/Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);if(forceDirect||isStandalone||isMobile){await generateDirectPdf(true,isLowMb);return;}a(!0);try{let previewEl=document.getElementById("itinerary-preview");if(!previewEl){a(!1);window.print();return;}let t=Array.from(previewEl.querySelectorAll("img")),n=new Map();const compressImgForPrint=(srcImg,origSrc)=>{const isLogo=/logo/i.test(srcImg.alt||"")||/logo/i.test(origSrc||"");const maxW=isLogo?360:720;let r=document.createElement("canvas"),ctx=r.getContext("2d");let w=srcImg.naturalWidth,h=srcImg.naturalHeight;if(w>maxW){h=Math.round(h*maxW/w);w=maxW;}if(w>0&&h>0){r.width=w;r.height=h;if(!isLogo){ctx.fillStyle="#ffffff";ctx.fillRect(0,0,w,h);}ctx.drawImage(srcImg,0,0,w,h);let mime=isLogo?"image/png":"image/jpeg";let dataUrl=r.toDataURL(mime,isLogo?0.8:0.58);if(dataUrl&&dataUrl.startsWith("data:image"))return dataUrl;}return null;};await Promise.allSettled(t.map(async(imgEl)=>{const origSrc=imgEl.src;if(!origSrc||origSrc.endsWith(".svg"))return;n.set(imgEl,{original:origSrc});try{let drawn=false;if(imgEl.complete&&imgEl.naturalWidth>0){try{const outUrl=compressImgForPrint(imgEl,origSrc);if(outUrl){imgEl.src=outUrl;drawn=true;}}catch(te){}}if(!drawn&&origSrc.startsWith("http")){const loadCross=(url,ms)=>new Promise((res,rej)=>{const img=new Image();img.crossOrigin="anonymous";const timer=setTimeout(()=>rej(new Error("Timeout")),ms);img.onload=()=>{clearTimeout(timer);res(img);};img.onerror=()=>{clearTimeout(timer);rej(new Error("Load error"));};img.src=url;});let loaded=null;try{loaded=await loadCross(origSrc,2200);}catch(e1){try{const proxyUrl="https://images.weserv.nl/?url="+encodeURIComponent(origSrc)+"&w=720&output=jpg&q=60";loaded=await loadCross(proxyUrl,2500);}catch(e2){}}if(loaded&&loaded.naturalWidth>0){try{const outUrl=compressImgForPrint(loaded,origSrc);if(outUrl)imgEl.src=outUrl;}catch(_){}}}}catch(err){}}));a(!1);await new Promise(res=>setTimeout(res,250));window.print();let restored=false;const restoreImages=()=>{if(restored)return;restored=true;t.forEach(imgEl=>{let entry=n.get(imgEl);if(entry&&entry.original)imgEl.src=entry.original;});};window.addEventListener("afterprint",restoreImages,{once:true});setTimeout(restoreImages,45000);}catch(err){console.error("Print preparation error:",err);a(!1);window.print();}
+},l=()=>{let t=document.documentElement.cloneNode(!0),n=t.querySelector(`#root`);n&&(n.innerHTML=``);let r=t.querySelector(`#saved-state`);r||(r=document.createElement(`script`),r.id=`saved-state`,r.type=`application/json`,t.querySelector(`head`).appendChild(r)),r.textContent=JSON.stringify(e).replace(/</g,`\\u003c`);let i=`<!DOCTYPE html>\\n`+t.outerHTML,a=new Blob([i],{type:`text/html;charset=utf-8`}),o=URL.createObjectURL(a),s=document.createElement(`a`);s.href=o,s.download=(e.inq||`Project`)+`_Editable.html`,s.click(),URL.revokeObjectURL(o)},u=()=>{let t=document.getElementById(`itinerary-preview`);if(!t)return;let n=Array.from(document.head.querySelectorAll(`style, link[rel="stylesheet"]`)).map(e=>e.outerHTML).join(`
 `),r=t.cloneNode(!0);r.querySelectorAll(`[contenteditable]`).forEach(e=>{e.removeAttribute(`contenteditable`),e.removeAttribute(`suppresscontenteditablewarning`),e.className=e.className.replace(/hover:bg-[a-z0-9-]+/g,``),e.className=e.className.replace(/hover:ring-[a-z0-9-]+/g,``),e.className=e.className.replace(/focus:bg-[a-z0-9-]+/g,``),e.className=e.className.replace(/focus:ring-[a-z0-9-]+/g,``)}),r.querySelectorAll(`.print\\:hidden`).forEach(e=>e.remove());let i=`<!DOCTYPE html>
 <html lang="en">
 <head>
