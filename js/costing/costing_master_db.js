@@ -1194,7 +1194,11 @@
         const placeholder = searchVal
             ? `-- Found ${options.length} Tour(s) matching "${searchVal}" --`
             : '-- Select from Master Database --';
+        const createNewLabel = searchVal
+            ? `➕ Create New Tour: "${searchVal}" (Save to Master DB)`
+            : '➕ Add Brand New Tour to Master DB...';
         let html = `<option value="">${escapeHtmlText(placeholder)}</option>`;
+        html += `<option value="__SLW_CREATE_NEW__">${escapeHtmlText(createNewLabel)}</option>`;
         options.forEach(opt => {
             html += `<option value="${encodeDbOptionValue(opt.data)}">${escapeHtmlText(opt.label)}</option>`;
         });
@@ -1324,7 +1328,11 @@
         const placeholder = searchVal
             ? `-- Found ${options.length} Transfer(s) matching "${searchVal}" --`
             : '-- Select from Master Database --';
+        const createNewLabel = searchVal
+            ? `➕ Create New Transfer: "${searchVal}" (Save to Master DB)`
+            : '➕ Add Brand New Transfer to Master DB...';
         let html = `<option value="">${escapeHtmlText(placeholder)}</option>`;
+        html += `<option value="__SLW_CREATE_NEW__">${escapeHtmlText(createNewLabel)}</option>`;
         options.forEach(opt => {
             html += `<option value="${encodeDbOptionValue(opt.data)}">${escapeHtmlText(opt.label)}</option>`;
         });
@@ -1393,7 +1401,11 @@
         const placeholder = searchVal
             ? `-- Found ${hotels.length} Hotel(s) (${star}*) --`
             : `-- Search ${star}* Database --`;
+        const createNewLabel = searchVal
+            ? `➕ Create New ${star}* Hotel: "${searchVal}" (Save to Master DB)`
+            : `➕ Add Brand New ${star}* Hotel to Master DB...`;
         let html = `<option value="">${escapeHtmlText(placeholder)}</option>`;
+        html += `<option value="__SLW_CREATE_NEW__">${escapeHtmlText(createNewLabel)}</option>`;
         hotels.forEach(h => {
             const data = { id: h.id, name: h.name, location: h.location || '', price: h.price, meal: h.mealPrice || 0, tplPrice: h.tplPrice || (star === 4 ? 1000 : (star === 5 ? 1200 : 800)) };
             const locText = h.location ? ` [${h.location}]` : '';
@@ -1514,9 +1526,141 @@
     let currentEditingTransferIndex = null;
     let currentEditingCityIndex = null;
 
+    function startCreateNewTourInModal() {
+        currentSelectedModalTourDbId = null;
+        currentSelectedModalTourOptionType = null;
+        currentSelectedModalTourVehicle = null;
+
+        const searchVal = (document.getElementById('tourDbSearch')?.value || '').trim();
+        const select = document.getElementById('tourDbSelect');
+        if (select) {
+            select.value = '';
+            select.selectedIndex = 0;
+        }
+        const nameInp = document.getElementById('newTourName');
+        const priceInp = document.getElementById('newTourPrice');
+        const trfInp = document.getElementById('newTourTransferPrice');
+        if (nameInp) nameInp.value = searchVal;
+        if (priceInp) priceInp.value = '';
+        if (trfInp) trfInp.value = '0';
+
+        const cityFilterVal = (document.getElementById('tourCityFilter')?.value || '').trim();
+        const fallbackCity = (typeof availableCities !== 'undefined' && availableCities.length > 0) ? (availableCities.find(c => c.selected)?.name || availableCities[0].name || '') : '';
+        const cityInp = document.getElementById('modalTourMasterCity');
+        if (cityInp && (cityFilterVal || !cityInp.value.trim())) {
+            cityInp.value = cityFilterVal || fallbackCity;
+        }
+
+        const chk = document.getElementById('modalSyncTourToDbCheckbox');
+        if (chk) chk.checked = true;
+
+        const badge = document.getElementById('modalTourMasterStatusBadge');
+        if (badge) {
+            badge.innerText = '✨ Creating New Tour (Master DB)';
+            badge.className = 'text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300';
+        }
+
+        if (searchVal && priceInp) {
+            priceInp.focus();
+        } else if (nameInp) {
+            nameInp.focus();
+        }
+        if (typeof showNotification === 'function') {
+            showNotification('✨ Enter Tour Name, Price & City, then click "Add New to DB" or "Add Tour / Save Changes"!', false);
+        }
+    }
+
+    function applyTourTypePresetInModal(mode) {
+        const nameInp = document.getElementById('newTourName');
+        const trfInp = document.getElementById('newTourTransferPrice');
+        if (!nameInp) return;
+        const { baseName } = extractTourNameAndTag(nameInp.value || '');
+        const cleanBase = (baseName || nameInp.value || '').trim();
+        let tag = '(Join Tour)';
+        if (mode === 'join_transfer') tag = '(Join Transfer)';
+        else if (mode === 'private_car') tag = '(Private - Car)';
+        else if (mode === 'private_van') tag = '(Private - Van)';
+        else if (mode === 'ticket') tag = '(Ticket Only)';
+
+        nameInp.value = cleanBase ? `${cleanBase} ${tag}` : tag;
+        if (mode === 'private_car' || mode === 'private_van') {
+            currentSelectedModalTourOptionType = 'private';
+            currentSelectedModalTourVehicle = mode === 'private_van' ? 'van' : 'car';
+            if (trfInp && (!trfInp.value || Number(trfInp.value) === 0)) {
+                trfInp.value = '';
+                trfInp.focus();
+            }
+        } else {
+            currentSelectedModalTourOptionType = mode === 'ticket' ? 'ticket' : 'join';
+            currentSelectedModalTourVehicle = null;
+            if (trfInp) trfInp.value = '0';
+        }
+        onTourModalNameInput(nameInp.value);
+    }
+
+    function startCreateNewTransferInModal() {
+        currentSelectedModalTransferDbId = null;
+        currentSelectedModalTransferVehicle = null;
+
+        const searchVal = (document.getElementById('transferDbSearch')?.value || '').trim();
+        const select = document.getElementById('transferDbSelect');
+        if (select) {
+            select.value = '';
+            select.selectedIndex = 0;
+        }
+        const nameInp = document.getElementById('newTransferName');
+        const priceInp = document.getElementById('newTransferPrice');
+        if (nameInp) nameInp.value = searchVal;
+        if (priceInp) priceInp.value = '';
+
+        const cityFilterVal = (document.getElementById('transferCityFilter')?.value || '').trim();
+        const fallbackCity = (typeof availableCities !== 'undefined' && availableCities.length > 0) ? (availableCities.find(c => c.selected)?.name || availableCities[0].name || '') : '';
+        const cityInp = document.getElementById('modalTransferMasterCity');
+        if (cityInp && (cityFilterVal || !cityInp.value.trim())) {
+            cityInp.value = cityFilterVal || fallbackCity;
+        }
+
+        const chk = document.getElementById('modalSyncTransferToDbCheckbox');
+        if (chk) chk.checked = true;
+
+        const badge = document.getElementById('modalTransferMasterStatusBadge');
+        if (badge) {
+            badge.innerText = '✨ Creating New Transfer (Master DB)';
+            badge.className = 'text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300';
+        }
+
+        if (searchVal && priceInp) {
+            priceInp.focus();
+        } else if (nameInp) {
+            nameInp.focus();
+        }
+        if (typeof showNotification === 'function') {
+            showNotification('✨ Enter Transfer Route, Price & City, then click "Add New to DB" or "Add Transfer / Save Changes"!', false);
+        }
+    }
+
+    function applyTransferVehiclePresetInModal(veh) {
+        const nameInp = document.getElementById('newTransferName');
+        if (!nameInp) return;
+        const clean = (nameInp.value || '').replace(/\s*\((Car|Van|Bus)\)\s*$/i, '').trim();
+        if (veh === 'none') {
+            nameInp.value = clean;
+            currentSelectedModalTransferVehicle = 'custom';
+        } else {
+            const label = veh === 'van' ? '(Van)' : (veh === 'bus' ? '(Bus)' : '(Car)');
+            nameInp.value = clean ? `${clean} ${label}` : label;
+            currentSelectedModalTransferVehicle = veh;
+        }
+        onTransferModalNameInput(nameInp.value);
+    }
+
     function fillTourFromDb() {
         const select = document.getElementById('tourDbSelect');
         if (!select || !select.value) return;
+        if (select.value === '__SLW_CREATE_NEW__') {
+            startCreateNewTourInModal();
+            return;
+        }
         try {
             const data = decodeDbOptionValue(select.value);
             if (!data) return;
@@ -1545,6 +1689,10 @@
     function fillTransferFromDb() {
         const select = document.getElementById('transferDbSelect');
         if (!select || !select.value) return;
+        if (select.value === '__SLW_CREATE_NEW__') {
+            startCreateNewTransferInModal();
+            return;
+        }
         try {
             const data = decodeDbOptionValue(select.value);
             if (!data) return;
@@ -1570,7 +1718,6 @@
 
     function onTourModalNameInput(val) {
         val = (val || '').trim();
-        // Reset dropdown selection in Add mode when input is cleared so re-clicking the same tour fires onchange
         if (!val && (typeof currentEditingTourIndex === 'undefined' || currentEditingTourIndex === null)) {
             const tourSelect = document.getElementById('tourDbSelect');
             if (tourSelect) {
@@ -1582,16 +1729,28 @@
         const cityInp = document.getElementById('modalTourMasterCity');
         const syncChk = document.getElementById('modalSyncTourToDbCheckbox');
 
-        // IMPORTANT: Keep currentSelectedModalTourDbId intact while the user clears or retypes text!
+        const { baseName } = extractTourNameAndTag(val);
+        const clean = stripTourTags(baseName || val).toLowerCase();
+
         if (currentSelectedModalTourDbId) {
             const existing = (masterDb.tours || []).find(t => t.id === currentSelectedModalTourDbId);
             if (existing) {
-                if (badge) {
-                    badge.innerText = `Editing Linked: ${(existing.name || '').substring(0, 16)}`;
-                    badge.className = 'text-[10px] font-semibold px-2 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200';
+                const existingClean = stripTourTags(existing.name).toLowerCase();
+                // Safety: If user cleared/changed the tour name to something different in Add mode, unlink so we don't overwrite the old DB record!
+                if (clean && clean !== existingClean && (typeof currentEditingTourIndex === 'undefined' || currentEditingTourIndex === null)) {
+                    currentSelectedModalTourDbId = null;
+                } else {
+                    if (badge) {
+                        badge.innerText = (clean && clean !== existingClean)
+                            ? `⚠️ Renamed (Use "Add New to DB" for new)`
+                            : `Editing Linked: ${(existing.name || '').substring(0, 16)}`;
+                        badge.className = (clean && clean !== existingClean)
+                            ? 'text-[10px] font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300'
+                            : 'text-[10px] font-semibold px-2 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200';
+                    }
+                    if (syncChk) syncChk.checked = true;
+                    return;
                 }
-                if (syncChk) syncChk.checked = true;
-                return;
             }
         }
 
@@ -1599,8 +1758,6 @@
             if (badge) { badge.innerText = 'Custom / New'; badge.className = 'text-[10px] font-semibold px-2 py-0.5 rounded bg-gray-200 text-gray-700'; }
             return;
         }
-        const { baseName } = extractTourNameAndTag(val);
-        const clean = stripTourTags(baseName || val).toLowerCase();
         const matched = (masterDb.tours || []).find(t => stripTourTags(t.name).toLowerCase() === clean);
         if (matched) {
             currentSelectedModalTourDbId = matched.id;
@@ -1611,14 +1768,13 @@
             }
             if (syncChk) syncChk.checked = true;
         } else if (badge) {
-            badge.innerText = 'Custom / New';
-            badge.className = 'text-[10px] font-semibold px-2 py-0.5 rounded bg-gray-200 text-gray-700';
+            badge.innerText = '✨ New Tour (Will Add to DB)';
+            badge.className = 'text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300';
         }
     }
 
     function onTransferModalNameInput(val) {
         val = (val || '').trim();
-        // Reset dropdown selection in Add mode when input is cleared so re-clicking the same transfer fires onchange
         if (!val && (typeof currentEditingTransferIndex === 'undefined' || currentEditingTransferIndex === null)) {
             const transferSelect = document.getElementById('transferDbSelect');
             if (transferSelect) {
@@ -1630,16 +1786,26 @@
         const cityInp = document.getElementById('modalTransferMasterCity');
         const syncChk = document.getElementById('modalSyncTransferToDbCheckbox');
 
-        // IMPORTANT: Keep currentSelectedModalTransferDbId intact while the user clears or retypes text!
+        const clean = normalizeTransferRoute(val);
+
         if (currentSelectedModalTransferDbId) {
             const existing = (masterDb.transfers || []).find(t => t.id === currentSelectedModalTransferDbId);
             if (existing) {
-                if (badge) {
-                    badge.innerText = `Editing Linked: ${(existing.name || '').substring(0, 16)}`;
-                    badge.className = 'text-[10px] font-semibold px-2 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200';
+                const existingClean = normalizeTransferRoute(existing.name);
+                if (clean && clean !== existingClean && (typeof currentEditingTransferIndex === 'undefined' || currentEditingTransferIndex === null)) {
+                    currentSelectedModalTransferDbId = null;
+                } else {
+                    if (badge) {
+                        badge.innerText = (clean && clean !== existingClean)
+                            ? `⚠️ Renamed (Use "Add New to DB" for new)`
+                            : `Editing Linked: ${(existing.name || '').substring(0, 16)}`;
+                        badge.className = (clean && clean !== existingClean)
+                            ? 'text-[10px] font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300'
+                            : 'text-[10px] font-semibold px-2 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200';
+                    }
+                    if (syncChk) syncChk.checked = true;
+                    return;
                 }
-                if (syncChk) syncChk.checked = true;
-                return;
             }
         }
 
@@ -1647,7 +1813,6 @@
             if (badge) { badge.innerText = 'Custom / New'; badge.className = 'text-[10px] font-semibold px-2 py-0.5 rounded bg-gray-200 text-gray-700'; }
             return;
         }
-        const clean = normalizeTransferRoute(val);
         const matched = (masterDb.transfers || []).find(t => normalizeTransferRoute(t.name) === clean);
         if (matched) {
             currentSelectedModalTransferDbId = matched.id;
@@ -1658,8 +1823,8 @@
             }
             if (syncChk) syncChk.checked = true;
         } else if (badge) {
-            badge.innerText = 'Custom / New';
-            badge.className = 'text-[10px] font-semibold px-2 py-0.5 rounded bg-gray-200 text-gray-700';
+            badge.innerText = '✨ New Transfer (Will Add to DB)';
+            badge.className = 'text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300';
         }
     }
 
@@ -1813,7 +1978,15 @@
 
         let existingTour = null;
         if (!forceNew && currentSelectedModalTourDbId) {
-            existingTour = (masterDb.tours || []).find(t => t.id === currentSelectedModalTourDbId);
+            const candidate = (masterDb.tours || []).find(t => t.id === currentSelectedModalTourDbId);
+            if (candidate) {
+                const candBase = stripTourTags(candidate.name).toLowerCase();
+                const curBase = stripTourTags(name).toLowerCase();
+                // Safety: during auto-sync (silent=true from Save Changes/Add Tour), only overwrite if same tour name; otherwise add as new tour!
+                if (!silent || candBase === curBase) {
+                    existingTour = candidate;
+                }
+            }
         }
         const cleanBase = stripTourTags(name).toLowerCase();
         const normLoc = (location || '').toLowerCase();
@@ -2028,7 +2201,14 @@
 
         let existingTr = null;
         if (!forceNew && currentSelectedModalTransferDbId) {
-            existingTr = (masterDb.transfers || []).find(t => t.id === currentSelectedModalTransferDbId);
+            const candidate = (masterDb.transfers || []).find(t => t.id === currentSelectedModalTransferDbId);
+            if (candidate) {
+                const candNorm = normalizeTransferRoute(candidate.name);
+                const curNorm = normalizeTransferRoute(name);
+                if (!silent || candNorm === curNorm) {
+                    existingTr = candidate;
+                }
+            }
         }
         const cleanBase = normalizeTransferRoute(name);
         if (!forceNew && !existingTr) {
@@ -2218,7 +2398,10 @@
             let existingH = null;
             const lockedId = currentSelectedModalHotelDbIds ? currentSelectedModalHotelDbIds[star] : null;
             if (!forceNew && lockedId) {
-                existingH = (masterDb.hotels || []).find(h => h.id === lockedId);
+                const candidate = (masterDb.hotels || []).find(h => h.id === lockedId);
+                if (candidate && (!silent || (candidate.name || '').trim().toLowerCase() === name.toLowerCase())) {
+                    existingH = candidate;
+                }
             }
             if (!forceNew && !existingH) {
                 existingH = (masterDb.hotels || []).find(h => (h.name || '').trim().toLowerCase() === name.toLowerCase() && String(h.star) === String(star))
@@ -2368,9 +2551,147 @@
         showNotification(`🗑️ Hotel "${targetHotel.name}" (${star}*) permanently deleted from Master Database & Cloud!`, false);
     }
 
+    function startCreateNewHotelInModal(star) {
+        if (currentSelectedModalHotelDbIds) currentSelectedModalHotelDbIds[star] = null;
+        const select = document.getElementById(`city${star}StarDbSelect`);
+        if (select) {
+            select.value = '';
+            select.selectedIndex = 0;
+        }
+        const searchVal = (document.getElementById(`hotel${star}DbSearch`)?.value || '').trim();
+        const nameInp = document.getElementById(`newCity${star}StarName`);
+        const priceInp = document.getElementById(`newCity${star}StarPrice`);
+        const mealInp = document.getElementById(`newCity${star}StarMeal`);
+        const tplInp = document.getElementById(`newCity${star}StarTpl`);
+        if (nameInp) nameInp.value = searchVal;
+        if (priceInp) priceInp.value = '';
+        if (mealInp) mealInp.value = '';
+        if (tplInp) tplInp.value = (star === 4 ? '1000' : (star === 5 ? '1200' : '800'));
+
+        const badge = document.getElementById(`modalHotel${star}StatusBadge`);
+        if (badge) {
+            badge.innerText = `✨ New ${star}* Hotel (Master DB)`;
+            badge.className = 'text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300';
+        }
+        if (searchVal && priceInp) priceInp.focus();
+        else if (nameInp) nameInp.focus();
+    }
+
+    function onHotelModalNameInput(star, val) {
+        const trimmed = (val || '').trim();
+        const badge = document.getElementById(`modalHotel${star}StatusBadge`);
+        const lockedId = currentSelectedModalHotelDbIds ? currentSelectedModalHotelDbIds[star] : null;
+        if (lockedId) {
+            const existing = (masterDb.hotels || []).find(h => h.id === lockedId);
+            if (existing && (existing.name || '').trim().toLowerCase() !== trimmed.toLowerCase()) {
+                if (currentSelectedModalHotelDbIds) currentSelectedModalHotelDbIds[star] = null;
+            } else if (existing) {
+                if (badge) {
+                    badge.innerText = `Linked: ${(existing.name || '').substring(0, 14)}`;
+                    badge.className = 'text-[10px] font-semibold px-2 py-0.5 rounded bg-green-100 text-green-800 border border-green-200';
+                }
+                return;
+            }
+        }
+        if (!trimmed) {
+            if (badge) {
+                badge.innerText = 'Ready';
+                badge.className = 'text-[10px] font-semibold px-2 py-0.5 rounded bg-white text-gray-600 border border-gray-200';
+            }
+            return;
+        }
+        const matched = (masterDb.hotels || []).find(h => (h.name || '').trim().toLowerCase() === trimmed.toLowerCase() && Number(h.star) === Number(star));
+        if (matched) {
+            if (currentSelectedModalHotelDbIds) currentSelectedModalHotelDbIds[star] = matched.id;
+            if (badge) {
+                badge.innerText = `Linked: ${(matched.name || '').substring(0, 14)}`;
+                badge.className = 'text-[10px] font-semibold px-2 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200';
+            }
+        } else if (badge) {
+            badge.innerText = `✨ New ${star}* (Will Add to DB)`;
+            badge.className = 'text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300';
+        }
+    }
+
+    async function quickSaveSingleHotelToMasterDb(star) {
+        const cityName = (document.getElementById('newCityName')?.value || '').trim();
+        const name = (document.getElementById(`newCity${star}StarName`)?.value || '').trim();
+        const price = parseFloat(document.getElementById(`newCity${star}StarPrice`)?.value) || 0;
+        const meal = parseFloat(document.getElementById(`newCity${star}StarMeal`)?.value) || 0;
+        const tpl = parseFloat(document.getElementById(`newCity${star}StarTpl`)?.value) || (star === 4 ? 1000 : (star === 5 ? 1200 : 800));
+
+        if (!name) {
+            showNotification(`Please enter a ${star}* Hotel Name first.`, true);
+            document.getElementById(`newCity${star}StarName`)?.focus();
+            return;
+        }
+        if (!cityName) {
+            showNotification(`Please enter the City Name at the top before saving this ${star}* hotel to Master DB.`, true);
+            document.getElementById('newCityName')?.focus();
+            return;
+        }
+
+        const btn = document.getElementById(`btnHotel${star}SaveSingle`);
+        const origHtml = btn ? btn.innerHTML : '';
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+        }
+
+        const lockedId = currentSelectedModalHotelDbIds ? currentSelectedModalHotelDbIds[star] : null;
+        let existingH = lockedId ? (masterDb.hotels || []).find(h => h.id === lockedId) : null;
+        if (!existingH) {
+            existingH = (masterDb.hotels || []).find(h => (h.name || '').trim().toLowerCase() === name.toLowerCase() && String(h.star) === String(star));
+        }
+
+        let isNewCreated = false;
+        if (existingH) {
+            existingH.name = name;
+            existingH.price = price;
+            existingH.mealPrice = meal;
+            existingH.tplPrice = tpl;
+            existingH.location = cityName;
+            existingH.star = String(star);
+        } else {
+            isNewCreated = true;
+            existingH = {
+                id: 'h_' + Date.now() + '_' + star + '_' + Math.random().toString(36).substring(2, 5),
+                name: name,
+                location: cityName,
+                star: String(star),
+                price: price,
+                mealPrice: meal,
+                tplPrice: tpl
+            };
+            (masterDb.hotels = masterDb.hotels || []).push(existingH);
+        }
+        if (currentSelectedModalHotelDbIds) currentSelectedModalHotelDbIds[star] = existingH.id;
+
+        const synced = await saveMasterDatabaseToFirebase(true);
+        populateQuickHotelDropdown();
+        populateDbDropdowns();
+
+        const badge = document.getElementById(`modalHotel${star}StatusBadge`);
+        if (badge) {
+            badge.innerText = synced ? '✅ Synced to Cloud' : '⚠️ Saved Locally';
+            badge.className = synced
+                ? 'text-[10px] font-bold px-2 py-0.5 rounded bg-green-100 text-green-800 border border-green-300'
+                : 'text-[10px] font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300';
+        }
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = origHtml;
+        }
+        showNotification(`☁️ ${isNewCreated ? 'Added new' : 'Updated'} ${star}* hotel "${name}" (${cityName}) in Master DB & Cloud!`, !synced);
+    }
+
     function fillHotelFromDb(star) {
         const select = document.getElementById('city' + star + 'StarDbSelect');
-        if (!select.value) return;
+        if (!select || !select.value) return;
+        if (select.value === '__SLW_CREATE_NEW__') {
+            startCreateNewHotelInModal(star);
+            return;
+        }
         try {
             const data = decodeDbOptionValue(select.value);
             if (!data) return;
@@ -2382,6 +2703,11 @@
                 document.getElementById('newCity' + star + 'StarTpl').value = data.tplPrice;
             } else {
                 document.getElementById('newCity' + star + 'StarTpl').value = (star === 4 ? 1000 : (star === 5 ? 1200 : 800));
+            }
+            const badge = document.getElementById(`modalHotel${star}StatusBadge`);
+            if (badge) {
+                badge.innerText = `Linked: ${(data.name || '').substring(0, 14)}`;
+                badge.className = 'text-[10px] font-semibold px-2 py-0.5 rounded bg-green-100 text-green-800 border border-green-200';
             }
         } catch (e) {}
     }

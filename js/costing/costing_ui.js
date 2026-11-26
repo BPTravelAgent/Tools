@@ -423,6 +423,13 @@
             document.getElementById('newCityMixPref').value = '3';
             const syncHChk = document.getElementById('modalSyncHotelsToDbCheckbox');
             if (syncHChk) syncHChk.checked = true; // Auto-sync to Master DB & Cloud by default
+            [3, 4, 5].forEach(s => {
+                const b = document.getElementById(`modalHotel${s}StatusBadge`);
+                if (b) {
+                    b.innerText = 'Ready';
+                    b.className = 'text-[10px] font-semibold px-2 py-0.5 rounded bg-white text-gray-600 border border-gray-200';
+                }
+            });
         }
     }
 
@@ -567,6 +574,17 @@
                 4: findHotelId(4, city.hotel4Name),
                 5: findHotelId(5, city.hotel5Name)
             };
+            [3, 4, 5].forEach(s => {
+                const b = document.getElementById(`modalHotel${s}StatusBadge`);
+                if (!b) return;
+                if (currentSelectedModalHotelDbIds[s]) {
+                    b.innerText = 'Linked to DB';
+                    b.className = 'text-[10px] font-semibold px-2 py-0.5 rounded bg-green-100 text-green-800 border border-green-200';
+                } else {
+                    b.innerText = 'Custom / Ready';
+                    b.className = 'text-[10px] font-semibold px-2 py-0.5 rounded bg-white text-gray-600 border border-gray-200';
+                }
+            });
 
             document.getElementById('cityModalTitle').innerText = 'Edit City Stay';
             const saveButton = document.getElementById('saveCityButton');

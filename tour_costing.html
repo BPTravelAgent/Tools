@@ -1068,10 +1068,15 @@
 </div>
 
 <!-- Modals -->
-<div id="tourModal" class="modal-backdrop"><div class="modal-content"><h3 id="tourModalTitle" class="text-2xl font-bold mb-4">Add New Tour</h3>
-<select id="tourCityFilter" onchange="filterTourDbOptions(true)" class="w-full p-2 border border-gray-300 rounded-md mb-2 bg-gray-50 text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
-    <option value="">-- All Cities --</option>
-</select>
+<div id="tourModal" class="modal-backdrop"><div class="modal-content overflow-y-auto max-h-[90vh]"><h3 id="tourModalTitle" class="text-2xl font-bold mb-4">Add New Tour</h3>
+<div class="flex gap-2 mb-2">
+    <select id="tourCityFilter" onchange="filterTourDbOptions(true)" class="flex-1 p-2 border border-gray-300 rounded-md bg-gray-50 text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+        <option value="">-- All Cities --</option>
+    </select>
+    <button type="button" onclick="startCreateNewTourInModal()" class="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-md shadow-xs transition flex items-center gap-1 shrink-0" title="Clear selection and create a brand new tour in Master DB">
+        <i class="fas fa-plus-circle"></i> <span>New Tour (DB)</span>
+    </button>
+</div>
 <div class="relative mb-2">
     <input type="text" id="tourDbSearch" oninput="filterTourDbOptions()" placeholder="🔍 Search tour (e.g. Safari, Cruise, Dream World)..." class="w-full p-2.5 pr-8 border border-purple-300 rounded-md text-sm bg-purple-50/50 text-purple-900 focus:outline-none focus:ring-2 focus:ring-purple-500 font-medium">
     <button type="button" onclick="clearTourDbSearch()" class="absolute right-2.5 top-2.5 text-gray-400 hover:text-gray-600 text-sm font-bold" title="Clear">✕</button>
@@ -1079,10 +1084,30 @@
 <select id="tourDbSelect" onchange="fillTourFromDb()" class="w-full p-2 border border-purple-300 rounded-md mb-4 bg-purple-50 text-purple-900 font-bold focus:outline-none focus:ring-2 focus:ring-purple-500">
     <option value="">-- Select from Master Database --</option>
 </select>
-<div class="space-y-4">
-    <input type="text" id="newTourName" oninput="onTourModalNameInput(this.value)" placeholder="Tour Name" class="w-full p-3 border rounded-md">
-    <input type="number" id="newTourPrice" placeholder="Per Person Price (THB) [Join or Ticket]" class="w-full p-3 border rounded-md">
-    <input type="number" id="newTourTransferPrice" placeholder="Fixed Transfer Price (THB) [Private]" class="w-full p-3 border rounded-md">
+<div class="space-y-3">
+    <div>
+        <div class="flex items-center justify-between mb-1">
+            <label class="text-[11px] font-bold text-gray-600">Tour Name</label>
+            <div class="flex items-center gap-1 flex-wrap">
+                <button type="button" onclick="applyTourTypePresetInModal('join_tour')" class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-bold">Join Tour</button>
+                <button type="button" onclick="applyTourTypePresetInModal('join_transfer')" class="text-[10px] px-1.5 py-0.5 rounded bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 font-bold">Join Transfer</button>
+                <button type="button" onclick="applyTourTypePresetInModal('private_car')" class="text-[10px] px-1.5 py-0.5 rounded bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-200 font-bold">Pvt Car</button>
+                <button type="button" onclick="applyTourTypePresetInModal('private_van')" class="text-[10px] px-1.5 py-0.5 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 font-bold">Pvt Van</button>
+                <button type="button" onclick="applyTourTypePresetInModal('ticket')" class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300 font-bold">Ticket Only</button>
+            </div>
+        </div>
+        <input type="text" id="newTourName" oninput="onTourModalNameInput(this.value)" placeholder="Tour Name (e.g. Alangka Dinner Cruise (Join Tour))" class="w-full p-2.5 border rounded-md font-semibold">
+    </div>
+    <div class="grid grid-cols-2 gap-2.5">
+        <div>
+            <label class="block text-[11px] font-bold text-gray-600 mb-1">Per Person / Ticket (THB)</label>
+            <input type="number" id="newTourPrice" placeholder="e.g. 1150" class="w-full p-2.5 border rounded-md font-semibold">
+        </div>
+        <div>
+            <label class="block text-[11px] font-bold text-gray-600 mb-1">Private Transfer (THB) [0 = Join]</label>
+            <input type="number" id="newTourTransferPrice" placeholder="0 for Join" class="w-full p-2.5 border rounded-md font-semibold">
+        </div>
+    </div>
 </div>
 
 <!-- Master DB Sync Card inside Tour Modal -->
@@ -1120,10 +1145,15 @@
     <button id="saveTourButton" onclick="saveTour()" class="flex-1 py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700">Add Tour</button>
     <button onclick="closeModal('tourModal')" class="flex-1 py-2 px-4 bg-gray-300 rounded-md hover:bg-gray-400">Cancel</button>
 </div></div></div>
-<div id="transferModal" class="modal-backdrop"><div class="modal-content"><h3 id="transferModalTitle" class="text-2xl font-bold mb-4">Add New Transfer</h3>
-<select id="transferCityFilter" onchange="filterTransferDbOptions(true)" class="w-full p-2 border border-gray-300 rounded-md mb-2 bg-gray-50 text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
-    <option value="">-- All Cities --</option>
-</select>
+<div id="transferModal" class="modal-backdrop"><div class="modal-content overflow-y-auto max-h-[90vh]"><h3 id="transferModalTitle" class="text-2xl font-bold mb-4">Add New Transfer</h3>
+<div class="flex gap-2 mb-2">
+    <select id="transferCityFilter" onchange="filterTransferDbOptions(true)" class="flex-1 p-2 border border-gray-300 rounded-md bg-gray-50 text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+        <option value="">-- All Cities --</option>
+    </select>
+    <button type="button" onclick="startCreateNewTransferInModal()" class="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-md shadow-xs transition flex items-center gap-1 shrink-0" title="Clear selection and create a brand new transfer in Master DB">
+        <i class="fas fa-plus-circle"></i> <span>New Transfer (DB)</span>
+    </button>
+</div>
 <div class="relative mb-2">
     <input type="text" id="transferDbSearch" oninput="filterTransferDbOptions()" placeholder="🔍 Search transfer (e.g. DMK, BKK, Airport, Pattaya, Van, Car)..." class="w-full p-2.5 pr-8 border border-orange-300 rounded-md text-sm bg-orange-50/50 text-orange-900 focus:outline-none focus:ring-2 focus:ring-orange-500 font-medium">
     <button type="button" onclick="clearTransferDbSearch()" class="absolute right-2.5 top-2.5 text-gray-400 hover:text-gray-600 text-sm font-bold" title="Clear">✕</button>
@@ -1131,9 +1161,23 @@
 <select id="transferDbSelect" onchange="fillTransferFromDb()" class="w-full p-2 border border-orange-300 rounded-md mb-4 bg-orange-50 text-orange-900 font-bold focus:outline-none focus:ring-2 focus:ring-orange-500">
     <option value="">-- Select from Master Database --</option>
 </select>
-<div class="space-y-4">
-    <input type="text" id="newTransferName" oninput="onTransferModalNameInput(this.value)" placeholder="Transfer Name" class="w-full p-3 border rounded-md">
-    <input type="number" id="newTransferPrice" placeholder="Transfer Price (THB)" class="w-full p-3 border rounded-md">
+<div class="space-y-3">
+    <div>
+        <div class="flex items-center justify-between mb-1">
+            <label class="text-[11px] font-bold text-gray-600">Transfer / Route Name</label>
+            <div class="flex items-center gap-1 flex-wrap">
+                <button type="button" onclick="applyTransferVehiclePresetInModal('car')" class="text-[10px] px-1.5 py-0.5 rounded bg-orange-50 hover:bg-orange-100 text-orange-800 border border-orange-200 font-bold">(Car)</button>
+                <button type="button" onclick="applyTransferVehiclePresetInModal('van')" class="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 font-bold">(Van)</button>
+                <button type="button" onclick="applyTransferVehiclePresetInModal('bus')" class="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 font-bold">(Bus)</button>
+                <button type="button" onclick="applyTransferVehiclePresetInModal('none')" class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300 font-bold">No Tag</button>
+            </div>
+        </div>
+        <input type="text" id="newTransferName" oninput="onTransferModalNameInput(this.value)" placeholder="Transfer Name (e.g. DMK Airport to Pattaya Hotel (Car))" class="w-full p-2.5 border rounded-md font-semibold">
+    </div>
+    <div>
+        <label class="block text-[11px] font-bold text-gray-600 mb-1">Transfer Price (THB)</label>
+        <input type="number" id="newTransferPrice" placeholder="e.g. 1900" class="w-full p-2.5 border rounded-md font-semibold">
+    </div>
 </div>
 
 <!-- Master DB Sync Card inside Transfer Modal -->
@@ -1189,20 +1233,29 @@
         <input type="number" id="newCityNights" placeholder="Total Number of Nights" class="w-full p-3 border rounded-md">
     </div>
     <div class="border p-3 rounded-md bg-blue-50">
-        <label class="block text-sm font-bold text-blue-800 mb-1.5">3-Star Option</label>
+        <div class="flex items-center justify-between mb-1.5">
+            <label class="text-sm font-bold text-blue-800">3-Star Option</label>
+            <span id="modalHotel3StatusBadge" class="text-[10px] font-semibold px-2 py-0.5 rounded bg-white text-blue-700 border border-blue-200">Ready</span>
+        </div>
         <div class="relative mb-1.5">
             <input type="text" id="hotel3DbSearch" oninput="filterHotelDbOptions(3)" placeholder="🔍 Search 3* Hotel (name or area, e.g. Pratunam)..." class="w-full p-1.5 pr-6 border border-blue-300 rounded-md text-xs bg-white text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-500">
             <button type="button" onclick="clearHotelDbSearch(3)" class="absolute right-2 top-1.5 text-gray-400 hover:text-gray-600 text-xs font-bold" title="Clear">✕</button>
         </div>
         <div class="flex items-center gap-1 mb-2">
-            <select id="city3StarDbSelect" onchange="fillHotelFromDb(3)" class="flex-1 p-2 border border-blue-300 rounded-md bg-white text-sm">
+            <select id="city3StarDbSelect" onchange="fillHotelFromDb(3)" class="flex-1 min-w-0 p-2 border border-blue-300 rounded-md bg-white text-sm">
                 <option value="">-- Search 3* Database --</option>
             </select>
-            <button type="button" onclick="deleteModalHotelFromMasterDb(3)" class="py-2 px-2.5 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-md text-xs font-bold transition flex items-center gap-1" title="Permanently delete selected 3* hotel from Master DB & Cloud">
+            <button type="button" onclick="startCreateNewHotelInModal(3)" class="py-2 px-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md text-xs font-bold transition flex items-center gap-1 shrink-0" title="Add brand new 3* hotel to Master DB">
+                <i class="fas fa-plus"></i> <span>New</span>
+            </button>
+            <button type="button" id="btnHotel3SaveSingle" onclick="quickSaveSingleHotelToMasterDb(3)" class="py-2 px-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-xs font-bold transition flex items-center gap-1 shrink-0" title="Save this 3* hotel directly to Master DB & Cloud">
+                <i class="fas fa-save"></i>
+            </button>
+            <button type="button" onclick="deleteModalHotelFromMasterDb(3)" class="py-2 px-2 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-md text-xs font-bold transition flex items-center gap-1 shrink-0" title="Permanently delete selected 3* hotel from Master DB & Cloud">
                 <i class="fas fa-trash-alt"></i>
             </button>
         </div>
-        <input type="text" id="newCity3StarName" placeholder="3* Hotel Name" class="w-full p-2 border rounded-md mb-2">
+        <input type="text" id="newCity3StarName" oninput="onHotelModalNameInput(3, this.value)" placeholder="3* Hotel Name" class="w-full p-2 border rounded-md mb-2">
         <input type="number" id="newCity3StarNights" placeholder="Nights in 3* (if split)" class="w-full p-2 border rounded-md mb-2 hidden split-night-input">
         <div class="grid grid-cols-3 gap-2">
             <div>
@@ -1220,20 +1273,29 @@
         </div>
     </div>
     <div class="border p-3 rounded-md bg-amber-50">
-        <label class="block text-sm font-bold text-amber-800 mb-1.5">4-Star Option</label>
+        <div class="flex items-center justify-between mb-1.5">
+            <label class="text-sm font-bold text-amber-800">4-Star Option</label>
+            <span id="modalHotel4StatusBadge" class="text-[10px] font-semibold px-2 py-0.5 rounded bg-white text-amber-700 border border-amber-200">Ready</span>
+        </div>
         <div class="relative mb-1.5">
             <input type="text" id="hotel4DbSearch" oninput="filterHotelDbOptions(4)" placeholder="🔍 Search 4* Hotel (name or area)..." class="w-full p-1.5 pr-6 border border-amber-300 rounded-md text-xs bg-white text-amber-900 focus:outline-none focus:ring-2 focus:ring-amber-500">
             <button type="button" onclick="clearHotelDbSearch(4)" class="absolute right-2 top-1.5 text-gray-400 hover:text-gray-600 text-xs font-bold" title="Clear">✕</button>
         </div>
         <div class="flex items-center gap-1 mb-2">
-            <select id="city4StarDbSelect" onchange="fillHotelFromDb(4)" class="flex-1 p-2 border border-amber-300 rounded-md bg-white text-sm">
+            <select id="city4StarDbSelect" onchange="fillHotelFromDb(4)" class="flex-1 min-w-0 p-2 border border-amber-300 rounded-md bg-white text-sm">
                 <option value="">-- Search 4* Database --</option>
             </select>
-            <button type="button" onclick="deleteModalHotelFromMasterDb(4)" class="py-2 px-2.5 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-md text-xs font-bold transition flex items-center gap-1" title="Permanently delete selected 4* hotel from Master DB & Cloud">
+            <button type="button" onclick="startCreateNewHotelInModal(4)" class="py-2 px-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md text-xs font-bold transition flex items-center gap-1 shrink-0" title="Add brand new 4* hotel to Master DB">
+                <i class="fas fa-plus"></i> <span>New</span>
+            </button>
+            <button type="button" id="btnHotel4SaveSingle" onclick="quickSaveSingleHotelToMasterDb(4)" class="py-2 px-2 bg-amber-600 hover:bg-amber-700 text-white rounded-md text-xs font-bold transition flex items-center gap-1 shrink-0" title="Save this 4* hotel directly to Master DB & Cloud">
+                <i class="fas fa-save"></i>
+            </button>
+            <button type="button" onclick="deleteModalHotelFromMasterDb(4)" class="py-2 px-2 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-md text-xs font-bold transition flex items-center gap-1 shrink-0" title="Permanently delete selected 4* hotel from Master DB & Cloud">
                 <i class="fas fa-trash-alt"></i>
             </button>
         </div>
-        <input type="text" id="newCity4StarName" placeholder="4* Hotel Name" class="w-full p-2 border rounded-md mb-2">
+        <input type="text" id="newCity4StarName" oninput="onHotelModalNameInput(4, this.value)" placeholder="4* Hotel Name" class="w-full p-2 border rounded-md mb-2">
         <input type="number" id="newCity4StarNights" placeholder="Nights in 4* (if split)" class="w-full p-2 border rounded-md mb-2 hidden split-night-input">
         <div class="grid grid-cols-3 gap-2">
             <div>
@@ -1251,20 +1313,29 @@
         </div>
     </div>
     <div class="border p-3 rounded-md bg-purple-50">
-        <label class="block text-sm font-bold text-purple-800 mb-1.5">5-Star Option (Optional)</label>
+        <div class="flex items-center justify-between mb-1.5">
+            <label class="text-sm font-bold text-purple-800">5-Star Option (Optional)</label>
+            <span id="modalHotel5StatusBadge" class="text-[10px] font-semibold px-2 py-0.5 rounded bg-white text-purple-700 border border-purple-200">Ready</span>
+        </div>
         <div class="relative mb-1.5">
             <input type="text" id="hotel5DbSearch" oninput="filterHotelDbOptions(5)" placeholder="🔍 Search 5* Hotel (name or area)..." class="w-full p-1.5 pr-6 border border-purple-300 rounded-md text-xs bg-white text-purple-900 focus:outline-none focus:ring-2 focus:ring-purple-500">
             <button type="button" onclick="clearHotelDbSearch(5)" class="absolute right-2 top-1.5 text-gray-400 hover:text-gray-600 text-xs font-bold" title="Clear">✕</button>
         </div>
         <div class="flex items-center gap-1 mb-2">
-            <select id="city5StarDbSelect" onchange="fillHotelFromDb(5)" class="flex-1 p-2 border border-purple-300 rounded-md bg-white text-sm">
+            <select id="city5StarDbSelect" onchange="fillHotelFromDb(5)" class="flex-1 min-w-0 p-2 border border-purple-300 rounded-md bg-white text-sm">
                 <option value="">-- Search 5* Database --</option>
             </select>
-            <button type="button" onclick="deleteModalHotelFromMasterDb(5)" class="py-2 px-2.5 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-md text-xs font-bold transition flex items-center gap-1" title="Permanently delete selected 5* hotel from Master DB & Cloud">
+            <button type="button" onclick="startCreateNewHotelInModal(5)" class="py-2 px-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md text-xs font-bold transition flex items-center gap-1 shrink-0" title="Add brand new 5* hotel to Master DB">
+                <i class="fas fa-plus"></i> <span>New</span>
+            </button>
+            <button type="button" id="btnHotel5SaveSingle" onclick="quickSaveSingleHotelToMasterDb(5)" class="py-2 px-2 bg-purple-600 hover:bg-purple-700 text-white rounded-md text-xs font-bold transition flex items-center gap-1 shrink-0" title="Save this 5* hotel directly to Master DB & Cloud">
+                <i class="fas fa-save"></i>
+            </button>
+            <button type="button" onclick="deleteModalHotelFromMasterDb(5)" class="py-2 px-2 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-md text-xs font-bold transition flex items-center gap-1 shrink-0" title="Permanently delete selected 5* hotel from Master DB & Cloud">
                 <i class="fas fa-trash-alt"></i>
             </button>
         </div>
-        <input type="text" id="newCity5StarName" placeholder="5* Hotel Name" class="w-full p-2 border rounded-md mb-2">
+        <input type="text" id="newCity5StarName" oninput="onHotelModalNameInput(5, this.value)" placeholder="5* Hotel Name" class="w-full p-2 border rounded-md mb-2">
         <input type="number" id="newCity5StarNights" placeholder="Nights in 5* (if split)" class="w-full p-2 border rounded-md mb-2 hidden split-night-input">
         <div class="grid grid-cols-3 gap-2">
             <div>
@@ -1934,16 +2005,16 @@
     <!-- ============================================================ -->
     <!-- SLW TOUR COSTING MODULAR ARCHITECTURE (Clean & Maintainable) -->
     <!-- ============================================================ -->
-    <script src="js/costing/costing_state.js?v=42"></script>
-    <script src="js/costing/costing_master_db.js?v=42"></script>
-    <script src="js/costing/costing_ui.js?v=42"></script>
-    <script src="js/costing/costing_itinerary_sync.js?v=42"></script>
-    <script src="js/costing/costing_calculator.js?v=42"></script>
-    <script src="js/costing/costing_presets.js?v=42"></script>
-    <script src="js/costing/costing_inq_hub.js?v=42"></script>
-    <script src="js/costing/costing_sheets.js?v=42"></script>
-    <script src="js/costing/costing_options.js?v=42"></script>
-    <script src="js/costing/costing_init.js?v=42"></script>
+    <script src="js/costing/costing_state.js?v=43"></script>
+    <script src="js/costing/costing_master_db.js?v=43"></script>
+    <script src="js/costing/costing_ui.js?v=43"></script>
+    <script src="js/costing/costing_itinerary_sync.js?v=43"></script>
+    <script src="js/costing/costing_calculator.js?v=43"></script>
+    <script src="js/costing/costing_presets.js?v=43"></script>
+    <script src="js/costing/costing_inq_hub.js?v=43"></script>
+    <script src="js/costing/costing_sheets.js?v=43"></script>
+    <script src="js/costing/costing_options.js?v=43"></script>
+    <script src="js/costing/costing_init.js?v=43"></script>
 
 
 
