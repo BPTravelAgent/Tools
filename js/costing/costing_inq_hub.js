@@ -526,18 +526,23 @@
         calculate();
 
         // 2. Determine default values
-        let defaultTitle = '';
-        if (activeLoadedPresetKey && costingPresets[activeLoadedPresetKey] && costingPresets[activeLoadedPresetKey].title) {
+        const quickTitleVal = document.getElementById('quickDetailsTitleInput')?.value.trim();
+        let defaultTitle = quickTitleVal || '';
+        if (!defaultTitle && activeLoadedPresetKey && costingPresets[activeLoadedPresetKey] && costingPresets[activeLoadedPresetKey].title) {
             defaultTitle = costingPresets[activeLoadedPresetKey].title.trim();
-        } else if (availableCities.length > 0) {
+        } else if (!defaultTitle && availableCities.length > 0) {
             const parts = availableCities.map(c => (c.numberOfNights || 1) + 'N ' + c.name);
             defaultTitle = parts.join(' ');
-        } else {
+        } else if (!defaultTitle) {
             defaultTitle = 'Thailand Tour Package';
         }
 
         const rawPax = Number(document.getElementById('num_people_transfer')?.value) || Number(document.getElementById('num_people_hotel')?.value) || 2;
-        const defaultPaxText = String(rawPax).padStart(2, '0') + ' Pax';
+        const defaultPaxText = document.getElementById('quickDetailsPaxInput')?.value.trim() || (String(rawPax).padStart(2, '0') + ' Pax');
+
+        const quickInqVal = document.getElementById('quickDetailsInqInput')?.value.trim();
+        const quickClientVal = document.getElementById('quickDetailsClientInput')?.value.trim();
+        const quickDateVal = document.getElementById('quickDetailsDateInput')?.value.trim();
 
         // 3. Modal Elements & Dynamic Mode (Update vs New)
         const modalTitle = document.getElementById('saveQuotationModalTitle');
@@ -554,11 +559,11 @@
         const monthInput = document.getElementById('saveQuotationTravelMonthInput');
         const yearInput = document.getElementById('saveQuotationTravelYearInput');
 
-        // Check if export modal already has values
-        const exportInq = document.getElementById('exportItineraryInq')?.value.trim();
-        const exportClient = document.getElementById('exportItineraryClient')?.value.trim();
-        const exportTitle = document.getElementById('exportItineraryTitle')?.value.trim();
-        const exportDate = document.getElementById('exportItineraryDate')?.value.trim();
+        // Check if export modal or quick details already has values
+        const exportInq = document.getElementById('exportItineraryInq')?.value.trim() || quickInqVal;
+        const exportClient = document.getElementById('exportItineraryClient')?.value.trim() || quickClientVal;
+        const exportTitle = document.getElementById('exportItineraryTitle')?.value.trim() || quickTitleVal;
+        const exportDate = document.getElementById('exportItineraryDate')?.value.trim() || quickDateVal;
 
         if (activeLoadedInqKey && activeLoadedInqData) {
             if (modalTitle) modalTitle.innerHTML = `<i class="fas fa-edit text-amber-500"></i> Update Quotation: ${activeLoadedInqKey}`;
@@ -1116,10 +1121,19 @@
                 }
             }
 
-            // Sync with export modal inputs if open
+            // Sync with export modal & quick details inputs
             if (document.getElementById('exportItineraryInq')) document.getElementById('exportItineraryInq').value = inqKey;
             if (document.getElementById('exportItineraryClient')) document.getElementById('exportItineraryClient').value = clientName;
             if (document.getElementById('exportItineraryTitle')) document.getElementById('exportItineraryTitle').value = title;
+            if (typeof saveLatestCostingDetails === 'function') {
+                saveLatestCostingDetails({
+                    inq: inqKey,
+                    title: title,
+                    date: travelMonthDate,
+                    pax: paxText,
+                    clientName: clientName
+                });
+            }
 
             // 7. Continuous Self-Study & Pattern Learning
             if (window.SlwLearningEngine && typeof window.SlwLearningEngine.learnFromQuotation === 'function') {
@@ -1299,12 +1313,22 @@
             localStorage.setItem('SLW_ACTIVE_INQ_PACKAGE_ID', activeLoadedPackageId);
         }
 
+        const loadedDateVal = docData.travelMonthDate || (docData.travelMonth && docData.travelYear ? `${docData.travelMonth}-${docData.travelYear}` : (docData.date || ''));
         if (document.getElementById('exportItineraryTitle')) document.getElementById('exportItineraryTitle').value = (targetPackage ? targetPackage.title : docData.title) || '';
         if (document.getElementById('exportItineraryClient')) document.getElementById('exportItineraryClient').value = docData.clientName || '';
         if (document.getElementById('exportItineraryInq')) document.getElementById('exportItineraryInq').value = docData.inq || '';
         if (document.getElementById('exportItineraryPax')) document.getElementById('exportItineraryPax').value = (targetPackage ? targetPackage.paxText : docData.paxText) || '';
         if (document.getElementById('exportItineraryDate')) {
-            document.getElementById('exportItineraryDate').value = docData.travelMonthDate || (docData.travelMonth && docData.travelYear ? `${docData.travelMonth}-${docData.travelYear}` : (docData.date || ''));
+            document.getElementById('exportItineraryDate').value = loadedDateVal;
+        }
+        if (typeof saveLatestCostingDetails === 'function') {
+            saveLatestCostingDetails({
+                inq: docData.inq || '',
+                title: (targetPackage ? targetPackage.title : docData.title) || '',
+                date: loadedDateVal,
+                pax: (targetPackage ? targetPackage.paxText : docData.paxText) || '',
+                clientName: docData.clientName || ''
+            });
         }
 
         updateActiveInqBanner();

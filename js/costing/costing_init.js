@@ -29,6 +29,28 @@
         if (typeof renderCostingOptionsUI === 'function') {
             renderCostingOptionsUI();
         }
+        // Keep SLW_LATEST_COSTING_DETAILS synced whenever export/save modal details are typed
+        ['exportItineraryTitle', 'exportItineraryPax', 'exportItineraryDate', 'exportItineraryInq', 'exportItineraryClient',
+         'saveQuotationInqInput', 'saveQuotationClientInput', 'saveQuotationTitleInput', 'saveQuotationPaxInput',
+         'saveQuotationTravelMonthInput', 'saveQuotationTravelYearInput'].forEach(id => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.addEventListener('input', () => {
+                if (typeof saveLatestCostingDetails !== 'function') return;
+                const ov = {};
+                if (id === 'exportItineraryTitle' || id === 'saveQuotationTitleInput') ov.title = el.value.trim();
+                if (id === 'exportItineraryPax' || id === 'saveQuotationPaxInput') ov.pax = el.value.trim();
+                if (id === 'exportItineraryInq' || id === 'saveQuotationInqInput') ov.inq = el.value.trim();
+                if (id === 'exportItineraryClient' || id === 'saveQuotationClientInput') ov.clientName = el.value.trim();
+                if (id === 'exportItineraryDate') ov.date = el.value.trim();
+                if (id === 'saveQuotationTravelMonthInput' || id === 'saveQuotationTravelYearInput') {
+                    const m = document.getElementById('saveQuotationTravelMonthInput')?.value.trim() || '';
+                    const y = document.getElementById('saveQuotationTravelYearInput')?.value.trim() || '';
+                    if (m) ov.date = (y && !m.includes(y)) ? `${m}/${y}` : m;
+                }
+                saveLatestCostingDetails(ov);
+            });
+        });
     };
 
     function onMarkupChange(type, category, suffix) {

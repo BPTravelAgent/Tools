@@ -118,30 +118,35 @@
         const totalNights = selectedCities.reduce((sum, c) => sum + (Number(c.numberOfNights) || 1), 0);
         const totalDays = totalNights > 0 ? totalNights + 1 : Math.max(1, selectedTours.length + 1);
 
-        // Auto Title
-        let defaultTitle = '';
-        if (activeLoadedPresetKey && costingPresets[activeLoadedPresetKey] && costingPresets[activeLoadedPresetKey].title) {
+        // Auto Title (prefer user's quick details input if filled)
+        const quickTitle = document.getElementById('quickDetailsTitleInput')?.value.trim();
+        let defaultTitle = quickTitle || '';
+        if (!defaultTitle && activeLoadedPresetKey && costingPresets[activeLoadedPresetKey] && costingPresets[activeLoadedPresetKey].title) {
             defaultTitle = costingPresets[activeLoadedPresetKey].title.trim();
-        } else if (selectedCities.length > 0) {
+        } else if (!defaultTitle && selectedCities.length > 0) {
             const parts = selectedCities.map(c => `${String(c.numberOfNights || 1).padStart(2, '0')}N ${c.name}`);
             defaultTitle = parts.join(' ');
-        } else {
+        } else if (!defaultTitle) {
             defaultTitle = `${String(totalNights).padStart(2, '0')}N ${String(totalDays).padStart(2, '0')}D Thailand Tour`;
         }
 
-        // Auto Pax
+        // Auto Pax (always derive from Transfer divisor first!)
         const paxNum = parseInt(document.getElementById('num_people_transfer')?.value) || parseInt(document.getElementById('num_people_hotel')?.value) || 2;
-        const defaultPax = `${String(paxNum).padStart(2, '0')}Pax`;
+        const quickPax = document.getElementById('quickDetailsPaxInput')?.value.trim();
+        const defaultPax = quickPax || `${String(paxNum).padStart(2, '0')} Pax`;
 
         // Auto Date
+        const quickDate = document.getElementById('quickDetailsDateInput')?.value.trim();
         const now = new Date();
         const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
         const currentMonth = monthNames[now.getMonth()];
         const nextMonth = monthNames[(now.getMonth() + 1) % 12];
-        const defaultDate = `${currentMonth}-${nextMonth}/${now.getFullYear()}`;
+        const defaultDate = quickDate || `${currentMonth}-${nextMonth}/${now.getFullYear()}`;
 
-        // Auto INQ
-        const defaultInq = 'INQ -' + Math.floor(10000 + Math.random() * 90000);
+        // Auto INQ & Client
+        const quickInq = document.getElementById('quickDetailsInqInput')?.value.trim();
+        const defaultInq = quickInq || (typeof activeLoadedInqKey !== 'undefined' && activeLoadedInqKey ? activeLoadedInqKey : ('INQ -' + Math.floor(10000 + Math.random() * 90000)));
+        const quickClient = document.getElementById('quickDetailsClientInput')?.value.trim() || '';
 
         // Populate Modal Inputs
         const titleInput = document.getElementById('exportItineraryTitle');
@@ -154,7 +159,7 @@
         if (paxInput) paxInput.value = defaultPax;
         if (dateInput) dateInput.value = defaultDate;
         if (inqInput) inqInput.value = defaultInq;
-        if (clientInput) clientInput.value = '';
+        if (clientInput) clientInput.value = quickClient;
 
         // Populate Modal Prices (Adult & Children)
         const p3El = document.getElementById('adult_final_lkr_3star');
@@ -1106,8 +1111,16 @@
             };
         }
 
-        const rawPaxNum = Number(document.getElementById('num_people_hotel')?.value) || 2;
-        const pax = document.getElementById('exportItineraryPax')?.value.trim() || (String(rawPaxNum).padStart(2, '0') + 'Pax');
+        const rawPaxNum = Number(document.getElementById('num_people_transfer')?.value) || Number(document.getElementById('num_people_hotel')?.value) || 2;
+        const autoPaxStr = String(rawPaxNum).padStart(2, '0') + ' Pax';
+        const quickPaxEl = document.getElementById('quickDetailsPaxInput');
+        if (quickPaxEl && quickPaxEl.dataset.manual !== 'true') {
+            quickPaxEl.value = autoPaxStr;
+        }
+        const quickPaxVal = quickPaxEl?.value.trim();
+        const pax = (quickPaxEl && quickPaxEl.dataset.manual === 'true' && quickPaxVal)
+            ? quickPaxVal
+            : autoPaxStr;
         const childExtraLabel = document.getElementById('exportChildExtraBedLabel')?.value.trim() || 'PER CHILD (WITH EXTRA BED)';
         const childShareLabel = document.getElementById('exportChildSharingBedLabel')?.value.trim() || 'PER CHILD (SHARING BED)';
 
@@ -1123,7 +1136,7 @@
         };
 
         return {
-            title: payload?.title || document.getElementById('exportItineraryTitle')?.value || 'Tour Package',
+            title: payload?.title || document.getElementById('quickDetailsTitleInput')?.value.trim() || document.getElementById('exportItineraryTitle')?.value.trim() || 'Tour Package',
             pax: pax,
             hasMix: Boolean(mixObj),
             hasChildPrices: hasChildPrices,
@@ -1152,8 +1165,87 @@
         };
     }
 
+    function onQuickDetailsInputChange(field) {
+        if (field === 'title') {
+            const el = document.getElementById('quickDetailsTitleInput');
+            if (el) el.dataset.manual = el.value.trim() ? 'true' : 'false';
+        } else if (field === 'pax') {
+            const el = document.getElementById('quickDetailsPaxInput');
+            if (el) el.dataset.manual = el.value.trim() ? 'true' : 'false';
+        }
+        saveLatestCostingDetails();
+        if (typeof saveLatestCostingPrices === 'function' && document.getElementById('results')?.style.display !== 'none') {
+            saveLatestCostingPrices();
+        }
+    }
+
+    function saveLatestCostingDetails(overrides = null) {
+        try {
+            const selectedCities = (typeof availableCities !== 'undefined' ? availableCities : []).filter(c => c.selected);
+            const rawPaxNum = Number(document.getElementById('num_people_transfer')?.value) || Number(document.getElementById('num_people_hotel')?.value) || 2;
+            const autoPaxStr = String(rawPaxNum).padStart(2, '0') + ' Pax';
+
+            // Auto-derive title from active preset or selected cities if user didn't manually type a title
+            let autoTitle = '';
+            if (typeof activeLoadedPresetKey !== 'undefined' && activeLoadedPresetKey && typeof costingPresets !== 'undefined' && costingPresets[activeLoadedPresetKey]?.title) {
+                autoTitle = costingPresets[activeLoadedPresetKey].title.trim();
+            } else if (selectedCities.length > 0) {
+                autoTitle = selectedCities.map(c => `${String(c.numberOfNights || 1).padStart(2, '0')}N ${c.name}`).join(' ');
+            }
+
+            const qTitleEl = document.getElementById('quickDetailsTitleInput');
+            const qInqEl = document.getElementById('quickDetailsInqInput');
+            const qDateEl = document.getElementById('quickDetailsDateInput');
+            const qPaxEl = document.getElementById('quickDetailsPaxInput');
+            const qClientEl = document.getElementById('quickDetailsClientInput');
+
+            if (qTitleEl && qTitleEl.dataset.manual !== 'true' && autoTitle) {
+                qTitleEl.value = autoTitle;
+            }
+            if (qPaxEl && qPaxEl.dataset.manual !== 'true') {
+                qPaxEl.value = autoPaxStr;
+            }
+
+            if (overrides) {
+                if (overrides.title !== undefined && qTitleEl) { qTitleEl.value = overrides.title; qTitleEl.dataset.manual = overrides.title ? 'true' : 'false'; }
+                if (overrides.inq !== undefined && qInqEl) qInqEl.value = overrides.inq;
+                if (overrides.date !== undefined && qDateEl) qDateEl.value = overrides.date;
+                if (overrides.pax !== undefined && qPaxEl) { qPaxEl.value = overrides.pax; qPaxEl.dataset.manual = overrides.pax ? 'true' : 'false'; }
+                if (overrides.clientName !== undefined && qClientEl) qClientEl.value = overrides.clientName;
+            }
+
+            const inqVal = (qInqEl?.value || document.getElementById('saveQuotationInqInput')?.value || document.getElementById('exportItineraryInq')?.value || (typeof activeLoadedInqKey !== 'undefined' ? activeLoadedInqKey : '') || '').trim();
+            const titleVal = (qTitleEl?.value || document.getElementById('saveQuotationTitleInput')?.value || document.getElementById('exportItineraryTitle')?.value || autoTitle || '').trim();
+            const dateVal = (qDateEl?.value || document.getElementById('exportItineraryDate')?.value || '').trim();
+            const paxVal = (qPaxEl?.value || autoPaxStr).trim();
+            const clientVal = (qClientEl?.value || document.getElementById('saveQuotationClientInput')?.value || document.getElementById('exportItineraryClient')?.value || '').trim();
+
+            const details = {
+                inq: inqVal,
+                title: titleVal,
+                date: dateVal,
+                pax: paxVal,
+                clientName: clientVal,
+                timestamp: Date.now()
+            };
+
+            localStorage.setItem('SLW_LATEST_COSTING_DETAILS', JSON.stringify(details));
+            return details;
+        } catch(e) {
+            console.warn('saveLatestCostingDetails error:', e);
+            return null;
+        }
+    }
+
     function saveLatestCostingPrices(payload = null) {
         try {
+            const latestDetails = saveLatestCostingDetails(payload ? {
+                inq: payload.inq,
+                title: payload.title,
+                date: payload.date,
+                pax: payload.pax,
+                clientName: payload.clientName
+            } : null);
             const currentSummary = buildCurrentPricingSummary(payload);
 
             if (typeof snapshotCurrentCostingOption === 'function') {

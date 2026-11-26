@@ -449,6 +449,13 @@
         if (typeof resetCostingOptionsToSingle === 'function') {
             resetCostingOptionsToSingle(false);
         }
+        const qTitleEl = document.getElementById('quickDetailsTitleInput');
+        if (qTitleEl) {
+            qTitleEl.dataset.manual = 'false';
+            qTitleEl.value = preset.title || '';
+        }
+        const qPaxEl = document.getElementById('quickDetailsPaxInput');
+        if (qPaxEl) qPaxEl.dataset.manual = 'false';
 
         // 1. Setup Cities
         availableCities = [];

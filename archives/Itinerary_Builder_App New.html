@@ -2066,6 +2066,9 @@ function slwGoHome() {
                 <button onclick="window.slwApplyCostingPrices(0)" style="background:linear-gradient(135deg, #d97706, #b45309);color:white;border:none;padding:5px 10px;border-radius:12px;font-weight:700;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:4px;" title="Apply Tour Costing prices into Option 01">
                     ⚡ Costing
                 </button>
+                <button id="slw-topbar-details-btn" onclick="window.slwApplyCostingDetails()" style="background:linear-gradient(135deg, #4f46e5, #4338ca);color:white;border:none;padding:5px 10px;border-radius:12px;font-weight:700;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:4px;" title="Apply INQ, Title, Travel Date & Pax from Tour Costing">
+                    📋 Details
+                </button>
                 <button onclick="window.slwLoadItineraryFromInq()" style="background:#1e293b;color:#cbd5e1;border:1px solid #475569;padding:4px 8px;border-radius:12px;font-weight:600;font-size:11px;cursor:pointer;" title="Re-load saved itinerary from this INQ">
                     🔄 Re-load
                 </button>
@@ -2084,6 +2087,9 @@ function slwGoHome() {
                 <span style="color:#f59e0b;font-weight:600;font-size:12px;">Not Linked</span>
                 <button onclick="window.slwOpenLinkInqModal()" style="background:linear-gradient(135deg, #0284c7, #0369a1);color:white;border:none;padding:5px 12px;border-radius:12px;font-weight:700;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:4px;box-shadow:0 2px 6px rgba(2,132,199,0.4);" title="Link this Itinerary to a Tour Costing INQ Quotation in Cloud">
                     🔗 Link to INQ Quotation
+                </button>
+                <button id="slw-topbar-details-btn" onclick="window.slwApplyCostingDetails()" style="background:linear-gradient(135deg, #4f46e5, #4338ca);color:white;border:none;padding:5px 10px;border-radius:12px;font-weight:700;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:4px;" title="Apply INQ, Title, Travel Date & Pax from Tour Costing">
+                    📋 Apply Details
                 </button>
             `;
             topBar.title = "Click to link this itinerary to a Tour Costing quotation";
@@ -2969,6 +2975,60 @@ window.slwResolveCostingDataForOption = function(targetOptionIndex = 0) {
         return { costingData, latestCosting, activeDoc };
 };
 
+window.slwResolveCostingDetails = function() {
+        let details = {};
+        try {
+            const rawD = localStorage.getItem('SLW_LATEST_COSTING_DETAILS');
+            if (rawD) details = JSON.parse(rawD) || {};
+        } catch(e) {}
+
+        let latestP = {};
+        try {
+            const rawP = localStorage.getItem('SLW_LATEST_COSTING_PRICES');
+            if (rawP) latestP = JSON.parse(rawP) || {};
+        } catch(e) {}
+
+        const activeInqKey = window.__slwActiveInq || localStorage.getItem('SLW_ACTIVE_INQ') || '';
+        let activeDoc = null;
+        if (activeInqKey) {
+            try {
+                const rawDoc = localStorage.getItem(SLW_INQ_DOC_PREFIX + activeInqKey);
+                if (rawDoc) activeDoc = JSON.parse(rawDoc);
+            } catch(e) {}
+        }
+
+        const inq = (details.inq || activeInqKey || '').trim();
+        const title = (details.title || latestP.title || activeDoc?.title || '').trim();
+        const date = (details.date || activeDoc?.travelMonthDate || (activeDoc?.travelMonth && activeDoc?.travelYear ? `${activeDoc.travelMonth}-${activeDoc.travelYear}` : '') || '').trim();
+        const pax = (details.pax || latestP.pax || activeDoc?.paxText || '').trim();
+        const clientName = (details.clientName || activeDoc?.clientName || window.__slwActiveInqClient || '').trim();
+
+        return { inq, title, date, pax, clientName };
+};
+
+window.slwApplyCostingDetails = function() {
+        const details = window.slwResolveCostingDetails();
+        if (!details.inq && !details.title && !details.date && !details.pax && !details.clientName) {
+            slwShowError("Tour Costing එකෙන් Details (INQ, Title, Date, Pax) හමු නොවීය! කරුණාකර පළමුව Tour Costing හි Details ඇතුළත් කර Calculate කරන්න.");
+            return;
+        }
+
+        const allBtns = Array.from(document.querySelectorAll('button'));
+        const exportBtn = allBtns.find(b => {
+            const t = (b.textContent || b.innerText || '').trim();
+            return t.includes('Export JSON') || t.includes('Export Json');
+        });
+
+        if (!exportBtn) {
+            slwShowError("Export JSON බොත්තම හමු නොවීය. කරුණාකර පිටුව Refresh කරන්න.");
+            return;
+        }
+
+        window.__slwIsApplyingDetails = true;
+        window.__slwTargetCostingDetails = details;
+        exportBtn.click();
+};
+
 window.slwApplyCostingPrices = function(targetOptionIndex = 0) {
         const { costingData } = window.slwResolveCostingDataForOption(targetOptionIndex);
 
@@ -3213,6 +3273,118 @@ window.slwApplyAllCostingOptions = function() {
             })();
 
             return; // Block download to disk
+        }
+
+        if (window.__slwIsApplyingDetails && (this.download === 'itinerary_data.json' || (this.download && this.download.match(/\.json$/i)))) {
+            window.__slwIsApplyingDetails = false;
+            const details = window.__slwTargetCostingDetails || {};
+            const href = this.href;
+
+            (async () => {
+                try {
+                    let jsonStr = '';
+                    if (href.startsWith('data:')) {
+                        const commaIdx = href.indexOf(',');
+                        jsonStr = decodeURIComponent(href.substring(commaIdx + 1));
+                    } else {
+                        const r = await fetch(href);
+                        jsonStr = await r.text();
+                    }
+
+                    if (!jsonStr || jsonStr.length < 10) {
+                        throw new Error('Export වූ දත්ත වලංගු නොවේ (Invalid JSON export)');
+                    }
+
+                    const currentData = JSON.parse(jsonStr);
+                    const appliedFields = [];
+
+                    if (details.title) {
+                        currentData.title = details.title;
+                        appliedFields.push(`Title: ${details.title}`);
+                    }
+                    if (details.inq) {
+                        currentData.inq = details.inq;
+                        appliedFields.push(`INQ: ${details.inq}`);
+                    }
+                    if (details.date) {
+                        currentData.date = details.date;
+                        appliedFields.push(`Date: ${details.date}`);
+                    }
+                    if (details.pax) {
+                        currentData.pax = details.pax;
+                        appliedFields.push(`Pax: ${details.pax}`);
+                        // Also keep existing PER PERSON (MINIMUM XX PAX) labels synced with updated pax!
+                        (currentData.options || []).forEach(opt => {
+                            (opt.hotels || []).forEach(h => {
+                                if (h.price && /per person/i.test(h.price)) {
+                                    const amtMatch = String(h.price).match(/^(LKR\s*[\d,]+)/i);
+                                    if (amtMatch) {
+                                        h.price = `${amtMatch[1]} Per Person (Minimum ${details.pax})`;
+                                    }
+                                }
+                                if (Array.isArray(h.prices) && h.prices[0] && /per person/i.test(h.prices[0].label || '')) {
+                                    h.prices[0].label = `PER PERSON (MINIMUM ${details.pax.toUpperCase()})`;
+                                }
+                            });
+                        });
+                    }
+                    if (details.clientName) {
+                        currentData.clientName = details.clientName;
+                        appliedFields.push(`Client: ${details.clientName}`);
+                    }
+
+                    let fileInput = document.querySelector('input[type="file"][accept=".json"]');
+                    if (!fileInput) {
+                        const allInputs = document.querySelectorAll('input[type="file"]');
+                        fileInput = allInputs[allInputs.length - 1];
+                    }
+
+                    if (fileInput) {
+                        const finalJsonStr = JSON.stringify(currentData);
+                        const presetName = window.__slwActivePreset || currentData.title || 'Itinerary';
+                        const file = new File([finalJsonStr], presetName + '.json', { type: 'application/json' });
+                        const dt = new DataTransfer();
+                        dt.items.add(file);
+
+                        const origAlert = window.alert;
+                        window.alert = () => {};
+                        try {
+                            const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'files').set;
+                            setter.call(fileInput, dt.files);
+                            fileInput.files = dt.files;
+                            fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+                        } finally {
+                            setTimeout(() => { window.alert = origAlert; }, 150);
+                        }
+
+                        window.__slwBaseData = JSON.parse(JSON.stringify(currentData));
+
+                        if (details.inq) {
+                            window.__slwActiveInq = details.inq;
+                            localStorage.setItem('SLW_ACTIVE_INQ', details.inq);
+                        }
+                        if (details.title) {
+                            window.__slwActiveInqTitle = details.title;
+                            localStorage.setItem('SLW_ACTIVE_INQ_TITLE', details.title);
+                        }
+                        if (details.clientName) {
+                            window.__slwActiveInqClient = details.clientName;
+                            localStorage.setItem('SLW_ACTIVE_INQ_CLIENT', details.clientName);
+                        }
+                        if (typeof slwUpdateInqBadges === 'function') slwUpdateInqBadges();
+
+                        slwShowSuccess(
+                            "📋 Details සාර්ථකව Apply විය!",
+                            appliedFields.join(' • ')
+                        );
+                    }
+                } catch(err) {
+                    console.error('[SLW] Apply Details error:', err);
+                    slwShowError('Details යෙදීමේ දෝෂයක්: ' + err.message);
+                }
+            })();
+
+            return; // Prevent file download
         }
 
         if (window.__slwIsApplyingCosting && (this.download === 'itinerary_data.json' || (this.download && this.download.match(/\.json$/i)))) {
@@ -3708,7 +3880,30 @@ window.slwApplyAllCostingOptions = function() {
         }
 
         const costingSidebarBtn = document.getElementById('slw-sidebar-costing-btn');
-        if (exportBtn && costingSidebarBtn && !document.getElementById('slw-sidebar-save-inq-btn')) {
+        if (exportBtn && costingSidebarBtn && !document.getElementById('slw-sidebar-details-btn')) {
+            const detailsSidebarBtn = document.createElement('button');
+            detailsSidebarBtn.id = 'slw-sidebar-details-btn';
+            detailsSidebarBtn.innerHTML = '<span style="font-size:14px;margin-right:4px;">📋</span> Apply Details';
+            detailsSidebarBtn.className = (exportBtn.className || '') + ' print:hidden';
+            detailsSidebarBtn.title = "Apply INQ, Title, Travel Date & Pax from Tour Costing";
+            detailsSidebarBtn.style.cssText = 'background:linear-gradient(135deg, #4f46e5, #4338ca);color:white;width:100%;display:flex;align-items:center;justify-content:center;gap:6px;margin-top:6px;cursor:pointer;font-weight:700;border:none;border-radius:6px;box-shadow:0 2px 6px rgba(79,70,229,0.35);';
+            detailsSidebarBtn.onclick = function() {
+                window.slwApplyCostingDetails();
+            };
+            costingSidebarBtn.insertAdjacentElement('afterend', detailsSidebarBtn);
+        }
+
+        const detailsSidebarBtn = document.getElementById('slw-sidebar-details-btn');
+        if (detailsSidebarBtn && typeof window.slwResolveCostingDetails === 'function') {
+            const d = window.slwResolveCostingDetails();
+            const dParts = [d.inq, d.title, d.date, d.pax].filter(Boolean);
+            if (dParts.length > 0) {
+                detailsSidebarBtn.title = `Apply Details: ${dParts.join(' | ')}`;
+            }
+        }
+
+        const anchorForSaveBtn = detailsSidebarBtn || costingSidebarBtn;
+        if (exportBtn && anchorForSaveBtn && !document.getElementById('slw-sidebar-save-inq-btn')) {
             const saveInqSidebarBtn = document.createElement('button');
             saveInqSidebarBtn.id = 'slw-sidebar-save-inq-btn';
             saveInqSidebarBtn.innerHTML = '<span style="font-size:14px;margin-right:4px;">💾</span> Save to INQ Cloud';
@@ -3718,7 +3913,7 @@ window.slwApplyAllCostingOptions = function() {
             saveInqSidebarBtn.onclick = function() {
                 window.slwSaveItineraryToInqCloud();
             };
-            costingSidebarBtn.insertAdjacentElement('afterend', saveInqSidebarBtn);
+            anchorForSaveBtn.insertAdjacentElement('afterend', saveInqSidebarBtn);
 
             const excelSidebarBtn = document.createElement('button');
             excelSidebarBtn.id = 'slw-sidebar-excel-btn';
@@ -3896,6 +4091,27 @@ window.slwApplyAllCostingOptions = function() {
             document.body.appendChild(floatInqBtn);
         }
 
+        if (!document.getElementById('slw-float-details-btn')) {
+            const floatDetailsBtn = document.createElement('button');
+            floatDetailsBtn.id = 'slw-float-details-btn';
+            floatDetailsBtn.className = 'print:hidden';
+            floatDetailsBtn.innerHTML = '📋 <span>Apply Details</span>';
+            floatDetailsBtn.title = "Apply INQ, Title, Travel Date & Pax from Tour Costing";
+            floatDetailsBtn.style.cssText = 'position:fixed;bottom:18px;right:755px;z-index:999998;background:linear-gradient(135deg, #4f46e5, #4338ca);color:#ffffff;border:none;border-radius:12px;padding:10px 14px;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 4px 16px rgba(79,70,229,0.45);display:flex;align-items:center;gap:6px;font-family:inherit;transition:all 0.2s;';
+            floatDetailsBtn.onclick = function() {
+                window.slwApplyCostingDetails();
+            };
+            document.body.appendChild(floatDetailsBtn);
+        }
+        const floatDetailsBtnEl = document.getElementById('slw-float-details-btn');
+        if (floatDetailsBtnEl && typeof window.slwResolveCostingDetails === 'function') {
+            const d = window.slwResolveCostingDetails();
+            const dParts = [d.inq, d.title, d.date, d.pax].filter(Boolean);
+            if (dParts.length > 0) {
+                floatDetailsBtnEl.title = `Apply Details: ${dParts.join(' | ')}`;
+            }
+        }
+
         if (!document.getElementById('slw-float-excel-btn')) {
             const floatExcelBtn = document.createElement('button');
             floatExcelBtn.id = 'slw-float-excel-btn';
@@ -4010,7 +4226,7 @@ window.slwApplyAllCostingOptions = function() {
     const slwHiddenDuringPrint = [];
 
     window.addEventListener('storage', function(e) {
-        if (e.key === 'SLW_LATEST_COSTING_PRICES' && typeof injectUIControls === 'function') {
+        if ((e.key === 'SLW_LATEST_COSTING_PRICES' || e.key === 'SLW_LATEST_COSTING_DETAILS') && typeof injectUIControls === 'function') {
             injectUIControls();
         }
     });
@@ -4021,9 +4237,11 @@ window.slwApplyAllCostingOptions = function() {
             '#slw-float-btn',
             '#slw-float-history-btn',
             '#slw-float-costing-btn',
+            '#slw-float-details-btn',
             '#slw-float-save-inq-btn',
             '#slw-inq-top-bar',
             '#slw-sidebar-costing-btn',
+            '#slw-sidebar-details-btn',
             '#slw-sidebar-save-inq-btn',
             '#slw-sidebar-history-btn',
             '#slw-update-cloud-btn',
