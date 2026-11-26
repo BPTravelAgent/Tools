@@ -2,9 +2,142 @@
     // DYNAMIC TOUR COSTING EXCEL & GOOGLE SHEETS INTEGRATION
     // ══════════════════════════════════════════════════════════════
     const DEFAULT_GOOGLE_SHEETS_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbxt1wGx6SaS8a3fDKjO6eP05KOd3XeNHmGqraCXh2TBkKwEaWHdxsd7DpyxRqHGkKaoog/exec';
+    const SLW_GOOGLE_SHEET_REGISTRY_KEY = 'SLW_GOOGLE_SHEET_REGISTRY';
 
     function getGoogleSheetsWebhookUrl() {
         return localStorage.getItem('bp_sheets_webhook_url') || DEFAULT_GOOGLE_SHEETS_WEBHOOK_URL;
+    }
+
+    function isElementActuallyOpen(el) {
+        if (!el) return false;
+        if (el.classList && el.classList.contains('hidden')) return false;
+        if (el.style && el.style.display === 'none') return false;
+        try {
+            return window.getComputedStyle(el).display !== 'none';
+        } catch(e) {
+            return true;
+        }
+    }
+
+    function normalizeSheetInqVariants(rawInq) {
+        const cleaned = String(rawInq || '').trim().toUpperCase().replace(/\s*-\s*/g, '-').replace(/\s+/g, '-').replace(/-+/g, '-');
+        const set = new Set();
+        if (cleaned) set.add(cleaned);
+        const digitsMatch = cleaned.match(/\d+/);
+        if (digitsMatch) {
+            const fullDigits = digitsMatch[0];
+            set.add(fullDigits);
+            set.add('INQ-' + fullDigits);
+            const noZero = fullDigits.replace(/^0+/, '');
+            if (noZero && noZero.length >= 3) {
+                set.add(noZero);
+                set.add('INQ-' + noZero);
+            }
+        }
+        return Array.from(set);
+    }
+
+    function inqReferencesMatch(a, b) {
+        if (!a || !b) return false;
+        const varsA = normalizeSheetInqVariants(a);
+        const varsB = new Set(normalizeSheetInqVariants(b));
+        return varsA.some(v => varsB.has(v));
+    }
+
+    function stripSheetUrlHash(url) {
+        if (!url) return null;
+        return String(url).split('#')[0].trim() || null;
+    }
+
+    function readSheetRegistry() {
+        try {
+            const raw = localStorage.getItem(SLW_GOOGLE_SHEET_REGISTRY_KEY);
+            const parsed = raw ? JSON.parse(raw) : null;
+            return {
+                byInq: (parsed && typeof parsed.byInq === 'object' && parsed.byInq) ? parsed.byInq : {},
+                byFileName: (parsed && typeof parsed.byFileName === 'object' && parsed.byFileName) ? parsed.byFileName : {}
+            };
+        } catch(e) {
+            return { byInq: {}, byFileName: {} };
+        }
+    }
+
+    function rememberGoogleSheetUrl(inqRef, fileName, sheetUrl) {
+        const cleanUrl = stripSheetUrlHash(sheetUrl);
+        if (!cleanUrl) return;
+        try {
+            const reg = readSheetRegistry();
+            normalizeSheetInqVariants(inqRef).forEach(k => {
+                reg.byInq[k] = cleanUrl;
+            });
+            if (fileName) {
+                const fKey = String(fileName).trim().toLowerCase();
+                if (fKey) reg.byFileName[fKey] = cleanUrl;
+            }
+            localStorage.setItem(SLW_GOOGLE_SHEET_REGISTRY_KEY, JSON.stringify(reg));
+        } catch(e) {}
+    }
+
+    function findExistingGoogleSheetUrl(inqRef, expectedFileName = '') {
+        if (typeof activeLoadedInqData !== 'undefined' && activeLoadedInqData && activeLoadedInqData.googleSheetUrl) {
+            if (!inqRef || inqReferencesMatch(activeLoadedInqData.inq, inqRef)) {
+                return stripSheetUrlHash(activeLoadedInqData.googleSheetUrl);
+            }
+        }
+        const variants = normalizeSheetInqVariants(inqRef);
+        const variantSet = new Set(variants);
+
+        if (variants.length > 0 && typeof inqQuotationIndex !== 'undefined' && Array.isArray(inqQuotationIndex)) {
+            const foundIdx = inqQuotationIndex.find(item => item && item.googleSheetUrl && normalizeSheetInqVariants(item.inq).some(v => variantSet.has(v)));
+            if (foundIdx && foundIdx.googleSheetUrl) {
+                return stripSheetUrlHash(foundIdx.googleSheetUrl);
+            }
+        }
+
+        const docPrefix = (typeof SLW_INQ_DOC_PREFIX !== 'undefined') ? SLW_INQ_DOC_PREFIX : 'SLW_INQ_DOC_';
+        for (const v of variants) {
+            try {
+                const raw = localStorage.getItem(docPrefix + v);
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    if (parsed && parsed.googleSheetUrl) {
+                        return stripSheetUrlHash(parsed.googleSheetUrl);
+                    }
+                }
+            } catch(e) {}
+        }
+
+        const reg = readSheetRegistry();
+        for (const v of variants) {
+            if (reg.byInq[v]) return stripSheetUrlHash(reg.byInq[v]);
+        }
+        if (expectedFileName) {
+            const fKey = String(expectedFileName).trim().toLowerCase();
+            if (fKey && reg.byFileName[fKey]) return stripSheetUrlHash(reg.byFileName[fKey]);
+        }
+        return null;
+    }
+
+    window.slwFindExistingGoogleSheetUrl = findExistingGoogleSheetUrl;
+    window.slwRememberGoogleSheetUrl = rememberGoogleSheetUrl;
+    window.slwNormalizeSheetInqVariants = normalizeSheetInqVariants;
+
+    async function lookupGoogleSheetUrlFromCloud(inqRef) {
+        if (typeof db === 'undefined' || !db || !inqRef) return null;
+        const variants = normalizeSheetInqVariants(inqRef);
+        for (const v of variants) {
+            try {
+                const snap = await db.collection('slw_quotations').doc(v).get();
+                if (snap.exists) {
+                    const d = snap.data();
+                    if (d && d.googleSheetUrl) {
+                        rememberGoogleSheetUrl(v, null, d.googleSheetUrl);
+                        return stripSheetUrlHash(d.googleSheetUrl);
+                    }
+                }
+            } catch(e) {}
+        }
+        return null;
     }
 
     function resolveSheetMixActive(costingObj, ratesObj, citiesList) {
@@ -39,12 +172,27 @@
         const hotelDivisor = Math.max(1, Number(document.getElementById('num_people_hotel')?.value) || 2);
         const rawPax = transferPax;
         
-        let paxText = (document.getElementById('saveQuotationPaxInput')?.value || document.getElementById('exportItineraryPax')?.value || '').trim();
+        const isSaveModalOpen = isElementActuallyOpen(document.getElementById('saveQuotationModal'));
+        const isExportModalOpen = isElementActuallyOpen(document.getElementById('itineraryExportModal'));
+
+        const quickPaxEl = document.getElementById('quickDetailsPaxInput');
+        const savePaxEl = document.getElementById('saveQuotationPaxInput');
+        const expPaxEl = document.getElementById('exportItineraryPax');
+        let paxText = (isSaveModalOpen ? savePaxEl?.value : (quickPaxEl?.value || (isExportModalOpen ? expPaxEl?.value : '') || expPaxEl?.value || savePaxEl?.value) || '').trim();
         if (!paxText) {
             paxText = String(transferPax).padStart(2, '0') + ' Pax';
         }
 
-        const inq = (document.getElementById('saveQuotationInqInput')?.value || document.getElementById('exportItineraryInq')?.value || ('INQ-' + Math.floor(10000 + Math.random() * 90000))).trim();
+        const isNewInqModalMode = isSaveModalOpen && Boolean(document.getElementById('savePackageModeNewInq')?.checked);
+        const saveInqEl = document.getElementById('saveQuotationInqInput');
+        const saveNewInqEl = document.getElementById('saveQuotationNewInqInput');
+        const quickInqEl = document.getElementById('quickDetailsInqInput');
+        const expInqEl = document.getElementById('exportItineraryInq');
+        const loadedInqRef = (typeof activeLoadedInqKey !== 'undefined' && activeLoadedInqKey) ? activeLoadedInqKey : '';
+        const inqRawCandidate = isSaveModalOpen
+            ? ((isNewInqModalMode ? saveNewInqEl?.value : saveInqEl?.value) || quickInqEl?.value || expInqEl?.value || loadedInqRef)
+            : (quickInqEl?.value || loadedInqRef || expInqEl?.value || saveInqEl?.value);
+        const inq = (String(inqRawCandidate || '').trim()) || ('INQ-' + Math.floor(10000 + Math.random() * 90000));
         
         let defaultTitle = '';
         if (typeof activeLoadedPresetKey !== 'undefined' && activeLoadedPresetKey && typeof costingPresets !== 'undefined' && costingPresets[activeLoadedPresetKey] && costingPresets[activeLoadedPresetKey].title) {
@@ -55,7 +203,13 @@
             defaultTitle = 'Thailand Tour Package';
         }
 
-        const title = (document.getElementById('saveQuotationTitleInput')?.value || document.getElementById('exportItineraryTitle')?.value || defaultTitle).trim();
+        const quickTitleEl = document.getElementById('quickDetailsTitleInput');
+        const saveTitleEl = document.getElementById('saveQuotationTitleInput');
+        const expTitleEl = document.getElementById('exportItineraryTitle');
+        const title = (isSaveModalOpen
+            ? (saveTitleEl?.value || quickTitleEl?.value || expTitleEl?.value || defaultTitle)
+            : (quickTitleEl?.value || (isExportModalOpen ? expTitleEl?.value : '') || (typeof activeLoadedInqData !== 'undefined' && activeLoadedInqData?.title && inqReferencesMatch(activeLoadedInqData.inq, inq) ? activeLoadedInqData.title : '') || expTitleEl?.value || defaultTitle)
+        ).trim();
         const roe = parseFloat(document.getElementById('lkr_rate')?.value) || 10.8;
         const globalMarkup = parseFloat(document.getElementById('markup')?.value) || 18;
         const m3 = parseFloat(document.getElementById('markup_pct_adult_3star')?.value) || globalMarkup;
@@ -250,27 +404,11 @@
             costingPayload.packages = activeLoadedInqData.packages;
         }
 
-        // Locate existing Google Sheet URL if any for this INQ
-        let existingSheetUrl = null;
-        if (activeLoadedInqData && activeLoadedInqData.googleSheetUrl) {
-            existingSheetUrl = activeLoadedInqData.googleSheetUrl;
-        }
-        if (!existingSheetUrl && inq) {
-            const foundInIndex = (Array.isArray(inqQuotationIndex) ? inqQuotationIndex : []).find(i => i.inq === inq);
-            if (foundInIndex && foundInIndex.googleSheetUrl) {
-                existingSheetUrl = foundInIndex.googleSheetUrl;
-            }
-        }
-        if (!existingSheetUrl && inq) {
-            const localRaw = localStorage.getItem(SLW_INQ_DOC_PREFIX + inq);
-            if (localRaw) {
-                try {
-                    const parsed = JSON.parse(localRaw);
-                    if (parsed.googleSheetUrl) existingSheetUrl = parsed.googleSheetUrl;
-                } catch(e) {}
-            }
-        }
-        costingPayload.googleSheetUrl = existingSheetUrl;
+        // Locate existing Google Sheet URL (matching normalized INQ, active doc, index, localStorage, or doc filename)
+        const expectedFileName = (window.SlwExcelGenerator && typeof window.SlwExcelGenerator.buildCostingDocFilename === 'function')
+            ? window.SlwExcelGenerator.buildCostingDocFilename(costingPayload)
+            : '';
+        costingPayload.googleSheetUrl = findExistingGoogleSheetUrl(inq, expectedFileName);
 
         return costingPayload;
     }
@@ -292,7 +430,7 @@
     }
 
     async function exportCurrentCostingToGoogleSheets() {
-        const isModalOpen = document.getElementById('saveQuotationModal') && !document.getElementById('saveQuotationModal').classList.contains('hidden');
+        const isModalOpen = isElementActuallyOpen(document.getElementById('saveQuotationModal'));
         if (isModalOpen && typeof executeSaveQuotation === 'function') {
             try {
                 showNotification('💾 Saving package options to INQ before opening Google Sheets...', false);
@@ -310,23 +448,36 @@
             return;
         }
 
+        const expectedFileName = typeof window.SlwExcelGenerator.buildCostingDocFilename === 'function'
+            ? window.SlwExcelGenerator.buildCostingDocFilename(payload)
+            : '';
+
+        if (!payload.googleSheetUrl && payload.inq) {
+            payload.googleSheetUrl = await lookupGoogleSheetUrlFromCloud(payload.inq);
+        }
+
         const hasMulti = payload.packages && payload.packages.length > 1;
         const statusMsg = payload.googleSheetUrl
-            ? `🟢 Syncing ${payload.inq} (${hasMulti ? payload.packages.length + ' Packages' : 'Costing'}) into existing Google Sheet...`
-            : `🟢 Converting Costing & creating Google Sheet in Google Drive...`;
+            ? `🟢 Adding "New" tab for ${payload.inq} (${hasMulti ? payload.packages.length + ' Packages' : 'Costing'}) inside existing Google Sheet...`
+            : `🟢 Checking Drive / creating Google Sheet for ${payload.inq || expectedFileName}...`;
         showNotification(statusMsg, false);
 
         try {
             const options = {
-                sheetUrl: payload.googleSheetUrl || null
+                sheetUrl: payload.googleSheetUrl || null,
+                updateMode: 'append_new_tab'
             };
             const result = await window.SlwExcelGenerator.exportToGoogleSheets(payload, webhookUrl, options);
             if (result && result.sheetUrl) {
-                await saveGoogleSheetUrlToInq(payload.inq, result.sheetUrl);
+                const cleanBaseUrl = stripSheetUrlHash(result.sheetUrl);
+                await saveGoogleSheetUrlToInq(payload.inq, cleanBaseUrl, result.fileName || expectedFileName);
                 if (typeof renderQuotationHubCards === 'function') renderQuotationHubCards();
-                window.open(result.sheetUrl, '_blank');
+                window.open(result.tabUrl || result.sheetUrl, '_blank');
+                const tabsLabel = Array.isArray(result.addedTabNames) && result.addedTabNames.length > 0
+                    ? result.addedTabNames.join(', ')
+                    : 'New';
                 const notifyMsg = result.isUpdated
-                    ? `✅ Existing Google Sheet for ${payload.inq} updated in-place with latest option tabs!`
+                    ? `✅ Existing Google Sheet found (${payload.inq || result.fileName})! Added "${tabsLabel}" tab inside the same sheet.`
                     : `✅ Google Sheet created successfully in your Drive! Opened in new tab.`;
                 showNotification(notifyMsg, false);
             } else {
@@ -338,36 +489,58 @@
         }
     }
 
-    async function saveGoogleSheetUrlToInq(inqKey, sheetUrl) {
-        if (!inqKey || !sheetUrl) return;
-        
+    async function saveGoogleSheetUrlToInq(inqKey, sheetUrl, fileName = '') {
+        const cleanUrl = stripSheetUrlHash(sheetUrl);
+        if (!cleanUrl) return;
+        if (inqKey || fileName) {
+            rememberGoogleSheetUrl(inqKey, fileName, cleanUrl);
+        }
+        if (!inqKey) return;
+
+        const variants = normalizeSheetInqVariants(inqKey);
+        const variantSet = new Set(variants);
+        const indexStorageKey = (typeof SLW_INQ_INDEX_STORAGE_KEY !== 'undefined') ? SLW_INQ_INDEX_STORAGE_KEY : 'SLW_INQ_QUOTATION_INDEX';
+
+        if (typeof activeLoadedInqData !== 'undefined' && activeLoadedInqData && inqReferencesMatch(activeLoadedInqData.inq, inqKey)) {
+            activeLoadedInqData.googleSheetUrl = cleanUrl;
+        }
+
         // 1. Update in local index
         if (Array.isArray(inqQuotationIndex)) {
-            const item = inqQuotationIndex.find(i => i.inq === inqKey);
-            if (item) {
-                item.googleSheetUrl = sheetUrl;
+            inqQuotationIndex.forEach(item => {
+                if (item && normalizeSheetInqVariants(item.inq).some(v => variantSet.has(v))) {
+                    item.googleSheetUrl = cleanUrl;
+                }
+            });
+            localStorage.setItem(indexStorageKey, JSON.stringify(inqQuotationIndex));
+        }
+
+        // 2. Update local doc (check normalized variants)
+        const docPrefix = (typeof SLW_INQ_DOC_PREFIX !== 'undefined') ? SLW_INQ_DOC_PREFIX : 'SLW_INQ_DOC_';
+        let updatedLocalDocKey = null;
+        for (const v of variants) {
+            const localRaw = localStorage.getItem(docPrefix + v);
+            if (localRaw) {
+                try {
+                    const parsed = JSON.parse(localRaw);
+                    parsed.googleSheetUrl = cleanUrl;
+                    localStorage.setItem(docPrefix + v, JSON.stringify(parsed));
+                    if (!updatedLocalDocKey) updatedLocalDocKey = v;
+                } catch(e) {}
             }
-            localStorage.setItem('slw_quotation_index', JSON.stringify(inqQuotationIndex));
         }
 
-        // 2. Update local doc
-        const localRaw = localStorage.getItem(SLW_INQ_DOC_PREFIX + inqKey);
-        if (localRaw) {
-            try {
-                const parsed = JSON.parse(localRaw);
-                parsed.googleSheetUrl = sheetUrl;
-                localStorage.setItem(SLW_INQ_DOC_PREFIX + inqKey, JSON.stringify(parsed));
-            } catch(e) {}
-        }
-
-        // 3. Update in Firebase Cloud
+        // 3. Update in Firebase Cloud (only update existing doc/index)
         if (typeof db !== 'undefined' && db) {
             try {
-                await db.collection('slw_quotations').doc(inqKey).set({ googleSheetUrl: sheetUrl }, { merge: true });
-                await db.collection('slw_settings').doc('quotation_index').set({
-                    items: inqQuotationIndex,
-                    updatedAt: new Date().toISOString()
-                }, { merge: true });
+                const cloudDocId = updatedLocalDocKey || (inqQuotationIndex.find(i => i && normalizeSheetInqVariants(i.inq).some(v => variantSet.has(v)))?.inq);
+                if (cloudDocId) {
+                    await db.collection('slw_quotations').doc(cloudDocId).set({ googleSheetUrl: cleanUrl }, { merge: true });
+                    await db.collection('slw_settings').doc('quotation_index').set({
+                        items: inqQuotationIndex,
+                        updatedAt: new Date().toISOString()
+                    }, { merge: true });
+                }
             } catch(e) {
                 console.warn('Failed to update googleSheetUrl on cloud:', e);
             }
@@ -389,17 +562,19 @@
                 return;
             }
 
+            const existingHubSheetUrl = docData.googleSheetUrl || findExistingGoogleSheetUrl(inqKey);
+
             // If already created and forceRegenerate is false:
-            if (docData.googleSheetUrl && !forceRegenerate) {
+            if (existingHubSheetUrl && !forceRegenerate) {
                 const wantRegenerate = confirm(
                     '📊 Google Sheet for ' + inqKey + ' already exists in Google Drive.\n\n' +
-                    '• Click OK to 🔄 UPDATE / SYNC IN-PLACE\n  (Syncs latest options, tabs, and rates directly into the existing Google Sheet without creating duplicate files).\n\n' +
+                    '• Click OK to ➕ ADD A "New" TAB INSIDE THE EXISTING SHEET\n  (Keeps existing tabs safe and adds your updated costing as a "New" tab in that exact same Google Sheet).\n\n' +
                     '• Click CANCEL to 📂 OPEN EXISTING SHEET directly.'
                 );
                 if (wantRegenerate) {
                     forceRegenerate = true;
                 } else {
-                    window.open(docData.googleSheetUrl, '_blank');
+                    window.open(existingHubSheetUrl, '_blank');
                     showNotification('📂 Opening existing Google Sheet for ' + inqKey + '...', false);
                     return;
                 }
@@ -532,18 +707,25 @@
             }
 
             const webhookUrl = getGoogleSheetsWebhookUrl();
+            const expectedHubFileName = (window.SlwExcelGenerator && typeof window.SlwExcelGenerator.buildCostingDocFilename === 'function')
+                ? window.SlwExcelGenerator.buildCostingDocFilename(payload)
+                : '';
             const options = {
-                sheetUrl: docData.googleSheetUrl || null
+                sheetUrl: existingHubSheetUrl || findExistingGoogleSheetUrl(inqKey, expectedHubFileName) || null,
+                updateMode: 'append_new_tab'
             };
-            showNotification('🟢 Syncing ' + inqKey + (payload.packages ? ` (${payload.packages.length} Packages)` : '') + ' to Google Sheet in Google Drive...', false);
+            showNotification('🟢 Adding updated sheet tab for ' + inqKey + (payload.packages ? ` (${payload.packages.length} Packages)` : '') + ' in Google Drive...', false);
             const result = await window.SlwExcelGenerator.exportToGoogleSheets(payload, webhookUrl, options);
 
             if (result && result.sheetUrl) {
-                await saveGoogleSheetUrlToInq(inqKey, result.sheetUrl);
+                await saveGoogleSheetUrlToInq(inqKey, stripSheetUrlHash(result.sheetUrl), result.fileName || expectedHubFileName);
                 renderQuotationHubCards();
-                window.open(result.sheetUrl, '_blank');
+                window.open(result.tabUrl || result.sheetUrl, '_blank');
+                const tabsLabel = Array.isArray(result.addedTabNames) && result.addedTabNames.length > 0
+                    ? result.addedTabNames.join(', ')
+                    : 'New';
                 const actionMsg = result.isUpdated
-                    ? `✅ Existing Google Sheet for ${inqKey} updated in-place with all package tabs!`
+                    ? `✅ Existing Google Sheet for ${inqKey} updated! Added "${tabsLabel}" tab inside the same sheet.`
                     : `✅ Google Sheet for ${inqKey} opened successfully!`;
                 showNotification(actionMsg, false);
             }

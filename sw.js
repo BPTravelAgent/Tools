@@ -1,18 +1,18 @@
-const CACHE_NAME = 'bp-tools-v49';
+const CACHE_NAME = 'bp-tools-v50';
 
 const ASSETS_TO_CACHE = [
   '.',
   './index.html',
   './tour_costing.html',
-  './slw_excel_generator.js?v=43',
+  './slw_excel_generator.js?v=44',
   './js/costing/costing_state.js?v=45',
   './js/costing/costing_master_db.js?v=45',
   './js/costing/costing_ui.js?v=45',
   './js/costing/costing_itinerary_sync.js?v=45',
   './js/costing/costing_calculator.js?v=45',
   './js/costing/costing_presets.js?v=45',
-  './js/costing/costing_inq_hub.js?v=46',
-  './js/costing/costing_sheets.js?v=46',
+  './js/costing/costing_inq_hub.js?v=47',
+  './js/costing/costing_sheets.js?v=47',
   './js/costing/costing_options.js?v=45',
   './js/costing/costing_init.js?v=45',
   './Domarco_Itinerary.html',

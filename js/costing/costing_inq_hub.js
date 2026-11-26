@@ -370,8 +370,16 @@
 
         let existingDoc = null;
         try {
-            const raw = localStorage.getItem(SLW_INQ_DOC_PREFIX + inqKey);
-            if (raw) existingDoc = JSON.parse(raw);
+            const variants = (typeof window.slwNormalizeSheetInqVariants === 'function')
+                ? window.slwNormalizeSheetInqVariants(inqKey)
+                : [inqKey, rawInq?.trim()].filter(Boolean);
+            for (const v of variants) {
+                const raw = localStorage.getItem(SLW_INQ_DOC_PREFIX + v);
+                if (raw) {
+                    existingDoc = JSON.parse(raw);
+                    break;
+                }
+            }
         } catch(e) {}
 
         let pkgs = [];
@@ -797,9 +805,18 @@
             let existingPackages = [];
 
             try {
-                let existingRaw = isNewInqMode ? null : localStorage.getItem(SLW_INQ_DOC_PREFIX + inqKey);
-                if (!existingRaw && inqRaw !== inqKey) {
-                    existingRaw = localStorage.getItem(SLW_INQ_DOC_PREFIX + inqRaw);
+                let existingRaw = null;
+                if (!isNewInqMode) {
+                    const variants = (typeof window.slwNormalizeSheetInqVariants === 'function')
+                        ? window.slwNormalizeSheetInqVariants(inqKey)
+                        : [inqKey, inqRaw].filter(Boolean);
+                    for (const v of variants) {
+                        const candidateRaw = localStorage.getItem(SLW_INQ_DOC_PREFIX + v);
+                        if (candidateRaw) {
+                            existingRaw = candidateRaw;
+                            break;
+                        }
+                    }
                 }
                 if (existingRaw) {
                     const parsedExisting = JSON.parse(existingRaw);
@@ -838,6 +855,23 @@
                     }
                 }
             } catch(e) {}
+
+            // Never drop an existing googleSheetUrl during Overwrite / Save (check registry, index & Cloud fallback)
+            if (!isNewInqMode) {
+                if (!existingSheetUrl && typeof window.slwFindExistingGoogleSheetUrl === 'function') {
+                    existingSheetUrl = window.slwFindExistingGoogleSheetUrl(inqKey);
+                }
+                if (!existingSheetUrl && syncCloud && typeof db !== 'undefined' && db) {
+                    try {
+                        const cloudSnap = await db.collection('slw_quotations').doc(inqKey).get();
+                        if (cloudSnap.exists) {
+                            const cData = cloudSnap.data();
+                            if (cData && cData.googleSheetUrl) existingSheetUrl = cData.googleSheetUrl;
+                            if (cData && cData.createdAt) existingCreatedAt = cData.createdAt;
+                        }
+                    } catch(e) {}
+                }
+            }
 
             if (typeof snapshotCurrentCostingOption === 'function') {
                 snapshotCurrentCostingOption();
@@ -1317,13 +1351,24 @@
             localStorage.setItem('SLW_ACTIVE_INQ_PACKAGE_ID', activeLoadedPackageId);
         }
 
+        const loadedTitleVal = (targetPackage ? targetPackage.title : docData.title) || '';
+        const loadedPaxVal = (targetPackage ? targetPackage.paxText : docData.paxText) || '';
         const loadedDateVal = docData.travelMonthDate || (docData.travelMonth && docData.travelYear ? `${docData.travelMonth}-${docData.travelYear}` : (docData.date || ''));
-        if (document.getElementById('exportItineraryTitle')) document.getElementById('exportItineraryTitle').value = (targetPackage ? targetPackage.title : docData.title) || '';
+        if (document.getElementById('exportItineraryTitle')) document.getElementById('exportItineraryTitle').value = loadedTitleVal;
         if (document.getElementById('exportItineraryClient')) document.getElementById('exportItineraryClient').value = docData.clientName || '';
         if (document.getElementById('exportItineraryInq')) document.getElementById('exportItineraryInq').value = docData.inq || '';
-        if (document.getElementById('exportItineraryPax')) document.getElementById('exportItineraryPax').value = (targetPackage ? targetPackage.paxText : docData.paxText) || '';
+        if (document.getElementById('exportItineraryPax')) document.getElementById('exportItineraryPax').value = loadedPaxVal;
         if (document.getElementById('exportItineraryDate')) {
             document.getElementById('exportItineraryDate').value = loadedDateVal;
+        }
+        if (document.getElementById('saveQuotationInqInput')) document.getElementById('saveQuotationInqInput').value = docData.inq || inqKey;
+        if (document.getElementById('saveQuotationClientInput')) document.getElementById('saveQuotationClientInput').value = docData.clientName || '';
+        if (document.getElementById('saveQuotationPhoneInput')) document.getElementById('saveQuotationPhoneInput').value = docData.clientPhone || '';
+        if (document.getElementById('saveQuotationTitleInput')) document.getElementById('saveQuotationTitleInput').value = loadedTitleVal;
+        if (document.getElementById('saveQuotationPaxInput')) document.getElementById('saveQuotationPaxInput').value = loadedPaxVal;
+        if (document.getElementById('saveQuotationDateInput')) document.getElementById('saveQuotationDateInput').value = docData.quotationDate || docData.date || new Date().toISOString().split('T')[0];
+        if (typeof window.slwRememberGoogleSheetUrl === 'function' && docData.googleSheetUrl) {
+            window.slwRememberGoogleSheetUrl(docData.inq || inqKey, '', docData.googleSheetUrl);
         }
         if (typeof saveLatestCostingDetails === 'function') {
             saveLatestCostingDetails({

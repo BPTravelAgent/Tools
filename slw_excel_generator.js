@@ -2952,7 +2952,10 @@
             folderName: folderName,
             base64: base64,
             sheetUrl: sheetUrl,
-            sheetId: sheetId
+            sheetId: sheetId,
+            inq: payload.inq || null,
+            title: payload.title || null,
+            updateMode: options.updateMode || payload.updateMode || 'append_new_tab'
         };
 
         const response = await fetch(webhookUrl, {
