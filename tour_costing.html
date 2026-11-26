@@ -93,7 +93,7 @@
             <i class="fas fa-file-excel text-sm"></i>
             <span>📊 Download Excel (.xlsx)</span>
         </button>
-        <button onclick="exportCurrentCostingToGoogleSheets()" class="py-2 px-3.5 bg-gradient-to-r from-teal-600 via-emerald-600 to-green-600 hover:from-teal-700 hover:to-emerald-700 text-white font-bold rounded-lg shadow-md hover:shadow-lg transition flex items-center gap-1.5 text-xs" title="Convert & Open dynamic Costing directly in Google Sheets">
+        <button onclick="exportCurrentCostingToGoogleSheets(this)" class="py-2 px-3.5 bg-gradient-to-r from-teal-600 via-emerald-600 to-green-600 hover:from-teal-700 hover:to-emerald-700 text-white font-bold rounded-lg shadow-md hover:shadow-lg transition flex items-center gap-1.5 text-xs" title="Convert & Open dynamic Costing directly in Google Sheets">
             <i class="fab fa-google-drive text-sm text-green-200"></i>
             <span>🟢 Open in Google Sheets</span>
         </button>
@@ -1917,7 +1917,7 @@
                 <button type="button" onclick="downloadCurrentCostingExcel()" class="py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow transition flex items-center justify-center gap-2 text-sm" title="Download dynamic Costing Excel (.xlsx)">
                     <i class="fas fa-file-excel"></i> <span>Excel (.xlsx)</span>
                 </button>
-                <button type="button" onclick="exportCurrentCostingToGoogleSheets()" class="py-2.5 px-3.5 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 text-white font-bold rounded-lg shadow transition flex items-center justify-center gap-1.5 text-sm" title="Convert & Open dynamic Costing in Google Sheets">
+                <button type="button" onclick="exportCurrentCostingToGoogleSheets(this)" class="py-2.5 px-3.5 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 text-white font-bold rounded-lg shadow transition flex items-center justify-center gap-1.5 text-sm" title="Convert & Open dynamic Costing in Google Sheets">
                     <i class="fab fa-google-drive"></i> <span>Google Sheet</span>
                 </button>
                 <button type="button" onclick="executeSaveQuotation(true)" class="py-2.5 px-4 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-lg shadow transition flex items-center justify-center gap-2 text-sm">
@@ -2046,19 +2046,19 @@
 </div>
 
 <!-- Notification element -->
-<div id="notification" class="fixed top-5 right-5 bg-green-500 text-white py-2 px-4 rounded-lg shadow-lg transition-opacity duration-300 opacity-0 z-50"></div>
+<div id="notification" style="z-index: 2147483640;" class="fixed top-5 right-5 bg-green-500 text-white py-2 px-4 rounded-lg shadow-xl transition-opacity duration-300 opacity-0 pointer-events-none"></div>
 
     <!-- ============================================================ -->
     <!-- SLW TOUR COSTING MODULAR ARCHITECTURE (Clean & Maintainable) -->
     <!-- ============================================================ -->
     <script src="js/costing/costing_state.js?v=45"></script>
     <script src="js/costing/costing_master_db.js?v=45"></script>
-    <script src="js/costing/costing_ui.js?v=45"></script>
+    <script src="js/costing/costing_ui.js?v=46"></script>
     <script src="js/costing/costing_itinerary_sync.js?v=45"></script>
     <script src="js/costing/costing_calculator.js?v=45"></script>
     <script src="js/costing/costing_presets.js?v=45"></script>
-    <script src="js/costing/costing_inq_hub.js?v=47"></script>
-    <script src="js/costing/costing_sheets.js?v=47"></script>
+    <script src="js/costing/costing_inq_hub.js?v=48"></script>
+    <script src="js/costing/costing_sheets.js?v=48"></script>
     <script src="js/costing/costing_options.js?v=45"></script>
     <script src="js/costing/costing_init.js?v=45"></script>
 

@@ -121,7 +121,7 @@ function doPost(e) {
         DriveApp.getFileById(newSheetFile.id).setTrashed(true);
       } catch (errTrash) {}
 
-      var baseUrl = targetSpreadsheet.getUrl();
+      var baseUrl = String(targetSpreadsheet.getUrl()).split("#")[0];
       var directTabUrl = firstAddedSheet ? (baseUrl + "#gid=" + firstAddedSheet.getSheetId()) : baseUrl;
 
       return ContentService.createTextOutput(JSON.stringify({

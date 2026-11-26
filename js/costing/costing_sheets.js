@@ -429,8 +429,156 @@
         }
     }
 
-    async function exportCurrentCostingToGoogleSheets() {
+    function setSheetButtonBusy(btnEl, busy, labelText = 'Syncing...') {
+        if (!btnEl) return;
+        if (busy) {
+            if (btnEl.dataset.origHtml === undefined) {
+                btnEl.dataset.origHtml = btnEl.innerHTML;
+            }
+            btnEl.disabled = true;
+            btnEl.classList.add('opacity-75', 'cursor-wait');
+            const isCompactIcon = !btnEl.innerText.trim();
+            btnEl.innerHTML = isCompactIcon
+                ? '<i class="fas fa-spinner fa-spin text-[10px]"></i>'
+                : `<i class="fas fa-spinner fa-spin"></i> <span>${labelText}</span>`;
+        } else {
+            btnEl.disabled = false;
+            btnEl.classList.remove('opacity-75', 'cursor-wait');
+            if (btnEl.dataset.origHtml !== undefined) {
+                btnEl.innerHTML = btnEl.dataset.origHtml;
+                delete btnEl.dataset.origHtml;
+            }
+        }
+    }
+
+    function showSheetReadyBanner(sheetUrl, titleMsg = 'Google Sheet is ready!', isError = false) {
+        const existing = document.getElementById('slwSheetReadyFloatingBanner');
+        if (existing) existing.remove();
+
+        const banner = document.createElement('div');
+        banner.id = 'slwSheetReadyFloatingBanner';
+        banner.style.cssText = 'position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:2147483646;max-width:92vw;width:480px;';
+        banner.className = `rounded-xl shadow-2xl border-2 p-3.5 flex items-center justify-between gap-3 ${isError ? 'bg-red-600 border-red-300 text-white' : 'bg-emerald-700 border-emerald-300 text-white'}`;
+
+        const safeUrl = String(sheetUrl || '').replace(/"/g, '&quot;');
+        banner.innerHTML = `
+            <div class="min-w-0 flex-1">
+                <div class="text-xs font-extrabold uppercase tracking-wide ${isError ? 'text-red-100' : 'text-emerald-200'}">${isError ? '⚠️ Google Sheet Error' : '📊 Google Sheet Ready'}</div>
+                <div class="text-sm font-bold leading-snug break-words">${String(titleMsg || '').replace(/</g, '&lt;')}</div>
+            </div>
+            <div class="flex items-center gap-2 shrink-0">
+                ${sheetUrl ? `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer" onclick="document.getElementById('slwSheetReadyFloatingBanner')?.remove()" class="px-3 py-1.5 rounded-lg bg-white text-emerald-900 hover:bg-emerald-50 font-extrabold text-xs shadow transition whitespace-nowrap">Open Sheet ↗</a>` : ''}
+                <button type="button" onclick="document.getElementById('slwSheetReadyFloatingBanner')?.remove()" class="px-2 py-1 rounded-lg bg-black/20 hover:bg-black/30 text-white font-bold text-xs">✕</button>
+            </div>
+        `;
+        document.body.appendChild(banner);
+        setTimeout(() => {
+            if (banner.parentNode) banner.remove();
+        }, isError ? 12000 : 20000);
+    }
+
+    function openPendingGoogleSheetTab(label = 'Google Sheet') {
+        let win = null;
+        try {
+            win = window.open('about:blank', '_blank');
+            if (win && win.document) {
+                const safeLbl = String(label || 'Google Sheet').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                win.document.open();
+                win.document.write(`<!DOCTYPE html><html><head><title>Syncing ${safeLbl}...</title><style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:Inter,Arial,sans-serif;background:linear-gradient(135deg,#064e3b,#0f172a);color:#fff;text-align:center;padding:24px}.card{background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.2);border-radius:16px;padding:32px 28px;max-width:420px;box-shadow:0 20px 50px rgba(0,0,0,0.4)}.spin{width:42px;height:42px;border:4px solid rgba(255,255,255,0.25);border-top-color:#34d399;border-radius:50%;animation:sp .8s linear infinite;margin:0 auto 16px}@keyframes sp{to{transform:rotate(360deg)}}h2{margin:0 0 8px;font-size:18px}p{margin:0;font-size:13px;color:#cbd5e1;line-height:1.5}</style></head><body><div class="card"><div class="spin"></div><h2>⏳ Preparing Google Sheet (${safeLbl})</h2><p>Converting costing &amp; adding updated tab inside Google Drive...<br>This tab will open your Google Sheet automatically in a few seconds.</p></div></body></html>`);
+                win.document.close();
+            }
+        } catch(e) {
+            win = null;
+        }
+        return {
+            win,
+            navigate(url, readyTitle) {
+                if (!url) return;
+                if (win && !win.closed) {
+                    try {
+                        win.location.replace(url);
+                        win.focus();
+                        return true;
+                    } catch(e) {}
+                }
+                const fallbackWin = window.open(url, '_blank');
+                if (fallbackWin && !fallbackWin.closed) {
+                    try { fallbackWin.focus(); } catch(e) {}
+                    return true;
+                }
+                showSheetReadyBanner(url, readyTitle || 'Popup was blocked by browser — click Open Sheet!');
+                return false;
+            },
+            close() {
+                try {
+                    if (win && !win.closed) win.close();
+                } catch(e) {}
+            }
+        };
+    }
+
+    function showExistingSheetActionDialog(inqKey, existingUrl, onAddNewTab) {
+        const old = document.getElementById('slwExistingSheetChoiceModal');
+        if (old) old.remove();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'slwExistingSheetChoiceModal';
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,0.6);z-index:2147483645;display:flex;align-items:center;justify-content:center;padding:16px;';
+        const safeInq = String(inqKey || '').replace(/</g, '&lt;');
+        const safeUrl = String(existingUrl || '').replace(/"/g, '&quot;');
+
+        overlay.innerHTML = `
+            <div class="bg-white rounded-2xl shadow-2xl border border-gray-200 max-w-md w-full p-5 space-y-4">
+                <div class="flex items-start justify-between gap-2">
+                    <div class="flex items-center gap-2.5">
+                        <div class="w-10 h-10 rounded-xl bg-teal-100 text-teal-700 flex items-center justify-center text-lg shrink-0"><i class="fab fa-google-drive"></i></div>
+                        <div>
+                            <h4 class="text-base font-extrabold text-gray-900">Google Sheet Already Exists (${safeInq})</h4>
+                            <p class="text-xs text-gray-500">Choose whether to open the existing sheet or add a "New" tab inside it.</p>
+                        </div>
+                    </div>
+                    <button type="button" id="slwChoiceCloseBtn" class="text-gray-400 hover:text-gray-700 text-lg font-bold px-1">✕</button>
+                </div>
+                <div class="space-y-2.5">
+                    <button type="button" id="slwChoiceAddNewTabBtn" class="w-full py-2.5 px-4 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 text-white font-bold rounded-xl text-sm shadow transition flex items-center justify-center gap-2">
+                        <i class="fas fa-plus-circle"></i>
+                        <span>Add Updated "New" Tab Inside Existing Sheet</span>
+                    </button>
+                    <a href="${safeUrl}" target="_blank" rel="noopener noreferrer" id="slwChoiceOpenExistingLink" class="w-full py-2.5 px-4 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 font-bold rounded-xl text-sm transition flex items-center justify-center gap-2">
+                        <i class="fas fa-external-link-alt"></i>
+                        <span>Open Existing Google Sheet Directly</span>
+                    </a>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+        overlay.addEventListener('click', (ev) => {
+            if (ev.target === overlay) overlay.remove();
+        });
+        overlay.querySelector('#slwChoiceCloseBtn')?.addEventListener('click', () => overlay.remove());
+        overlay.querySelector('#slwChoiceOpenExistingLink')?.addEventListener('click', () => {
+            showNotification(`📂 Opening existing Google Sheet for ${inqKey}...`, false);
+            setTimeout(() => overlay.remove(), 50);
+        });
+        overlay.querySelector('#slwChoiceAddNewTabBtn')?.addEventListener('click', () => {
+            overlay.remove();
+            if (typeof onAddNewTab === 'function') onAddNewTab();
+        });
+    }
+
+    async function exportCurrentCostingToGoogleSheets(btnEl = null) {
         const isModalOpen = isElementActuallyOpen(document.getElementById('saveQuotationModal'));
+        if (isModalOpen) {
+            const clientInp = document.getElementById('saveQuotationClientInput')?.value.trim();
+            if (!clientInp) {
+                alert("Please enter the client's name before saving & opening Google Sheets.");
+                return;
+            }
+        }
+
+        const pendingTab = openPendingGoogleSheetTab('Tour Costing');
+        setSheetButtonBusy(btnEl, true, 'Syncing...');
+
         if (isModalOpen && typeof executeSaveQuotation === 'function') {
             try {
                 showNotification('💾 Saving package options to INQ before opening Google Sheets...', false);
@@ -444,6 +592,8 @@
         const webhookUrl = getGoogleSheetsWebhookUrl();
 
         if (!window.SlwExcelGenerator || typeof window.SlwExcelGenerator.exportToGoogleSheets !== 'function') {
+            pendingTab.close();
+            setSheetButtonBusy(btnEl, false);
             showNotification('⚠️ Excel Generator module is loading, please try again.', true);
             return;
         }
@@ -460,7 +610,7 @@
         const statusMsg = payload.googleSheetUrl
             ? `🟢 Adding "New" tab for ${payload.inq} (${hasMulti ? payload.packages.length + ' Packages' : 'Costing'}) inside existing Google Sheet...`
             : `🟢 Checking Drive / creating Google Sheet for ${payload.inq || expectedFileName}...`;
-        showNotification(statusMsg, false);
+        showNotification(statusMsg, false, 10000);
 
         try {
             const options = {
@@ -470,22 +620,29 @@
             const result = await window.SlwExcelGenerator.exportToGoogleSheets(payload, webhookUrl, options);
             if (result && result.sheetUrl) {
                 const cleanBaseUrl = stripSheetUrlHash(result.sheetUrl);
-                await saveGoogleSheetUrlToInq(payload.inq, cleanBaseUrl, result.fileName || expectedFileName);
-                if (typeof renderQuotationHubCards === 'function') renderQuotationHubCards();
-                window.open(result.tabUrl || result.sheetUrl, '_blank');
+                const finalOpenUrl = result.tabUrl || result.sheetUrl;
                 const tabsLabel = Array.isArray(result.addedTabNames) && result.addedTabNames.length > 0
                     ? result.addedTabNames.join(', ')
                     : 'New';
                 const notifyMsg = result.isUpdated
-                    ? `✅ Existing Google Sheet found (${payload.inq || result.fileName})! Added "${tabsLabel}" tab inside the same sheet.`
-                    : `✅ Google Sheet created successfully in your Drive! Opened in new tab.`;
-                showNotification(notifyMsg, false);
+                    ? `✅ Existing Google Sheet (${payload.inq || result.fileName}) updated! Added "${tabsLabel}" tab inside the same sheet.`
+                    : `✅ Google Sheet created successfully in your Drive!`;
+
+                pendingTab.navigate(finalOpenUrl, notifyMsg);
+                await saveGoogleSheetUrlToInq(payload.inq, cleanBaseUrl, result.fileName || expectedFileName);
+                if (typeof renderQuotationHubCards === 'function') renderQuotationHubCards();
+                showNotification(notifyMsg, false, 6000);
             } else {
                 throw new Error('Google did not return a valid Sheet URL');
             }
         } catch (err) {
+            pendingTab.close();
             console.error('Google Sheets export error:', err);
-            showNotification('⚠️ Google Sheets export error: ' + err.message, true);
+            const errMsg = '⚠️ Google Sheets export error: ' + err.message;
+            showNotification(errMsg, true, 8000);
+            showSheetReadyBanner('', errMsg, true);
+        } finally {
+            setSheetButtonBusy(btnEl, false);
         }
     }
 
@@ -547,37 +704,62 @@
         }
     }
 
-    async function exportInqQuotationToGoogleSheets(inqKey, forceRegenerate = false) {
+    function findLocalInqDocAnyVariant(inqKey) {
+        const docPrefix = (typeof SLW_INQ_DOC_PREFIX !== 'undefined') ? SLW_INQ_DOC_PREFIX : 'SLW_INQ_DOC_';
+        for (const v of normalizeSheetInqVariants(inqKey)) {
+            const raw = localStorage.getItem(docPrefix + v);
+            if (raw) {
+                try {
+                    return JSON.parse(raw);
+                } catch(e) {}
+            }
+        }
+        return null;
+    }
+
+    async function exportInqQuotationToGoogleSheets(inqKey, forceRegenerate = false, btnEl = null) {
         if (!inqKey) return;
+        let docData = findLocalInqDocAnyVariant(inqKey);
+
+        // If already cached locally and user clicked "Sheet" without forceRegenerate, show live choice dialog
+        // so clicking "Add New Tab" preserves a fresh synchronous click gesture (never popup-blocked!)
+        if (docData && !forceRegenerate) {
+            const localExistingUrl = docData.googleSheetUrl || findExistingGoogleSheetUrl(inqKey);
+            if (localExistingUrl) {
+                showExistingSheetActionDialog(inqKey, localExistingUrl, () => {
+                    exportInqQuotationToGoogleSheets(inqKey, true, btnEl);
+                });
+                return;
+            }
+        }
+
+        // Synchronously open pending tab BEFORE any await so Chrome never blocks it
+        const pendingTab = openPendingGoogleSheetTab(inqKey);
+        setSheetButtonBusy(btnEl, true, 'Syncing...');
+
         try {
-            let docData = null;
-            const localRaw = localStorage.getItem(SLW_INQ_DOC_PREFIX + inqKey);
-            if (localRaw) docData = JSON.parse(localRaw);
             if (!docData && typeof db !== 'undefined' && db) {
-                const snap = await db.collection('slw_quotations').doc(inqKey).get();
-                if (snap.exists) docData = snap.data();
+                for (const v of normalizeSheetInqVariants(inqKey)) {
+                    const snap = await db.collection('slw_quotations').doc(v).get();
+                    if (snap.exists) {
+                        docData = snap.data();
+                        break;
+                    }
+                }
             }
             if (!docData) {
+                pendingTab.close();
                 alert('Quotation document not found for ' + inqKey);
                 return;
             }
 
             const existingHubSheetUrl = docData.googleSheetUrl || findExistingGoogleSheetUrl(inqKey);
-
-            // If already created and forceRegenerate is false:
             if (existingHubSheetUrl && !forceRegenerate) {
-                const wantRegenerate = confirm(
-                    '📊 Google Sheet for ' + inqKey + ' already exists in Google Drive.\n\n' +
-                    '• Click OK to ➕ ADD A "New" TAB INSIDE THE EXISTING SHEET\n  (Keeps existing tabs safe and adds your updated costing as a "New" tab in that exact same Google Sheet).\n\n' +
-                    '• Click CANCEL to 📂 OPEN EXISTING SHEET directly.'
-                );
-                if (wantRegenerate) {
-                    forceRegenerate = true;
-                } else {
-                    window.open(existingHubSheetUrl, '_blank');
-                    showNotification('📂 Opening existing Google Sheet for ' + inqKey + '...', false);
-                    return;
-                }
+                pendingTab.close();
+                showExistingSheetActionDialog(inqKey, existingHubSheetUrl, () => {
+                    exportInqQuotationToGoogleSheets(inqKey, true, btnEl);
+                });
+                return;
             }
 
             const costing = docData.costing || {};
@@ -714,24 +896,33 @@
                 sheetUrl: existingHubSheetUrl || findExistingGoogleSheetUrl(inqKey, expectedHubFileName) || null,
                 updateMode: 'append_new_tab'
             };
-            showNotification('🟢 Adding updated sheet tab for ' + inqKey + (payload.packages ? ` (${payload.packages.length} Packages)` : '') + ' in Google Drive...', false);
+            showNotification('🟢 Adding updated sheet tab for ' + inqKey + (payload.packages ? ` (${payload.packages.length} Packages)` : '') + ' in Google Drive...', false, 10000);
             const result = await window.SlwExcelGenerator.exportToGoogleSheets(payload, webhookUrl, options);
 
             if (result && result.sheetUrl) {
-                await saveGoogleSheetUrlToInq(inqKey, stripSheetUrlHash(result.sheetUrl), result.fileName || expectedHubFileName);
-                renderQuotationHubCards();
-                window.open(result.tabUrl || result.sheetUrl, '_blank');
+                const finalOpenUrl = result.tabUrl || result.sheetUrl;
                 const tabsLabel = Array.isArray(result.addedTabNames) && result.addedTabNames.length > 0
                     ? result.addedTabNames.join(', ')
                     : 'New';
                 const actionMsg = result.isUpdated
                     ? `✅ Existing Google Sheet for ${inqKey} updated! Added "${tabsLabel}" tab inside the same sheet.`
-                    : `✅ Google Sheet for ${inqKey} opened successfully!`;
-                showNotification(actionMsg, false);
+                    : `✅ Google Sheet for ${inqKey} created & opened!`;
+
+                pendingTab.navigate(finalOpenUrl, actionMsg);
+                await saveGoogleSheetUrlToInq(inqKey, stripSheetUrlHash(result.sheetUrl), result.fileName || expectedHubFileName);
+                renderQuotationHubCards();
+                showNotification(actionMsg, false, 6000);
+            } else {
+                throw new Error('Google did not return a valid Sheet URL');
             }
         } catch(err) {
+            pendingTab.close();
             console.error('Error generating Google Sheet for INQ:', err);
-            showNotification('⚠️ Google Sheets export error: ' + err.message, true);
+            const errMsg = '⚠️ Google Sheets export error: ' + err.message;
+            showNotification(errMsg, true, 8000);
+            showSheetReadyBanner('', errMsg, true);
+        } finally {
+            setSheetButtonBusy(btnEl, false);
         }
     }
 

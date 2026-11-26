@@ -1832,11 +1832,11 @@
                         <i class="fas fa-file-excel"></i> <span>Excel</span>
                     </button>
                     <div class="flex items-center shrink-0">
-                        <button onclick="exportInqQuotationToGoogleSheets('${item.inq}')" class="py-1.5 px-2 ${item.googleSheetUrl ? 'bg-teal-700 text-white hover:bg-teal-800 rounded-l-lg' : 'bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-300 rounded-lg'} font-bold text-xs shadow-2xs transition flex items-center justify-center gap-1" title="${item.googleSheetUrl ? 'Open Google Sheet (or click 🔄 to regenerate)' : 'Convert & Open in Google Sheets'}">
+                        <button onclick="exportInqQuotationToGoogleSheets('${item.inq}', false, this)" class="py-1.5 px-2 ${item.googleSheetUrl ? 'bg-teal-700 text-white hover:bg-teal-800 rounded-l-lg' : 'bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-300 rounded-lg'} font-bold text-xs shadow-2xs transition flex items-center justify-center gap-1" title="${item.googleSheetUrl ? 'Open Google Sheet or Add Updated New Tab' : 'Convert & Open in Google Sheets'}">
                             <i class="fab fa-google-drive"></i> <span>Sheet</span>
                         </button>
                         ${item.googleSheetUrl ? `
-                        <button onclick="event.stopPropagation(); exportInqQuotationToGoogleSheets('${item.inq}', true)" class="py-1.5 px-1.5 bg-teal-800 hover:bg-teal-900 text-teal-200 hover:text-white font-bold rounded-r-lg text-xs transition border-l border-teal-600" title="🔄 Regenerate Fresh Google Sheet with Latest Costing & Mix Hotel">
+                        <button onclick="event.stopPropagation(); exportInqQuotationToGoogleSheets('${item.inq}', true, this)" class="py-1.5 px-1.5 bg-teal-800 hover:bg-teal-900 text-teal-200 hover:text-white font-bold rounded-r-lg text-xs transition border-l border-teal-600" title="➕ Add Updated 'New' Tab Inside Existing Google Sheet">
                             <i class="fas fa-sync-alt text-[10px]"></i>
                         </button>
                         ` : ''}

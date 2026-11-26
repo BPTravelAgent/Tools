@@ -833,11 +833,19 @@
     }
 
     // --- DATA & NOTIFICATIONS ---
-    function showNotification(message, isError = false) {
+    let __slwNotificationTimer = null;
+    function showNotification(message, isError = false, durationMs = 4500) {
         const notification = document.getElementById('notification');
+        if (!notification) return;
         notification.textContent = message;
-        notification.className = `fixed top-5 right-5 text-white py-2 px-4 rounded-lg shadow-lg transition-opacity duration-300 opacity-100 z-50 ${isError ? 'bg-red-500' : 'bg-green-500'}`;
-        setTimeout(() => { notification.style.opacity = '0'; }, 3000);
+        notification.style.zIndex = '2147483640';
+        notification.className = `fixed top-5 right-5 text-white py-2.5 px-4 rounded-lg shadow-xl transition-opacity duration-300 opacity-100 pointer-events-auto font-semibold text-sm max-w-md ${isError ? 'bg-red-600' : 'bg-emerald-600'}`;
+        if (__slwNotificationTimer) clearTimeout(__slwNotificationTimer);
+        __slwNotificationTimer = setTimeout(() => {
+            notification.style.opacity = '0';
+            notification.classList.add('pointer-events-none');
+            notification.classList.remove('pointer-events-auto');
+        }, durationMs);
     }
 
     function handleLogoUpload(event) {
