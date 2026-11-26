@@ -36,6 +36,11 @@ function doPost(e) {
     var targetSpreadsheet = matchResult.spreadsheet;
     var matchedBy = matchResult.matchedBy;
 
+    // Clear hint if Apps Script project hasn't authorized SpreadsheetApp scope yet
+    if (targetSpreadsheet && typeof SpreadsheetApp === "undefined") {
+      throw new Error("SpreadsheetApp is not available.");
+    }
+
     // 4. Convert incoming .xlsx to a native Google Sheet
     var fileMetadata = {
       title: (targetSpreadsheet ? "TEMP_" : "") + fileName,
@@ -153,9 +158,13 @@ function doPost(e) {
     })).setMimeType(ContentService.MimeType.JSON);
 
   } catch (error) {
+    var errStr = error ? error.toString() : "Unknown error";
+    if (errStr.indexOf("auth/spreadsheets") !== -1 || errStr.indexOf("SpreadsheetApp.openById") !== -1) {
+      errStr = "Apps Script Permission Required: Open script.google.com, select function 'authorizePermissions', click Run -> Review Permissions -> Allow, then Deploy -> Manage deployments -> Edit -> New version -> Deploy. (" + errStr + ")";
+    }
     return ContentService.createTextOutput(JSON.stringify({
       success: false,
-      error: error.toString()
+      error: errStr
     })).setMimeType(ContentService.MimeType.JSON);
   }
 }
@@ -165,12 +174,15 @@ function doPost(e) {
  */
 function resolveTargetSpreadsheet(folder, existingSheetId, fileName, inqRef) {
   if (existingSheetId) {
+    var explicitFile = null;
     try {
-      var explicitFile = DriveApp.getFileById(existingSheetId);
-      if (explicitFile && !explicitFile.isTrashed()) {
-        return { spreadsheet: SpreadsheetApp.openById(existingSheetId), matchedBy: "sheetId" };
-      }
-    } catch (err) {}
+      explicitFile = DriveApp.getFileById(existingSheetId);
+    } catch (errGet) {
+      explicitFile = null;
+    }
+    if (explicitFile && !explicitFile.isTrashed()) {
+      return { spreadsheet: SpreadsheetApp.openById(existingSheetId), matchedBy: "sheetId" };
+    }
   }
 
   var targetNameNorm = String(fileName || "").trim().toLowerCase();
@@ -270,6 +282,27 @@ function doGet(e) {
   return ContentService.createTextOutput(JSON.stringify({
     status: "online",
     message: "BP Travel Google Sheets API is running!",
-    version: "3.0-smart-drive-match-and-new-tab"
+    version: "3.1-smart-drive-match-and-new-tab"
   })).setMimeType(ContentService.MimeType.JSON);
+}
+
+/**
+ * ONE-TIME SETUP: Select "authorizePermissions" from the top function dropdown in script.google.com
+ * and click "Run". Approve the Google permissions popup ("Review permissions" -> "Allow"),
+ * then click Deploy -> Manage deployments -> Edit -> New version -> Deploy.
+ */
+function authorizePermissions() {
+  var rootFolder = DriveApp.getRootFolder();
+  var rootName = rootFolder.getName();
+  var sheetsIter = DriveApp.getFilesByType(MimeType.GOOGLE_SHEETS);
+  if (sheetsIter.hasNext()) {
+    var firstSheetFile = sheetsIter.next();
+    var opened = SpreadsheetApp.openById(firstSheetFile.getId());
+    Logger.log("Authorized OK! Root: " + rootName + " | Sample Sheet: " + opened.getName());
+  } else {
+    var tmp = SpreadsheetApp.create("SLW_AUTH_TEMP_CHECK");
+    var openedTmp = SpreadsheetApp.openById(tmp.getId());
+    Logger.log("Authorized OK! Created temp sheet: " + openedTmp.getName());
+    DriveApp.getFileById(tmp.getId()).setTrashed(true);
+  }
 }
