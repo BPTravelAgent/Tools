@@ -42,7 +42,7 @@
     <script src="firebase_init.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
     <script src="slw_learning_engine.js?v=1.1"></script>
-    <script src="slw_excel_generator.js?v=41"></script>
+    <script src="slw_excel_generator.js?v=42"></script>
 </head>
 <body class="bg-gray-100 flex items-center justify-center min-h-screen py-12">
 
@@ -457,6 +457,24 @@
         </div>
     </div>
 
+    <!-- 📦 Package Options Switcher (Option 01, Option 02, ...) -->
+    <div id="costingOptionsSwitcherBar" class="mb-6 p-4 bg-gradient-to-r from-amber-50/90 via-orange-50/50 to-amber-50/80 border-2 border-amber-300 rounded-xl shadow-sm">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div class="flex items-center gap-2 flex-wrap">
+                <span class="text-xs font-black text-amber-950 uppercase tracking-wider flex items-center gap-1.5 mr-1">
+                    <i class="fas fa-layer-group text-amber-600"></i> Costing Options:
+                </span>
+                <div id="costingOptionsTabs" class="flex items-center gap-2 flex-wrap"></div>
+            </div>
+            <div class="flex items-center gap-2 shrink-0">
+                <button type="button" onclick="addCostingOption(0)" class="py-2 px-3.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-bold rounded-lg shadow-sm hover:shadow transition flex items-center gap-1.5 text-xs" title="Clone Option 01 into Option 02 so you can add extra tours, hotels, or transfers without affecting Option 01">
+                    <i class="fas fa-plus-circle"></i> <span>➕ Add Option 02 (Extra Tour / Hotel / Trf)</span>
+                </button>
+            </div>
+        </div>
+        <div id="costingOptionActiveNotice" class="hidden mt-3 pt-2.5 border-t border-amber-200/80"></div>
+    </div>
+
     <!-- Input Section -->
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-6">
         <!-- Left Column: Service Management -->
@@ -725,6 +743,20 @@
     <!-- Results Section -->
     <div id="results" class="mt-8 pt-6 border-t-2 border-dashed border-gray-200" style="display:none;">
         <h2 class="text-2xl font-bold text-gray-800 text-center mb-6">Pricing Results (Options)</h2>
+
+        <!-- Multi-Option Comparison Panel (Shown when Option 02+ exists) -->
+        <div id="costingOptionsComparisonPanel" class="hidden mb-6 p-4 bg-gradient-to-r from-amber-50 via-white to-indigo-50 border-2 border-amber-300 rounded-xl shadow-sm">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3 pb-2 border-b border-amber-200">
+                <h3 class="text-sm font-black text-amber-950 flex items-center gap-2">
+                    <i class="fas fa-balance-scale text-amber-600"></i>
+                    <span>All Costing Options Comparison (Ready for Itinerary Builder &amp; Excel)</span>
+                </h3>
+                <button type="button" onclick="addCostingOption(0)" class="text-xs font-bold px-3 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg shadow-xs transition flex items-center gap-1 self-start sm:self-auto">
+                    <i class="fas fa-plus"></i> Add Another Option
+                </button>
+            </div>
+            <div id="costingOptionsComparisonGrid" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+        </div>
         <div class="grid grid-cols-1 xl:grid-cols-4 gap-6">
             <!-- 3 Star Option -->
             <div id="result_card_3star" class="bg-blue-50 border border-blue-200 p-4 rounded-lg">
@@ -1406,6 +1438,13 @@
         </div>
 
         <!-- Pricing Rates Badge Cards -->
+        <div id="exportMultiOptionSummaryNote" class="hidden mb-4 p-3.5 bg-gradient-to-r from-amber-50 via-orange-50/70 to-amber-50 border-2 border-amber-300 rounded-xl space-y-2">
+            <div class="text-xs font-black text-amber-950 flex items-center justify-between">
+                <span class="flex items-center gap-1.5"><i class="fas fa-layer-group text-amber-600"></i> Multi-Option Costing Ready (Option 01, Option 02...)</span>
+                <span class="text-[10px] font-bold bg-amber-200 text-amber-950 px-2 py-0.5 rounded-full" id="exportMultiOptionCountBadge">2 Options</span>
+            </div>
+            <div id="exportMultiOptionSummaryList" class="space-y-1.5 text-xs"></div>
+        </div>
         <div class="mb-4 p-3.5 bg-gradient-to-r from-teal-50 via-blue-50 to-indigo-50 border border-teal-200 rounded-xl space-y-3">
             <div class="text-[11px] font-bold text-teal-900 uppercase tracking-wider flex items-center justify-between border-b border-teal-100 pb-1.5">
                 <span class="flex items-center gap-1.5"><i class="fas fa-calculator text-teal-600"></i> Calculated Pricing (Option 01 Hotel Rates)</span>
@@ -1895,15 +1934,16 @@
     <!-- ============================================================ -->
     <!-- SLW TOUR COSTING MODULAR ARCHITECTURE (Clean & Maintainable) -->
     <!-- ============================================================ -->
-    <script src="js/costing/costing_state.js?v=41"></script>
-    <script src="js/costing/costing_master_db.js?v=41"></script>
-    <script src="js/costing/costing_ui.js?v=41"></script>
-    <script src="js/costing/costing_itinerary_sync.js?v=41"></script>
-    <script src="js/costing/costing_calculator.js?v=41"></script>
-    <script src="js/costing/costing_presets.js?v=41"></script>
-    <script src="js/costing/costing_inq_hub.js?v=41"></script>
-    <script src="js/costing/costing_sheets.js?v=41"></script>
-    <script src="js/costing/costing_init.js?v=41"></script>
+    <script src="js/costing/costing_state.js?v=42"></script>
+    <script src="js/costing/costing_master_db.js?v=42"></script>
+    <script src="js/costing/costing_ui.js?v=42"></script>
+    <script src="js/costing/costing_itinerary_sync.js?v=42"></script>
+    <script src="js/costing/costing_calculator.js?v=42"></script>
+    <script src="js/costing/costing_presets.js?v=42"></script>
+    <script src="js/costing/costing_inq_hub.js?v=42"></script>
+    <script src="js/costing/costing_sheets.js?v=42"></script>
+    <script src="js/costing/costing_options.js?v=42"></script>
+    <script src="js/costing/costing_init.js?v=42"></script>
 
 
 

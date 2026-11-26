@@ -163,7 +163,62 @@
             }
         };
 
-        if (activeLoadedInqData && Array.isArray(activeLoadedInqData.packages) && activeLoadedInqData.packages.length > 1) {
+        if (Array.isArray(window.costingOptionsList) && window.costingOptionsList.length > 1) {
+            if (typeof snapshotCurrentCostingOption === 'function') snapshotCurrentCostingOption();
+            costingPayload.packages = window.costingOptionsList.map((opt, idx) => {
+                const s = opt.pricingSummary || {};
+                const adjSettings = opt.pricingAdj?.settings || {};
+                const cardMarkups = opt.pricingAdj?.cardMarkups || {};
+                const optMarkupDef = parseFloat(adjSettings.markup) || globalMarkup;
+                const optRoe = parseFloat(adjSettings.lkrRate) || roe;
+                const optTrPax = Number(adjSettings.numPeopleTransfer) || transferPax;
+                const optHotelDiv = Number(adjSettings.numPeopleHotel) || hotelDivisor;
+                const optIncExtra = Boolean(s.includeChildExtraBed ?? adjSettings.includeChildExtraBed ?? includeChildExtraBed);
+                const optIncShare = Boolean(s.includeChildSharingBed ?? adjSettings.includeChildSharingBed ?? includeChildSharingBed);
+                return {
+                    id: opt.id || ('opt_' + (idx + 1)),
+                    packageName: opt.name || (`Option ${String(idx + 1).padStart(2, '0')}`),
+                    title: title,
+                    pax: optTrPax,
+                    transferPax: optTrPax,
+                    hotelDivisor: optHotelDiv,
+                    paxText: s.pax || paxText,
+                    roe: optRoe,
+                    hasMix: Boolean(s.hasMix),
+                    hasChildPrices: Boolean(optIncExtra || optIncShare),
+                    includeChildExtraBed: optIncExtra,
+                    includeChildSharingBed: optIncShare,
+                    isTplActive: Boolean(adjSettings.isTplActive ?? isTplActive),
+                    tplRoomsCount: Number(adjSettings.tplRoomsCount ?? tplRoomsCount) || 1,
+                    totalRoomsCount: Number(adjSettings.totalRoomsCount ?? totalRoomsCount) || 1,
+                    tplRate3: Number(adjSettings.tplRate3 ?? tplRate3) || 800,
+                    tplRate4: Number(adjSettings.tplRate4 ?? tplRate4) || 1000,
+                    tplRate5: Number(adjSettings.tplRate5 ?? tplRate5) || 1200,
+                    markup3: parseFloat(cardMarkups['3star']?.adult?.pct) || optMarkupDef,
+                    markupMix: parseFloat(cardMarkups['mix']?.adult?.pct) || optMarkupDef,
+                    markup4: parseFloat(cardMarkups['4star']?.adult?.pct) || optMarkupDef,
+                    childExtraLabel: s.childExtraLabel || childExtraLabel,
+                    childShareLabel: s.childShareLabel || childShareLabel,
+                    costing: {
+                        availableCities: JSON.parse(JSON.stringify(opt.availableCities || [])),
+                        availableTours: JSON.parse(JSON.stringify(opt.availableTours || [])),
+                        availableTransfers: JSON.parse(JSON.stringify(opt.availableTransfers || [])),
+                        pricingAdj: opt.pricingAdj || null
+                    },
+                    rates: {
+                        p3: s.prices3Star?.adult ? cleanLkrNumber(s.prices3Star.adult) : cleanLkrNumber(p3Text),
+                        pMix: s.hasMix && s.pricesMix?.adult ? cleanLkrNumber(s.pricesMix.adult) : null,
+                        p4: s.prices4Star?.adult ? cleanLkrNumber(s.prices4Star.adult) : cleanLkrNumber(p4Text),
+                        childExtra3: optIncExtra && s.prices3Star?.childExtra ? cleanLkrNumber(s.prices3Star.childExtra) : null,
+                        childShare3: optIncShare && s.prices3Star?.childShare ? cleanLkrNumber(s.prices3Star.childShare) : null,
+                        childExtraMix: (s.hasMix && optIncExtra && s.pricesMix?.childExtra) ? cleanLkrNumber(s.pricesMix.childExtra) : null,
+                        childShareMix: (s.hasMix && optIncShare && s.pricesMix?.childShare) ? cleanLkrNumber(s.pricesMix.childShare) : null,
+                        childExtra4: optIncExtra && s.prices4Star?.childExtra ? cleanLkrNumber(s.prices4Star.childExtra) : null,
+                        childShare4: optIncShare && s.prices4Star?.childShare ? cleanLkrNumber(s.prices4Star.childShare) : null
+                    }
+                };
+            });
+        } else if (activeLoadedInqData && Array.isArray(activeLoadedInqData.packages) && activeLoadedInqData.packages.length > 1) {
             costingPayload.packages = activeLoadedInqData.packages;
         }
 

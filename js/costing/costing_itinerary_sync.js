@@ -248,6 +248,31 @@
             previewList.innerHTML = html || '<div class="text-gray-400">No items selected</div>';
         }
 
+        // Multi-option preview note if Option 02+ exists
+        const multiNote = document.getElementById('exportMultiOptionSummaryNote');
+        const multiList = document.getElementById('exportMultiOptionSummaryList');
+        const multiCount = document.getElementById('exportMultiOptionCountBadge');
+        if (multiNote && multiList) {
+            if (Array.isArray(window.costingOptionsList) && window.costingOptionsList.length > 1) {
+                if (typeof snapshotCurrentCostingOption === 'function') snapshotCurrentCostingOption();
+                multiNote.classList.remove('hidden');
+                if (multiCount) multiCount.innerText = `${window.costingOptionsList.length} Options`;
+                multiList.innerHTML = window.costingOptionsList.map((opt, idx) => {
+                    const s = opt.pricingSummary || {};
+                    const p3 = s.prices3Star?.adult || 'LKR 0';
+                    const pMix = s.hasMix && s.pricesMix?.adult ? ` | Mix: ${s.pricesMix.adult}` : '';
+                    const p4 = s.prices4Star?.adult || 'LKR 0';
+                    const diff = idx > 0 && typeof computeOptionDiffVsBase === 'function' ? computeOptionDiffVsBase(idx) : '';
+                    return `<div class="flex flex-wrap items-center justify-between gap-2 bg-white px-2.5 py-1.5 rounded-lg border border-amber-200">
+                        <span class="font-bold text-amber-950">${opt.name || ('Option ' + (idx + 1))}${diff ? ` <span class="text-[10px] text-indigo-700 font-semibold">(${diff})</span>` : ''}</span>
+                        <span class="font-extrabold text-gray-800">3*: ${p3}${pMix} | 4*: ${p4}</span>
+                    </div>`;
+                }).join('');
+            } else {
+                multiNote.classList.add('hidden');
+            }
+        }
+
         openModal('itineraryExportModal');
     }
 
@@ -865,6 +890,94 @@
             });
         }
 
+        const buildHotelOptionsFromSummary = (sum, citiesList) => {
+            const optsArr = [];
+            const activeCities = (citiesList || []).filter(c => c.selected !== false);
+            const h3Names = activeCities.map(c => `${c.name}-${c.hotel3Name}`).filter(Boolean);
+            const h4Names = activeCities.map(c => `${c.name} - ${c.hotel4Name}`).filter(Boolean);
+
+            const curPax = sum.pax || pax;
+            const curIncExtra = Boolean(sum.includeChildExtraBed);
+            const curIncShare = Boolean(sum.includeChildSharingBed);
+            const curExtraLbl = sum.childExtraLabel || childExtraLabel;
+            const curShareLbl = sum.childShareLabel || childShareLabel;
+
+            const makePrices = (rateObj) => {
+                const arr = [{ label: `PER PERSON (MINIMUM ${curPax.toUpperCase()})`, amount: rateObj?.adult || 'LKR 0' }];
+                if (curIncExtra && rateObj?.childExtra && rateObj.childExtra !== 'LKR 0') {
+                    arr.push({ label: curExtraLbl, amount: rateObj.childExtra });
+                }
+                if (curIncShare && rateObj?.childShare && rateObj.childShare !== 'LKR 0') {
+                    arr.push({ label: curShareLbl, amount: rateObj.childShare });
+                }
+                return arr;
+            };
+
+            optsArr.push({
+                rating: "3* Hotel Options",
+                names: h3Names.length > 0 ? h3Names : ["Standard 3* Hotel Accommodation"],
+                price: `${sum.prices3Star?.adult || 'LKR 0'} Per Person (Minimum ${curPax})`,
+                prices: makePrices(sum.prices3Star)
+            });
+
+            if (sum.hasMix && sum.pricesMix && sum.pricesMix.adult) {
+                const mixHNames = activeCities.map(c => {
+                    const hName = c.mixPref === '4' ? c.hotel4Name : (c.mixPref === '5' ? (c.hotel5Name || c.hotel4Name) : c.hotel3Name);
+                    return `${c.name} - ${hName}`;
+                });
+                optsArr.push({
+                    rating: sum.pricesMix.title || 'Custom Mix Option',
+                    names: mixHNames,
+                    price: `${sum.pricesMix.adult} Per Person (Minimum ${curPax})`,
+                    prices: makePrices(sum.pricesMix)
+                });
+            }
+
+            optsArr.push({
+                rating: "4* Hotel Options",
+                names: h4Names.length > 0 ? h4Names : ["Standard 4* Hotel Accommodation"],
+                price: `${sum.prices4Star?.adult || 'LKR 0'} Per Person (Minimum ${curPax})`,
+                prices: makePrices(sum.prices4Star)
+            });
+
+            return optsArr;
+        };
+
+        if (typeof snapshotCurrentCostingOption === 'function') {
+            snapshotCurrentCostingOption();
+        }
+
+        let payloadOptions = [
+            {
+                id: 1,
+                name: (Array.isArray(window.costingOptionsList) && window.costingOptionsList[0]?.name) || "Option 01 - Standard",
+                description: "",
+                hotels: hotelOptions
+            }
+        ];
+
+        if (Array.isArray(window.costingOptionsList) && window.costingOptionsList.length > 1) {
+            payloadOptions = window.costingOptionsList.map((opt, idx) => {
+                if (idx === window.activeCostingOptionIndex) {
+                    const diffTxt = idx > 0 && typeof computeOptionDiffVsBase === 'function' ? computeOptionDiffVsBase(idx) : (opt.description || '');
+                    return {
+                        id: idx + 1,
+                        name: opt.name || `Option ${String(idx + 1).padStart(2, '0')}`,
+                        description: diffTxt,
+                        hotels: hotelOptions
+                    };
+                }
+                const sum = opt.pricingSummary || buildCurrentPricingSummary();
+                const diffTxt = idx > 0 && typeof computeOptionDiffVsBase === 'function' ? computeOptionDiffVsBase(idx) : (opt.description || '');
+                return {
+                    id: idx + 1,
+                    name: opt.name || `Option ${String(idx + 1).padStart(2, '0')}`,
+                    description: diffTxt,
+                    hotels: buildHotelOptionsFromSummary(sum, opt.availableCities || selectedCities)
+                };
+            });
+        }
+
         const finalPayload = {
             title: rawTitle,
             pax: pax,
@@ -885,14 +998,7 @@
                 "Everything which is not Mentioned in the itinerary",
                 "Thailand Visa"
             ],
-            options: [
-                {
-                    id: 1,
-                    name: "Option 01 - Standard",
-                    description: "",
-                    hotels: hotelOptions
-                }
-            ],
+            options: payloadOptions,
             specialNotes: [
                 "Should you have any questions, please feel free to contact us. We do hope the above proposal has thoroughly covered your requirements.",
                 "Please note that we are not holding any accommodation or services for you at this point. If you wish to proceed kindly confirm to us.",
@@ -959,80 +1065,138 @@
         return finalPayload;
     }
 
+    function buildCurrentPricingSummary(payload = null) {
+        const p3El = document.getElementById('adult_final_lkr_3star');
+        const p4El = document.getElementById('adult_final_lkr_4star');
+        const pMixEl = document.getElementById('adult_final_lkr_mix');
+
+        const p3ChildExtraEl = document.getElementById('child_final_lkr_3star');
+        const p3ChildShareEl = document.getElementById('child_sharing_final_lkr_3star');
+        const p4ChildExtraEl = document.getElementById('child_final_lkr_4star');
+        const p4ChildShareEl = document.getElementById('child_sharing_final_lkr_4star');
+        const pMixChildExtraEl = document.getElementById('child_final_lkr_mix');
+        const pMixChildShareEl = document.getElementById('child_sharing_final_lkr_mix');
+
+        const includeChildExtra = document.getElementById('check_child_extra_bed')?.checked ?? false;
+        const includeChildShare = document.getElementById('check_child_sharing_bed')?.checked ?? false;
+        const hasChildPrices = Boolean(includeChildExtra || includeChildShare);
+
+        const p3Amount = 'LKR ' + cleanLkrNumber(p3El?.innerText);
+        const p3ChildExtra = includeChildExtra ? ('LKR ' + cleanLkrNumber(p3ChildExtraEl?.innerText)) : null;
+        const p3ChildShare = includeChildShare ? ('LKR ' + cleanLkrNumber(p3ChildShareEl?.innerText)) : null;
+
+        const p4Amount = 'LKR ' + cleanLkrNumber(p4El?.innerText);
+        const p4ChildExtra = includeChildExtra ? ('LKR ' + cleanLkrNumber(p4ChildExtraEl?.innerText)) : null;
+        const p4ChildShare = includeChildShare ? ('LKR ' + cleanLkrNumber(p4ChildShareEl?.innerText)) : null;
+        const p5El = document.getElementById('adult_final_lkr_5star');
+        const p5ChildExtraEl = document.getElementById('child_final_lkr_5star');
+        const p5ChildShareEl = document.getElementById('child_sharing_final_lkr_5star');
+        const p5Amount = 'LKR ' + cleanLkrNumber(p5El?.innerText);
+        const p5ChildExtra = includeChildExtra ? ('LKR ' + cleanLkrNumber(p5ChildExtraEl?.innerText)) : null;
+        const p5ChildShare = includeChildShare ? ('LKR ' + cleanLkrNumber(p5ChildShareEl?.innerText)) : null;
+
+        const mixCard = document.getElementById('result_card_mix');
+        let mixObj = null;
+        if (mixCard && mixCard.style.display !== 'none' && pMixEl && pMixEl.innerText) {
+            mixObj = {
+                adult: 'LKR ' + cleanLkrNumber(pMixEl.innerText),
+                childExtra: includeChildExtra ? ('LKR ' + cleanLkrNumber(pMixChildExtraEl?.innerText)) : null,
+                childShare: includeChildShare ? ('LKR ' + cleanLkrNumber(pMixChildShareEl?.innerText)) : null,
+                title: document.getElementById('mix_package_title')?.innerText || 'Custom Mix Option'
+            };
+        }
+
+        const rawPaxNum = Number(document.getElementById('num_people_hotel')?.value) || 2;
+        const pax = document.getElementById('exportItineraryPax')?.value.trim() || (String(rawPaxNum).padStart(2, '0') + 'Pax');
+        const childExtraLabel = document.getElementById('exportChildExtraBedLabel')?.value.trim() || 'PER CHILD (WITH EXTRA BED)';
+        const childShareLabel = document.getElementById('exportChildSharingBedLabel')?.value.trim() || 'PER CHILD (SHARING BED)';
+
+        const selectedCities = (typeof availableCities !== 'undefined' ? availableCities : []).filter(c => c.selected);
+        const hotelNames = {
+            star3: selectedCities.map(c => `${c.name}-${c.hotel3Name}`).filter(Boolean),
+            star4: selectedCities.map(c => `${c.name} - ${c.hotel4Name}`).filter(Boolean),
+            star5: selectedCities.map(c => c.hotel5Name ? `${c.name} - ${c.hotel5Name}` : '').filter(Boolean),
+            mix: selectedCities.map(c => {
+                const hName = c.mixPref === '4' ? c.hotel4Name : (c.mixPref === '5' ? (c.hotel5Name || c.hotel4Name) : c.hotel3Name);
+                return hName ? `${c.name} - ${hName}` : '';
+            }).filter(Boolean)
+        };
+
+        return {
+            title: payload?.title || document.getElementById('exportItineraryTitle')?.value || 'Tour Package',
+            pax: pax,
+            hasMix: Boolean(mixObj),
+            hasChildPrices: hasChildPrices,
+            includeChildExtraBed: includeChildExtra,
+            includeChildSharingBed: includeChildShare,
+            prices3Star: {
+                adult: p3Amount,
+                childExtra: p3ChildExtra,
+                childShare: p3ChildShare
+            },
+            prices4Star: {
+                adult: p4Amount,
+                childExtra: p4ChildExtra,
+                childShare: p4ChildShare
+            },
+            pricesMix: mixObj,
+            prices5Star: (p5El && p5El.innerText && cleanLkrNumber(p5El.innerText) !== '0') ? {
+                adult: p5Amount,
+                childExtra: p5ChildExtra,
+                childShare: p5ChildShare
+            } : null,
+            hotelNames: hotelNames,
+            childExtraLabel: childExtraLabel,
+            childShareLabel: childShareLabel,
+            timestamp: Date.now()
+        };
+    }
+
     function saveLatestCostingPrices(payload = null) {
         try {
-            const p3El = document.getElementById('adult_final_lkr_3star');
-            const p4El = document.getElementById('adult_final_lkr_4star');
-            const pMixEl = document.getElementById('adult_final_lkr_mix');
+            const currentSummary = buildCurrentPricingSummary(payload);
 
-            const p3ChildExtraEl = document.getElementById('child_final_lkr_3star');
-            const p3ChildShareEl = document.getElementById('child_sharing_final_lkr_3star');
-            const p4ChildExtraEl = document.getElementById('child_final_lkr_4star');
-            const p4ChildShareEl = document.getElementById('child_sharing_final_lkr_4star');
-            const pMixChildExtraEl = document.getElementById('child_final_lkr_mix');
-            const pMixChildShareEl = document.getElementById('child_sharing_final_lkr_mix');
-
-            const includeChildExtra = document.getElementById('check_child_extra_bed')?.checked ?? false;
-            const includeChildShare = document.getElementById('check_child_sharing_bed')?.checked ?? false;
-            const hasChildPrices = Boolean(includeChildExtra || includeChildShare);
-
-            const p3Amount = 'LKR ' + cleanLkrNumber(p3El?.innerText);
-            const p3ChildExtra = includeChildExtra ? ('LKR ' + cleanLkrNumber(p3ChildExtraEl?.innerText)) : null;
-            const p3ChildShare = includeChildShare ? ('LKR ' + cleanLkrNumber(p3ChildShareEl?.innerText)) : null;
-
-            const p4Amount = 'LKR ' + cleanLkrNumber(p4El?.innerText);
-            const p4ChildExtra = includeChildExtra ? ('LKR ' + cleanLkrNumber(p4ChildExtraEl?.innerText)) : null;
-            const p4ChildShare = includeChildShare ? ('LKR ' + cleanLkrNumber(p4ChildShareEl?.innerText)) : null;
-            const p5El = document.getElementById('adult_final_lkr_5star');
-            const p5ChildExtraEl = document.getElementById('child_final_lkr_5star');
-            const p5ChildShareEl = document.getElementById('child_sharing_final_lkr_5star');
-            const p5Amount = 'LKR ' + cleanLkrNumber(p5El?.innerText);
-            const p5ChildExtra = includeChildExtra ? ('LKR ' + cleanLkrNumber(p5ChildExtraEl?.innerText)) : null;
-            const p5ChildShare = includeChildShare ? ('LKR ' + cleanLkrNumber(p5ChildShareEl?.innerText)) : null;
-
-            const mixCard = document.getElementById('result_card_mix');
-            let mixObj = null;
-            if (mixCard && mixCard.style.display !== 'none' && pMixEl && pMixEl.innerText) {
-                mixObj = {
-                    adult: 'LKR ' + cleanLkrNumber(pMixEl.innerText),
-                    childExtra: includeChildExtra ? ('LKR ' + cleanLkrNumber(pMixChildExtraEl?.innerText)) : null,
-                    childShare: includeChildShare ? ('LKR ' + cleanLkrNumber(pMixChildShareEl?.innerText)) : null,
-                    title: document.getElementById('mix_package_title')?.innerText || 'Custom Mix Option'
-                };
+            if (typeof snapshotCurrentCostingOption === 'function') {
+                snapshotCurrentCostingOption(currentSummary);
+                if (!window.__slwIsSwitchingOption && typeof renderCostingOptionsUI === 'function') {
+                    renderCostingOptionsUI();
+                }
             }
 
-            const rawPaxNum = Number(document.getElementById('num_people_hotel')?.value) || 2;
-            const pax = document.getElementById('exportItineraryPax')?.value.trim() || (String(rawPaxNum).padStart(2, '0') + 'Pax');
-            const childExtraLabel = document.getElementById('exportChildExtraBedLabel')?.value.trim() || 'PER CHILD (WITH EXTRA BED)';
-            const childShareLabel = document.getElementById('exportChildSharingBedLabel')?.value.trim() || 'PER CHILD (SHARING BED)';
-
-            const summary = {
-                title: payload?.title || document.getElementById('exportItineraryTitle')?.value || 'Tour Package',
-                pax: pax,
-                hasMix: Boolean(mixObj),
-                hasChildPrices: hasChildPrices,
-                includeChildExtraBed: includeChildExtra,
-                includeChildSharingBed: includeChildShare,
-                prices3Star: {
-                    adult: p3Amount,
-                    childExtra: p3ChildExtra,
-                    childShare: p3ChildShare
-                },
-                prices4Star: {
-                    adult: p4Amount,
-                    childExtra: p4ChildExtra,
-                    childShare: p4ChildShare
-                },
-                pricesMix: mixObj,
-                prices5Star: (p5El && p5El.innerText && cleanLkrNumber(p5El.innerText) !== '0') ? {
-                    adult: p5Amount,
-                    childExtra: p5ChildExtra,
-                    childShare: p5ChildShare
-                } : null,
-                childExtraLabel: childExtraLabel,
-                childShareLabel: childShareLabel,
-                timestamp: Date.now()
-            };
+            let summary = currentSummary;
+            if (Array.isArray(window.costingOptionsList) && window.costingOptionsList.length > 1) {
+                const opt0Sum = window.costingOptionsList[0]?.pricingSummary || currentSummary;
+                summary = {
+                    ...JSON.parse(JSON.stringify(opt0Sum)),
+                    timestamp: Date.now(),
+                    activeOptionIndex: window.activeCostingOptionIndex || 0,
+                    options: window.costingOptionsList.map((opt, idx) => {
+                        const s = opt.pricingSummary || currentSummary;
+                        return {
+                            optionIndex: idx,
+                            id: opt.id || ('opt_' + (idx + 1)),
+                            name: opt.name || `Option ${String(idx + 1).padStart(2, '0')}`,
+                            description: opt.diffSummary || opt.description || '',
+                            ...JSON.parse(JSON.stringify(s))
+                        };
+                    })
+                };
+            } else {
+                const optName = (Array.isArray(window.costingOptionsList) && window.costingOptionsList[0]?.name) || 'Option 01 - Standard';
+                summary = {
+                    ...currentSummary,
+                    activeOptionIndex: 0,
+                    options: [
+                        {
+                            optionIndex: 0,
+                            id: 'opt_1',
+                            name: optName,
+                            description: '',
+                            ...JSON.parse(JSON.stringify(currentSummary))
+                        }
+                    ]
+                };
+            }
 
             localStorage.setItem('SLW_LATEST_COSTING_PRICES', JSON.stringify(summary));
             return summary;

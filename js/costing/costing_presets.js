@@ -446,6 +446,9 @@
         }
 
         activeLoadedPresetKey = presetKey;
+        if (typeof resetCostingOptionsToSingle === 'function') {
+            resetCostingOptionsToSingle(false);
+        }
 
         // 1. Setup Cities
         availableCities = [];

@@ -2254,6 +2254,15 @@ function slwGoHome() {
                 if (pricesToLoad.pricesMix) pricesToLoad.pricesMix.childShare = null;
                 if (pricesToLoad.prices5Star) pricesToLoad.prices5Star.childShare = null;
             }
+            if (Array.isArray(docData.packages) && docData.packages.length > 1) {
+                pricesToLoad.options = docData.packages.map((p, idx) => ({
+                    optionIndex: idx,
+                    id: p.id || ('pkg_' + (idx + 1)),
+                    name: p.packageName || ('Option ' + String(idx + 1).padStart(2, '0')),
+                    description: p.description || '',
+                    ...(p.pricingSummary || {})
+                }));
+            }
             localStorage.setItem('SLW_LATEST_COSTING_PRICES', JSON.stringify(pricesToLoad));
         }
 
@@ -2889,7 +2898,7 @@ window.slwDownloadCostingExcelFromBuilder = async function() {
     }
 };
 
-window.slwApplyCostingPrices = function(targetOptionIndex = 0) {
+window.slwResolveCostingDataForOption = function(targetOptionIndex = 0) {
         let costingData = null;
         const activeInqKey = window.__slwActiveInq || localStorage.getItem('SLW_ACTIVE_INQ');
         let activeDoc = null;
@@ -2900,28 +2909,48 @@ window.slwApplyCostingPrices = function(targetOptionIndex = 0) {
             } catch(e) {}
         }
 
-        if (activeDoc) {
-            const activePkgId = window.__slwActivePackageId || localStorage.getItem('SLW_ACTIVE_INQ_PACKAGE_ID') || activeDoc.activePackageId;
-            let targetPkg = null;
-            if (Array.isArray(activeDoc.packages) && activeDoc.packages.length > 0) {
-                targetPkg = (activePkgId ? activeDoc.packages.find(p => p.id === activePkgId) : null) || activeDoc.packages[0];
-            }
-            if (targetPkg && targetPkg.pricingSummary) {
-                costingData = targetPkg.pricingSummary;
-            } else if (activeDoc.pricingSummary) {
-                costingData = activeDoc.pricingSummary;
-            }
-        }
-
         let latestCosting = null;
         try {
             const pricingJson = localStorage.getItem('SLW_LATEST_COSTING_PRICES');
             if (pricingJson) latestCosting = JSON.parse(pricingJson);
         } catch(e) {}
 
+        // Priority 1: Matching option inside SLW_LATEST_COSTING_PRICES.options[targetOptionIndex]
+        if (latestCosting && Array.isArray(latestCosting.options) && latestCosting.options.length > 0) {
+            if (latestCosting.options[targetOptionIndex]) {
+                costingData = JSON.parse(JSON.stringify(latestCosting.options[targetOptionIndex]));
+                costingData._matchedOptionIndex = targetOptionIndex;
+                costingData._hasMultipleOptions = latestCosting.options.length > 1;
+            }
+        }
+
+        // Priority 2: Active INQ packages[targetOptionIndex]
+        if (!costingData && activeDoc && Array.isArray(activeDoc.packages) && activeDoc.packages.length > 0) {
+            const idxPkg = activeDoc.packages[targetOptionIndex];
+            if (idxPkg && idxPkg.pricingSummary) {
+                costingData = JSON.parse(JSON.stringify(idxPkg.pricingSummary));
+                costingData.name = costingData.name || idxPkg.packageName;
+                costingData._matchedOptionIndex = targetOptionIndex;
+                costingData._hasMultipleOptions = activeDoc.packages.length > 1;
+            } else if (targetOptionIndex === 0) {
+                const activePkgId = window.__slwActivePackageId || localStorage.getItem('SLW_ACTIVE_INQ_PACKAGE_ID') || activeDoc.activePackageId;
+                let targetPkg = (activePkgId ? activeDoc.packages.find(p => p.id === activePkgId) : null) || activeDoc.packages[0];
+                if (targetPkg && targetPkg.pricingSummary) {
+                    costingData = JSON.parse(JSON.stringify(targetPkg.pricingSummary));
+                } else if (activeDoc.pricingSummary) {
+                    costingData = JSON.parse(JSON.stringify(activeDoc.pricingSummary));
+                }
+            }
+        }
+
+        // Priority 3: Fallback to latestCosting (supports single-option edits applied to Option 02)
         if (!costingData) {
-            costingData = latestCosting;
-        } else if (latestCosting) {
+            if (latestCosting) {
+                costingData = JSON.parse(JSON.stringify(latestCosting));
+            } else if (activeDoc && activeDoc.pricingSummary) {
+                costingData = JSON.parse(JSON.stringify(activeDoc.pricingSummary));
+            }
+        } else if (latestCosting && targetOptionIndex === 0) {
             if (!costingData.pricesMix && latestCosting.pricesMix) {
                 costingData.pricesMix = latestCosting.pricesMix;
             }
@@ -2936,6 +2965,12 @@ window.slwApplyCostingPrices = function(targetOptionIndex = 0) {
                 costingData.hasMix = true;
             }
         }
+
+        return { costingData, latestCosting, activeDoc };
+};
+
+window.slwApplyCostingPrices = function(targetOptionIndex = 0) {
+        const { costingData } = window.slwResolveCostingDataForOption(targetOptionIndex);
 
         if (!costingData) {
             slwShowError("Tour Costing මිල ගණන් හමු නොවීය! කරුණාකර පළමුව Tour Costing Calculator එකෙන් මිල ගණන් ගණනය කර 'Create Itinerary' ලබා දෙන්න.");
@@ -2954,8 +2989,44 @@ window.slwApplyCostingPrices = function(targetOptionIndex = 0) {
         }
 
         window.__slwIsApplyingCosting = true;
+        window.__slwApplyAllOptionsMode = false;
         window.__slwTargetCostingOptionIndex = targetOptionIndex;
         window.__slwTargetCostingData = costingData;
+        exportBtn.click();
+    };
+
+window.slwApplyAllCostingOptions = function() {
+        let latestCosting = null;
+        try {
+            const pricingJson = localStorage.getItem('SLW_LATEST_COSTING_PRICES');
+            if (pricingJson) latestCosting = JSON.parse(pricingJson);
+        } catch(e) {}
+
+        const optionsList = (latestCosting && Array.isArray(latestCosting.options) && latestCosting.options.length > 0)
+            ? latestCosting.options
+            : (latestCosting ? [latestCosting] : []);
+
+        if (optionsList.length === 0) {
+            slwShowError("Tour Costing මිල ගණන් හමු නොවීය!");
+            return;
+        }
+
+        const allBtns = Array.from(document.querySelectorAll('button'));
+        const exportBtn = allBtns.find(b => {
+            const t = (b.textContent || b.innerText || '').trim();
+            return t.includes('Export JSON') || t.includes('Export Json');
+        });
+
+        if (!exportBtn) {
+            slwShowError("Export JSON බොත්තම හමු නොවීය. කරුණාකර පිටුව Refresh කරන්න.");
+            return;
+        }
+
+        window.__slwIsApplyingCosting = true;
+        window.__slwApplyAllOptionsMode = true;
+        window.__slwTargetCostingOptionIndex = 0;
+        window.__slwTargetCostingData = latestCosting;
+        window.__slwAllCostingOptionsList = optionsList;
         exportBtn.click();
     };
 
@@ -3146,7 +3217,10 @@ window.slwApplyCostingPrices = function(targetOptionIndex = 0) {
 
         if (window.__slwIsApplyingCosting && (this.download === 'itinerary_data.json' || (this.download && this.download.match(/\.json$/i)))) {
             window.__slwIsApplyingCosting = false;
+            const applyAllMode = Boolean(window.__slwApplyAllOptionsMode);
+            window.__slwApplyAllOptionsMode = false;
             const costingData = window.__slwTargetCostingData;
+            const allOptionsList = window.__slwAllCostingOptionsList || [];
             const targetOptIdx = window.__slwTargetCostingOptionIndex || 0;
             const href = this.href;
 
@@ -3171,10 +3245,6 @@ window.slwApplyCostingPrices = function(targetOptionIndex = 0) {
                         currentData.options = [{ id: 1, name: "Option 01 - Standard", description: "", hotels: [] }];
                     }
 
-                    const opt = currentData.options[targetOptIdx] || currentData.options[0];
-                    if (!opt.hotels) opt.hotels = [];
-
-                    // 1. Resolve Active INQ Doc if available
                     const activeInqKey = window.__slwActiveInq || localStorage.getItem('SLW_ACTIVE_INQ');
                     let activeDoc = null;
                     if (activeInqKey) {
@@ -3184,207 +3254,267 @@ window.slwApplyCostingPrices = function(targetOptionIndex = 0) {
                         } catch(e) {}
                     }
 
-                    // 2. Determine Child Pricing Permissions
-                    let allowChildExtra = false;
-                    let allowChildShare = false;
-
-                    if (activeDoc) {
-                        if (activeDoc.includeChildExtraBed !== undefined) {
-                            allowChildExtra = Boolean(activeDoc.includeChildExtraBed);
-                        } else if (activeDoc.costing?.includeChildExtraBed !== undefined) {
-                            allowChildExtra = Boolean(activeDoc.costing.includeChildExtraBed);
-                        } else if (activeDoc.rates?.childExtra3) {
-                            allowChildExtra = true;
+                    const applySingleCostingToOptionIndex = (optIdxToUpdate, optCostingData) => {
+                        while (currentData.options.length <= optIdxToUpdate) {
+                            const nextNum = String(currentData.options.length + 1).padStart(2, '0');
+                            currentData.options.push({
+                                id: Date.now() + currentData.options.length,
+                                name: optCostingData.name || `Option ${nextNum} - Alternative`,
+                                description: optCostingData.description || "",
+                                hotels: []
+                            });
                         }
 
-                        if (activeDoc.includeChildSharingBed !== undefined) {
-                            allowChildShare = Boolean(activeDoc.includeChildSharingBed);
-                        } else if (activeDoc.costing?.includeChildSharingBed !== undefined) {
-                            allowChildShare = Boolean(activeDoc.costing.includeChildSharingBed);
-                        } else if (activeDoc.rates?.childShare3) {
-                            allowChildShare = true;
+                        const opt = currentData.options[optIdxToUpdate];
+                        if (!opt.hotels) opt.hotels = [];
+
+                        if (optIdxToUpdate > 0 && optCostingData.name && (!opt.name || /new option/i.test(opt.name))) {
+                            opt.name = optCostingData.name;
+                        }
+                        if (optIdxToUpdate > 0 && optCostingData.description && (!opt.description || /new option description/i.test(opt.description))) {
+                            opt.description = optCostingData.description;
                         }
 
-                        if (activeDoc.hasChildPrices === false) {
+                        let allowChildExtra = false;
+                        let allowChildShare = false;
+
+                        if (activeDoc) {
+                            if (activeDoc.includeChildExtraBed !== undefined) {
+                                allowChildExtra = Boolean(activeDoc.includeChildExtraBed);
+                            } else if (activeDoc.costing?.includeChildExtraBed !== undefined) {
+                                allowChildExtra = Boolean(activeDoc.costing.includeChildExtraBed);
+                            } else if (activeDoc.rates?.childExtra3) {
+                                allowChildExtra = true;
+                            }
+
+                            if (activeDoc.includeChildSharingBed !== undefined) {
+                                allowChildShare = Boolean(activeDoc.includeChildSharingBed);
+                            } else if (activeDoc.costing?.includeChildSharingBed !== undefined) {
+                                allowChildShare = Boolean(activeDoc.costing.includeChildSharingBed);
+                            } else if (activeDoc.rates?.childShare3) {
+                                allowChildShare = true;
+                            }
+
+                            if (activeDoc.hasChildPrices === false) {
+                                allowChildExtra = false;
+                                allowChildShare = false;
+                            }
+                        }
+
+                        if (optCostingData.includeChildExtraBed !== undefined) {
+                            allowChildExtra = Boolean(optCostingData.includeChildExtraBed);
+                        }
+                        if (optCostingData.includeChildSharingBed !== undefined) {
+                            allowChildShare = Boolean(optCostingData.includeChildSharingBed);
+                        }
+                        if (optCostingData.hasChildPrices === false) {
                             allowChildExtra = false;
                             allowChildShare = false;
                         }
-                    }
 
-                    if (costingData.includeChildExtraBed !== undefined) {
-                        allowChildExtra = Boolean(costingData.includeChildExtraBed);
-                    }
-                    if (costingData.includeChildSharingBed !== undefined) {
-                        allowChildShare = Boolean(costingData.includeChildSharingBed);
-                    }
-                    if (costingData.hasChildPrices === false) {
-                        allowChildExtra = false;
-                        allowChildShare = false;
-                    }
-
-                    // Fallback to localStorage toggles if neither doc nor costingData specified flags
-                    if (!activeDoc && costingData.includeChildExtraBed === undefined && costingData.hasChildPrices === undefined) {
-                        const rawExtra = localStorage.getItem('bp_child_opt_extra');
-                        const rawShare = localStorage.getItem('bp_child_opt_share');
-                        if (rawExtra !== null) allowChildExtra = (rawExtra === 'true');
-                        if (rawShare !== null) allowChildShare = (rawShare === 'true');
-                    }
-
-                    const pax = costingData.pax || currentData.pax || '02Pax';
-                    const childExtraLabel = costingData.childExtraLabel || 'PER CHILD (WITH EXTRA BED)';
-                    const childShareLabel = costingData.childShareLabel || 'PER CHILD (SHARING BED)';
-
-                    // Intelligent Classification & Multi-Star / Mix Hotel Option update
-                    const getRatingText = (h) => {
-                        if (!h || !h.rating) return '';
-                        if (Array.isArray(h.rating)) return h.rating.join(' ').toLowerCase();
-                        return String(h.rating).toLowerCase();
-                    };
-
-                    const classifyHotel = (h) => {
-                        const rTxt = getRatingText(h);
-                        const nTxt = Array.isArray(h.names) ? h.names.join(' ').toLowerCase() : String(h.names || '').toLowerCase();
-                        const allTxt = (rTxt + ' ' + nTxt).toLowerCase();
-
-                        const has3 = rTxt.includes('3*') || rTxt.includes('3 star') || rTxt.includes('3-star');
-                        const has4 = rTxt.includes('4*') || rTxt.includes('4 star') || rTxt.includes('4-star');
-                        const has5 = rTxt.includes('5*') || rTxt.includes('5 star') || rTxt.includes('5-star');
-
-                        const hasMixKeyword = allTxt.includes('mix') || allTxt.includes('custom') || allTxt.includes('combination') || allTxt.includes('split');
-                        const hasMultiStarsInRating = (has3 && has4) || (has3 && has5) || (has4 && has5);
-                        const hasMultiStarsInAll = (allTxt.includes('3*') || allTxt.includes('3 star')) && (allTxt.includes('4*') || allTxt.includes('4 star'));
-
-                        if (hasMixKeyword || hasMultiStarsInRating || (hasMultiStarsInAll && !rTxt.includes('4* hotel options') && !rTxt.includes('3* hotel options'))) {
-                            return 'mix';
-                        }
-                        if (has3) return '3star';
-                        if (has4) return '4star';
-                        if (has5) return '5star';
-                        return 'unknown';
-                    };
-
-                    const applyPricesToHotel = (h, priceObj) => {
-                        if (!h || !priceObj || !priceObj.adult) return;
-
-                        const paxLabel = `PER PERSON (MINIMUM ${pax.toUpperCase()})`;
-                        h.price = `${priceObj.adult} Per Person (Minimum ${pax})`;
-
-                        const childExtraLabel = costingData.childExtraLabel || 'PER CHILD (WITH EXTRA BED)';
-                        const childShareLabel = costingData.childShareLabel || 'PER CHILD (SHARING BED)';
-
-                        const updatedPrices = [
-                            { label: paxLabel, amount: priceObj.adult }
-                        ];
-
-                        if (allowChildExtra && priceObj.childExtra && priceObj.childExtra !== 'LKR 0' && priceObj.childExtra !== 'LKR') {
-                            updatedPrices.push({
-                                label: childExtraLabel,
-                                amount: priceObj.childExtra
-                            });
+                        if (!activeDoc && optCostingData.includeChildExtraBed === undefined && optCostingData.hasChildPrices === undefined) {
+                            const rawExtra = localStorage.getItem('bp_child_opt_extra');
+                            const rawShare = localStorage.getItem('bp_child_opt_share');
+                            if (rawExtra !== null) allowChildExtra = (rawExtra === 'true');
+                            if (rawShare !== null) allowChildShare = (rawShare === 'true');
                         }
 
-                        if (allowChildShare && priceObj.childShare && priceObj.childShare !== 'LKR 0' && priceObj.childShare !== 'LKR') {
-                            updatedPrices.push({
-                                label: childShareLabel,
-                                amount: priceObj.childShare
-                            });
-                        }
+                        const pax = optCostingData.pax || currentData.pax || '02Pax';
+                        const childExtraLabel = optCostingData.childExtraLabel || 'PER CHILD (WITH EXTRA BED)';
+                        const childShareLabel = optCostingData.childShareLabel || 'PER CHILD (SHARING BED)';
 
-                        h.prices = updatedPrices;
-                    };
+                        const getRatingText = (h) => {
+                            if (!h || !h.rating) return '';
+                            if (Array.isArray(h.rating)) return h.rating.join(' ').toLowerCase();
+                            return String(h.rating).toLowerCase();
+                        };
 
-                    let h3 = null;
-                    let hMix = null;
-                    let h4 = null;
-                    let h5 = null;
-                    const otherHotels = [];
+                        const classifyHotel = (h) => {
+                            const rTxt = getRatingText(h);
+                            const nTxt = Array.isArray(h.names) ? h.names.join(' ').toLowerCase() : String(h.names || '').toLowerCase();
+                            const allTxt = (rTxt + ' ' + nTxt).toLowerCase();
 
-                    opt.hotels.forEach(h => {
-                        const cat = classifyHotel(h);
-                        if (cat === '3star' && !h3) h3 = h;
-                        else if (cat === 'mix' && !hMix) hMix = h;
-                        else if (cat === '4star' && !h4) h4 = h;
-                        else if (cat === '5star' && !h5) h5 = h;
-                        else otherHotels.push(h);
-                    });
+                            const has3 = rTxt.includes('3*') || rTxt.includes('3 star') || rTxt.includes('3-star');
+                            const has4 = rTxt.includes('4*') || rTxt.includes('4 star') || rTxt.includes('4-star');
+                            const has5 = rTxt.includes('5*') || rTxt.includes('5 star') || rTxt.includes('5-star');
 
-                    const cleanNum = (val) => String(val || '').replace(/[^0-9]/g, '');
-                    const hasMixPrice = Boolean(
-                        costingData.hasMix ||
-                        (costingData.pricesMix && costingData.pricesMix.adult && cleanNum(costingData.pricesMix.adult) !== '0' && cleanNum(costingData.pricesMix.adult) !== '')
-                    );
+                            const hasMixKeyword = allTxt.includes('mix') || allTxt.includes('custom') || allTxt.includes('combination') || allTxt.includes('split');
+                            const hasMultiStarsInRating = (has3 && has4) || (has3 && has5) || (has4 && has5);
+                            const hasMultiStarsInAll = (allTxt.includes('3*') || allTxt.includes('3 star')) && (allTxt.includes('4*') || allTxt.includes('4 star'));
 
-                    // Fallbacks for unknown categories
-                    if (!h3 && otherHotels.length > 0) h3 = otherHotels.shift();
-
-                    // Fallback for Mix Hotel if 3 hotels exist in the option and middle hotel wasn't assigned
-                    if (!hMix && opt.hotels.length >= 3 && opt.hotels[1] !== h3 && opt.hotels[1] !== h4) {
-                        hMix = opt.hotels[1];
-                        const oIdx = otherHotels.indexOf(hMix);
-                        if (oIdx !== -1) otherHotels.splice(oIdx, 1);
-                    }
-                    if (!hMix && otherHotels.length > 0 && hasMixPrice) {
-                        hMix = otherHotels.shift();
-                    }
-                    if (!h4 && otherHotels.length > 0) h4 = otherHotels.shift();
-                    if (!h5 && otherHotels.length > 0) h5 = otherHotels.shift();
-
-                    if (costingData.prices3Star) {
-                        if (!h3) {
-                            h3 = { rating: "3* Hotel Options", names: ["Standard 3* Hotel Accommodation"], price: "", prices: [] };
-                            opt.hotels.unshift(h3);
-                        }
-                        applyPricesToHotel(h3, costingData.prices3Star);
-                    }
-
-                    if (hasMixPrice && costingData.pricesMix && costingData.pricesMix.adult) {
-                        if (!hMix) {
-                            const mixTitle = costingData.pricesMix.title || "Mix Hotel Option";
-                            hMix = { rating: mixTitle, names: ["Mix Hotel Accommodation"], price: "", prices: [] };
-                            const idx3 = opt.hotels.indexOf(h3);
-                            if (idx3 !== -1) {
-                                opt.hotels.splice(idx3 + 1, 0, hMix);
-                            } else {
-                                opt.hotels.push(hMix);
+                            if (hasMixKeyword || hasMultiStarsInRating || (hasMultiStarsInAll && !rTxt.includes('4* hotel options') && !rTxt.includes('3* hotel options'))) {
+                                return 'mix';
                             }
+                            if (has3) return '3star';
+                            if (has4) return '4star';
+                            if (has5) return '5star';
+                            return 'unknown';
+                        };
+
+                        const isPlaceholderHotelNames = (names) => {
+                            if (!names) return true;
+                            const str = Array.isArray(names) ? names.join(' ') : String(names);
+                            const trimmed = str.trim().toLowerCase();
+                            return !trimmed || trimmed === 'new hotel 3*' || trimmed === 'standard 3* hotel accommodation' || trimmed === 'standard 4* hotel accommodation' || trimmed === 'mix hotel accommodation';
+                        };
+
+                        const getFallbackNamesFromOpt0 = (cat) => {
+                            const opt0Hotels = currentData.options[0]?.hotels || [];
+                            const match = opt0Hotels.find(h => classifyHotel(h) === cat);
+                            return match && !isPlaceholderHotelNames(match.names) ? JSON.parse(JSON.stringify(match.names)) : null;
+                        };
+
+                        const applyPricesToHotel = (h, priceObj) => {
+                            if (!h || !priceObj || !priceObj.adult) return;
+
+                            const paxLabel = `PER PERSON (MINIMUM ${pax.toUpperCase()})`;
+                            h.price = `${priceObj.adult} Per Person (Minimum ${pax})`;
+
+                            const updatedPrices = [
+                                { label: paxLabel, amount: priceObj.adult }
+                            ];
+
+                            if (allowChildExtra && priceObj.childExtra && priceObj.childExtra !== 'LKR 0' && priceObj.childExtra !== 'LKR') {
+                                updatedPrices.push({
+                                    label: childExtraLabel,
+                                    amount: priceObj.childExtra
+                                });
+                            }
+
+                            if (allowChildShare && priceObj.childShare && priceObj.childShare !== 'LKR 0' && priceObj.childShare !== 'LKR') {
+                                updatedPrices.push({
+                                    label: childShareLabel,
+                                    amount: priceObj.childShare
+                                });
+                            }
+
+                            h.prices = updatedPrices;
+                        };
+
+                        let h3 = null;
+                        let hMix = null;
+                        let h4 = null;
+                        let h5 = null;
+                        const otherHotels = [];
+
+                        opt.hotels.forEach(h => {
+                            const cat = classifyHotel(h);
+                            if (cat === '3star' && !h3) h3 = h;
+                            else if (cat === 'mix' && !hMix) hMix = h;
+                            else if (cat === '4star' && !h4) h4 = h;
+                            else if (cat === '5star' && !h5) h5 = h;
+                            else otherHotels.push(h);
+                        });
+
+                        const cleanNum = (val) => String(val || '').replace(/[^0-9]/g, '');
+                        const hasMixPrice = Boolean(
+                            optCostingData.hasMix ||
+                            (optCostingData.pricesMix && optCostingData.pricesMix.adult && cleanNum(optCostingData.pricesMix.adult) !== '0' && cleanNum(optCostingData.pricesMix.adult) !== '')
+                        );
+
+                        if (!h3 && otherHotels.length > 0) h3 = otherHotels.shift();
+                        if (!hMix && opt.hotels.length >= 3 && opt.hotels[1] !== h3 && opt.hotels[1] !== h4) {
+                            hMix = opt.hotels[1];
+                            const oIdx = otherHotels.indexOf(hMix);
+                            if (oIdx !== -1) otherHotels.splice(oIdx, 1);
                         }
-                        applyPricesToHotel(hMix, costingData.pricesMix);
-                    }
-
-                    if (costingData.prices4Star) {
-                        if (!h4) {
-                            h4 = { rating: "4* Hotel Options", names: ["Standard 4* Hotel Accommodation"], price: "", prices: [] };
-                            opt.hotels.push(h4);
+                        if (!hMix && otherHotels.length > 0 && hasMixPrice) {
+                            hMix = otherHotels.shift();
                         }
-                        applyPricesToHotel(h4, costingData.prices4Star);
-                    }
+                        if (!h4 && otherHotels.length > 0) h4 = otherHotels.shift();
+                        if (!h5 && otherHotels.length > 0) h5 = otherHotels.shift();
 
-                    if (costingData.prices5Star && h5) {
-                        applyPricesToHotel(h5, costingData.prices5Star);
-                    }
-
-                    // Clean out any disallowed child prices across ALL hotels in the target option
-                    (opt.hotels || []).forEach(h => {
-                        if (Array.isArray(h.prices)) {
-                            h.prices = h.prices.filter(p => {
-                                const l = (p.label || '').toLowerCase();
-                                const isExtra = l.includes('extra bed');
-                                const isShare = l.includes('sharing') || l.includes('no bed');
-                                const isChild = l.includes('child') || l.includes('kid');
-                                if (isExtra && !allowChildExtra) return false;
-                                if (isShare && !allowChildShare) return false;
-                                if (isChild && !allowChildExtra && !allowChildShare) return false;
-                                return true;
-                            });
+                        if (optCostingData.prices3Star) {
+                            const names3 = (optCostingData.hotelNames?.star3?.length > 0)
+                                ? optCostingData.hotelNames.star3
+                                : (getFallbackNamesFromOpt0('3star') || ["Standard 3* Hotel Accommodation"]);
+                            if (!h3) {
+                                h3 = { rating: "3* Hotel Options", names: names3, price: "", prices: [] };
+                                opt.hotels.unshift(h3);
+                            } else if (isPlaceholderHotelNames(h3.names)) {
+                                h3.names = names3;
+                            }
+                            applyPricesToHotel(h3, optCostingData.prices3Star);
                         }
-                    });
 
-                    currentData.hasChildPrices = (allowChildExtra || allowChildShare);
-                    currentData.includeChildExtraBed = allowChildExtra;
-                    currentData.includeChildSharingBed = allowChildShare;
+                        if (hasMixPrice && optCostingData.pricesMix && optCostingData.pricesMix.adult) {
+                            const mixTitle = optCostingData.pricesMix.title || "Mix Hotel Option";
+                            const namesMix = (optCostingData.hotelNames?.mix?.length > 0)
+                                ? optCostingData.hotelNames.mix
+                                : (getFallbackNamesFromOpt0('mix') || ["Mix Hotel Accommodation"]);
+                            if (!hMix) {
+                                const opt0Mix = currentData.options[0]?.hotels?.find(h => classifyHotel(h) === 'mix');
+                                hMix = { rating: opt0Mix?.rating || mixTitle, names: namesMix, price: "", prices: [] };
+                                const idx3 = opt.hotels.indexOf(h3);
+                                if (idx3 !== -1) {
+                                    opt.hotels.splice(idx3 + 1, 0, hMix);
+                                } else {
+                                    opt.hotels.push(hMix);
+                                }
+                            } else if (isPlaceholderHotelNames(hMix.names)) {
+                                hMix.names = namesMix;
+                            }
+                            applyPricesToHotel(hMix, optCostingData.pricesMix);
+                        }
 
-                    if (costingData.pax) {
-                        currentData.pax = costingData.pax;
+                        if (optCostingData.prices4Star) {
+                            const names4 = (optCostingData.hotelNames?.star4?.length > 0)
+                                ? optCostingData.hotelNames.star4
+                                : (getFallbackNamesFromOpt0('4star') || ["Standard 4* Hotel Accommodation"]);
+                            if (!h4) {
+                                h4 = { rating: "4* Hotel Options", names: names4, price: "", prices: [] };
+                                opt.hotels.push(h4);
+                            } else if (isPlaceholderHotelNames(h4.names)) {
+                                h4.names = names4;
+                            }
+                            applyPricesToHotel(h4, optCostingData.prices4Star);
+                        }
+
+                        if (optCostingData.prices5Star && h5) {
+                            applyPricesToHotel(h5, optCostingData.prices5Star);
+                        }
+
+                        (opt.hotels || []).forEach(h => {
+                            if (Array.isArray(h.prices)) {
+                                h.prices = h.prices.filter(p => {
+                                    const l = (p.label || '').toLowerCase();
+                                    const isExtra = l.includes('extra bed');
+                                    const isShare = l.includes('sharing') || l.includes('no bed');
+                                    const isChild = l.includes('child') || l.includes('kid');
+                                    if (isExtra && !allowChildExtra) return false;
+                                    if (isShare && !allowChildShare) return false;
+                                    if (isChild && !allowChildExtra && !allowChildShare) return false;
+                                    return true;
+                                });
+                            }
+                        });
+
+                        currentData.hasChildPrices = (allowChildExtra || allowChildShare);
+                        currentData.includeChildExtraBed = allowChildExtra;
+                        currentData.includeChildSharingBed = allowChildShare;
+
+                        if (optCostingData.pax) {
+                            currentData.pax = optCostingData.pax;
+                        }
+
+                        return opt;
+                    };
+
+                    let appliedSummaryText = '';
+                    if (applyAllMode && allOptionsList.length > 0) {
+                        const updatedNames = [];
+                        allOptionsList.forEach((optCd, i) => {
+                            const updatedOpt = applySingleCostingToOptionIndex(i, optCd);
+                            updatedNames.push(updatedOpt.name || `Option ${String(i + 1).padStart(2, '0')}`);
+                        });
+                        appliedSummaryText = `${updatedNames.length} Options (${updatedNames.join(' & ')}) වෙත මිල ගණන් සාර්ථකව යොදන ලදී!`;
+                    } else {
+                        const opt = applySingleCostingToOptionIndex(targetOptIdx, costingData);
+                        const summaryParts = [];
+                        if (costingData.prices3Star?.adult) summaryParts.push(`3*: ${costingData.prices3Star.adult}`);
+                        if (costingData.pricesMix?.adult) summaryParts.push(`Mix: ${costingData.pricesMix.adult}`);
+                        if (costingData.prices4Star?.adult) summaryParts.push(`4*: ${costingData.prices4Star.adult}`);
+                        appliedSummaryText = `${opt.name || ('Option ' + String(targetOptIdx + 1).padStart(2, '0'))} වෙත (${summaryParts.join(' | ')}) මිල ගණන් සාර්ථකව යොදන ලදී.`;
                     }
 
                     let fileInput = document.querySelector('input[type="file"][accept=".json"]');
@@ -3413,14 +3543,9 @@ window.slwApplyCostingPrices = function(targetOptionIndex = 0) {
 
                         window.__slwBaseData = JSON.parse(JSON.stringify(currentData));
 
-                        const summaryParts = [];
-                        if (costingData.prices3Star?.adult) summaryParts.push(`3*: ${costingData.prices3Star.adult}`);
-                        if (costingData.pricesMix?.adult) summaryParts.push(`Mix: ${costingData.pricesMix.adult}`);
-                        if (costingData.prices4Star?.adult) summaryParts.push(`4*: ${costingData.prices4Star.adult}`);
-
                         slwShowSuccess(
                             "⚡ Costing Prices සාර්ථකව Update විය!",
-                            `${opt.name || 'Option 01'} වෙත (${summaryParts.join(' | ')}) මිල ගණන් සාර්ථකව යොදන ලදී.`
+                            appliedSummaryText
                         );
                     }
                 } catch(err) {
@@ -3651,33 +3776,57 @@ window.slwApplyCostingPrices = function(targetOptionIndex = 0) {
                 parentContainer.insertBefore(optCostingBtn, catBtn);
             }
 
-            // Dynamically update price badge on the button
+            // Dynamically update price badge on the button (per Option index!)
             const badgeEl = optCostingBtn.querySelector('.slw-costing-badge');
+            const resolved = (typeof window.slwResolveCostingDataForOption === 'function')
+                ? window.slwResolveCostingDataForOption(optIdx)
+                : { costingData: null, latestCosting: null };
+            const cd = resolved.costingData;
+            const latestCd = resolved.latestCosting;
+            const hasMultiCosting = Boolean(latestCd && Array.isArray(latestCd.options) && latestCd.options.length > 1);
+
             if (badgeEl) {
-                const raw = localStorage.getItem('SLW_LATEST_COSTING_PRICES');
-                if (raw) {
-                    try {
-                        const cd = JSON.parse(raw);
-                        const p3 = cd.prices3Star?.adult;
-                        const pMix = cd.pricesMix?.adult;
-                        const p4 = cd.prices4Star?.adult;
-                        const parts = [];
-                        if (p3) parts.push(`3*: ${p3}`);
-                        if (pMix) parts.push(`Mix: ${pMix}`);
-                        if (p4) parts.push(`4*: ${p4}`);
-                        if (parts.length > 0) {
-                            badgeEl.innerText = `(${parts.join(' | ')})`;
-                            badgeEl.style.display = 'inline-block';
-                            optCostingBtn.title = `Click to apply costing prices (${parts.join(', ')}) into this Option`;
-                        } else {
-                            badgeEl.innerText = '(Ready)';
-                        }
-                    } catch(e) {
-                        badgeEl.innerText = '';
+                if (cd) {
+                    const p3 = cd.prices3Star?.adult;
+                    const pMix = cd.hasMix !== false ? cd.pricesMix?.adult : null;
+                    const p4 = cd.prices4Star?.adult;
+                    const parts = [];
+                    if (p3) parts.push(`3*: ${p3}`);
+                    if (pMix) parts.push(`Mix: ${pMix}`);
+                    if (p4) parts.push(`4*: ${p4}`);
+                    const optTag = hasMultiCosting ? `Opt ${String(optIdx + 1).padStart(2, '0')} • ` : '';
+                    if (parts.length > 0) {
+                        badgeEl.innerText = `(${optTag}${parts.join(' | ')})`;
+                        badgeEl.style.display = 'inline-block';
+                        optCostingBtn.title = `Click to apply ${hasMultiCosting ? 'Option ' + (optIdx + 1) + ' ' : ''}costing prices (${parts.join(', ')}) into this Option`;
+                    } else {
+                        badgeEl.innerText = '(Ready)';
                     }
                 } else {
                     badgeEl.innerText = '(Costing Ready)';
                 }
+            }
+
+            // Show "Apply All Options (Opt 1 & 2...)" button when multi-option costing exists
+            let applyAllBtn = parentContainer.querySelector('.slw-opt-apply-all-btn');
+            if (optIdx === 0 && hasMultiCosting) {
+                if (!applyAllBtn) {
+                    applyAllBtn = document.createElement('button');
+                    applyAllBtn.className = 'slw-opt-apply-all-btn print:hidden';
+                    applyAllBtn.style.cssText = 'background:linear-gradient(135deg, #059669 0%, #0d9488 100%);color:#ffffff;font-size:12px;font-weight:700;padding:8px 14px;border-radius:8px;border:none;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;box-shadow:0 2px 8px rgba(5,150,105,0.35);margin:0 4px 6px 4px;vertical-align:middle;transition:all 0.2s;';
+                    applyAllBtn.onclick = function(e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        window.slwApplyAllCostingOptions();
+                    };
+                    parentContainer.insertBefore(applyAllBtn, catBtn);
+                }
+                const count = latestCd.options.length;
+                applyAllBtn.innerHTML = `<span>⚡</span><span>Apply All ${count} Options (Opt 1-${count})</span>`;
+                applyAllBtn.title = `Automatically add & apply all ${count} options from Tour Costing`;
+                applyAllBtn.style.display = 'inline-flex';
+            } else if (applyAllBtn) {
+                applyAllBtn.style.display = 'none';
             }
         });
 
@@ -3860,6 +4009,12 @@ window.slwApplyCostingPrices = function(targetOptionIndex = 0) {
     // ── FOOLPROOF PRINT SUPPRESSION HOOKS ──
     const slwHiddenDuringPrint = [];
 
+    window.addEventListener('storage', function(e) {
+        if (e.key === 'SLW_LATEST_COSTING_PRICES' && typeof injectUIControls === 'function') {
+            injectUIControls();
+        }
+    });
+
     window.addEventListener('beforeprint', function() {
         const targetSelectors = [
             '#slw-global-modal',
@@ -3877,6 +4032,7 @@ window.slwApplyCostingPrices = function(targetOptionIndex = 0) {
             '#slw-history-modal',
             '#slw-link-inq-modal',
             '.slw-opt-apply-costing-btn',
+            '.slw-opt-apply-all-btn',
             '.slw-costing-badge',
             '.slw-home-btn-container'
         ];

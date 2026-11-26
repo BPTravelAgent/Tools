@@ -26,6 +26,9 @@
             console.warn("initInqQuotationHub error:", e);
         }
         renderAll();
+        if (typeof renderCostingOptionsUI === 'function') {
+            renderCostingOptionsUI();
+        }
     };
 
     function onMarkupChange(type, category, suffix) {

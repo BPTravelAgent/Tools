@@ -1134,6 +1134,16 @@
             document.getElementById('tpl_rate_5star').value = (targetPackage ? targetPackage.tplRate5 : null) ?? docData.tplRate5 ?? 1200;
         }
 
+        if (Array.isArray(docData.packages) && docData.packages.length > 1) {
+            if (typeof loadMultiPackagesIntoCostingOptions === 'function') {
+                loadMultiPackagesIntoCostingOptions(docData.packages);
+                const pkgIdx = targetPackage ? docData.packages.findIndex(p => p.id === targetPackage.id) : 0;
+                if (pkgIdx >= 0) window.activeCostingOptionIndex = pkgIdx;
+            }
+        } else if (typeof resetCostingOptionsToSingle === 'function') {
+            resetCostingOptionsToSingle(false);
+        }
+
         renderAll();
         calculate();
 
@@ -1265,6 +1275,15 @@
                 if (pricesToUse.prices4Star) pricesToUse.prices4Star.childShare = null;
                 if (pricesToUse.pricesMix) pricesToUse.pricesMix.childShare = null;
                 if (pricesToUse.prices5Star) pricesToUse.prices5Star.childShare = null;
+            }
+            if (Array.isArray(docData.packages) && docData.packages.length > 1) {
+                pricesToUse.options = docData.packages.map((p, idx) => ({
+                    optionIndex: idx,
+                    id: p.id || ('pkg_' + (idx + 1)),
+                    name: p.packageName || ('Option ' + String(idx + 1).padStart(2, '0')),
+                    description: p.description || '',
+                    ...(p.pricingSummary || {})
+                }));
             }
             localStorage.setItem('SLW_LATEST_COSTING_PRICES', JSON.stringify(pricesToUse));
         }
