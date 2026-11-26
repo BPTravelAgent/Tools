@@ -794,8 +794,74 @@
         return uniqueName;
     }
 
+    /**
+     * Check whether a selected cities list actually configures a Mix Hotel option
+     * (either Split Stay within a city OR distinct Mix Preferences across multiple cities).
+     */
+    function hasActiveMixInCities(citiesList) {
+        if (!Array.isArray(citiesList) || citiesList.length === 0) return false;
+        const active = citiesList.filter(c => c && c.selected !== false);
+        if (active.length === 0) return false;
+        if (active.some(c => !c.isSplit && c.mixPref === 'none')) return false;
+        const hasSplit = active.some(c => Boolean(c.isSplit));
+        const uniquePrefs = new Set(active.map(c => c.mixPref).filter(p => p && p !== 'none'));
+        const hasMultiCityMix = active.length > 1 && uniquePrefs.size > 1;
+        if (!hasSplit && !hasMultiCityMix) return false;
+        return active.every(c => {
+            if (c.isSplit) return true;
+            if (c.mixPref === '3') return Boolean(c.hotel3Name);
+            if (c.mixPref === '4') return Boolean(c.hotel4Name);
+            if (c.mixPref === '5') return Boolean(c.hotel5Name);
+            return false;
+        });
+    }
+
+    /**
+     * Determine whether Mix Hotel should be included in Excel / Google Sheets.
+     * Prevents hidden/stale pMix rates from generating an unwanted Mix Hotel column.
+     */
+    function resolveHasMixFlag(sourcePayload, citiesList, optionsList, ratesObj) {
+        const activeCities = (Array.isArray(citiesList) ? citiesList : []).filter(c => c && c.selected !== false);
+        if (activeCities.length > 0) {
+            if (!hasActiveMixInCities(activeCities)) return false;
+            if (typeof sourcePayload?.hasMix === 'boolean') return sourcePayload.hasMix;
+            return true;
+        }
+        if (typeof sourcePayload?.hasMix === 'boolean') {
+            return sourcePayload.hasMix;
+        }
+        if (Array.isArray(optionsList) && optionsList.length > 0) {
+            return optionsList.some(opt =>
+                opt.hotels && opt.hotels.some(h => {
+                    const r = (h.rating || '').toLowerCase();
+                    const n = Array.isArray(h.names) ? h.names.join(' ').toLowerCase() : String(h.names || '').toLowerCase();
+                    return r.includes('mix') || n.includes('mix hotel');
+                })
+            );
+        }
+        const pMixVal = ratesObj?.pMix;
+        return Boolean(pMixVal && String(pMixVal).replace(/[^0-9]/g, '') !== '0' && String(pMixVal).trim() !== '');
+    }
+
     function normalizePackagePayload(parentDoc, pkg, idx = 0) {
         const costing = pkg.costing || {};
+        const normCities = (Array.isArray(costing.availableCities) ? costing.availableCities : (Array.isArray(pkg.cities) ? pkg.cities : (Array.isArray(parentDoc.cities) ? parentDoc.cities : []))).filter(c => c && c.selected !== false);
+        const normOptions = pkg.itinerary?.options || pkg.options || parentDoc.options;
+        const rawRates = pkg.rates || parentDoc.rates || {};
+        const explicitHasMix = costing.hasMix !== undefined
+            ? costing.hasMix
+            : (pkg.hasMix !== undefined
+                ? pkg.hasMix
+                : (pkg.pricingSummary && typeof pkg.pricingSummary.hasMix === 'boolean'
+                    ? pkg.pricingSummary.hasMix
+                    : (normCities.length === 0 ? parentDoc.hasMix : undefined)));
+        const resolvedHasMix = resolveHasMixFlag({ hasMix: explicitHasMix }, normCities, normOptions, rawRates);
+        const cleanRates = resolvedHasMix ? rawRates : {
+            ...rawRates,
+            pMix: null,
+            childExtraMix: null,
+            childShareMix: null
+        };
         return {
             ...parentDoc,
             ...costing,
@@ -815,15 +881,15 @@
             paxText: pkg.paxText || parentDoc.paxText,
             transferPax: pkg.transferPax || costing.transferPax || parentDoc.transferPax || parentDoc.pax,
             hotelDivisor: pkg.hotelDivisor || costing.hotelDivisor || parentDoc.hotelDivisor || 2,
-            cities: (Array.isArray(costing.availableCities) ? costing.availableCities : (Array.isArray(pkg.cities) ? pkg.cities : (Array.isArray(parentDoc.cities) ? parentDoc.cities : []))).filter(c => c && c.selected !== false),
+            cities: normCities,
             tours: (Array.isArray(costing.availableTours) ? costing.availableTours : (Array.isArray(pkg.tours) ? pkg.tours : (Array.isArray(parentDoc.tours) ? parentDoc.tours : []))).filter(t => t && t.selected !== false),
             transfers: (Array.isArray(costing.availableTransfers) ? costing.availableTransfers : (Array.isArray(pkg.transfers) ? pkg.transfers : (Array.isArray(parentDoc.transfers) ? parentDoc.transfers : []))).filter(t => t && t.selected !== false),
             days: pkg.itinerary?.days || costing.days || pkg.days || null,
             itinerary: pkg.itinerary || parentDoc.itinerary,
-            rates: pkg.rates || parentDoc.rates,
+            rates: cleanRates,
             pricingAdj: costing.pricingAdj || pkg.pricingAdj || parentDoc.pricingAdj,
             pricingSummary: pkg.pricingSummary || parentDoc.pricingSummary,
-            hasMix: (costing.hasMix !== undefined ? Boolean(costing.hasMix) : (pkg.hasMix !== undefined ? Boolean(pkg.hasMix) : Boolean(parentDoc.hasMix))) || Boolean(pkg.rates && pkg.rates.pMix && String(pkg.rates.pMix).replace(/[^0-9]/g, '') !== '0' && String(pkg.rates.pMix).trim() !== ''),
+            hasMix: resolvedHasMix,
             isTplActive: costing.isTplActive !== undefined ? costing.isTplActive : (pkg.isTplActive !== undefined ? pkg.isTplActive : parentDoc.isTplActive),
             tplRoomsCount: costing.tplRoomsCount !== undefined ? costing.tplRoomsCount : (pkg.tplRoomsCount !== undefined ? pkg.tplRoomsCount : parentDoc.tplRoomsCount),
             totalRoomsCount: costing.totalRoomsCount !== undefined ? costing.totalRoomsCount : (pkg.totalRoomsCount !== undefined ? pkg.totalRoomsCount : parentDoc.totalRoomsCount),
@@ -875,29 +941,7 @@
         }
 
         // 2. Determine Mix Package Presence
-        let hasMix = false;
-        if (typeof payload.hasMix === 'boolean') {
-            hasMix = payload.hasMix;
-        } else if (payload.rates && payload.rates.pMix && String(payload.rates.pMix).replace(/[^0-9]/g, '') !== '0' && String(payload.rates.pMix).trim() !== '') {
-            hasMix = true;
-        } else if (payload.options && Array.isArray(payload.options) && payload.options.length > 0) {
-            // Primary source of truth: does the itinerary offer a mix hotel option?
-            hasMix = payload.options.some(opt => 
-                opt.hotels && opt.hotels.some(h => {
-                    const r = (h.rating || '').toLowerCase();
-                    const n = Array.isArray(h.names) ? h.names.join(' ').toLowerCase() : String(h.names || '').toLowerCase();
-                    return r.includes('mix') || n.includes('mix hotel');
-                })
-            );
-        } else {
-            // Secondary fallback: only if valid pMix rate AND actual split stay or multi-city mix
-            const pMixVal = payload.rates?.pMix;
-            const hasValidMixPrice = pMixVal && String(pMixVal).replace(/[^0-9]/g, '') !== '' && String(pMixVal).replace(/[^0-9]/g, '') !== '0';
-            const isSplitStay = cities.some(c => c.isSplit);
-            const uniquePrefs = new Set(cities.map(c => c.mixPref).filter(p => p && p !== 'none'));
-            const isMultiCityMix = cities.length > 1 && uniquePrefs.size > 1;
-            hasMix = Boolean(hasValidMixPrice && (isSplitStay || isMultiCityMix));
-        }
+        const hasMix = resolveHasMixFlag(payload, cities, payload.options, payload.rates);
 
         // 2b. Determine Child Pricing Presence
         let includeChildExtra = (typeof payload.includeChildExtraBed === 'boolean') ? payload.includeChildExtraBed : true;

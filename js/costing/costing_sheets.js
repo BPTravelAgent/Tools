@@ -7,6 +7,32 @@
         return localStorage.getItem('bp_sheets_webhook_url') || DEFAULT_GOOGLE_SHEETS_WEBHOOK_URL;
     }
 
+    function resolveSheetMixActive(costingObj, ratesObj, citiesList) {
+        const activeCities = (Array.isArray(citiesList) ? citiesList : []).filter(c => c && c.selected !== false);
+        const citiesSupportMix = activeCities.length > 0 && (
+            activeCities.some(c => Boolean(c.isSplit)) ||
+            (activeCities.length > 1 && new Set(activeCities.map(c => c.mixPref).filter(p => p && p !== 'none')).size > 1)
+        ) && !activeCities.some(c => !c.isSplit && c.mixPref === 'none') && activeCities.every(c => {
+            if (c.isSplit) return true;
+            if (c.mixPref === '3') return Boolean(c.hotel3Name);
+            if (c.mixPref === '4') return Boolean(c.hotel4Name);
+            if (c.mixPref === '5') return Boolean(c.hotel5Name);
+            return false;
+        });
+
+        // If cities are defined and don't genuinely configure a Mix option, never show Mix column
+        if (activeCities.length > 0 && !citiesSupportMix) {
+            return false;
+        }
+        if (typeof costingObj?.hasMix === 'boolean') {
+            return costingObj.hasMix;
+        }
+        if (citiesSupportMix) {
+            return true;
+        }
+        return Boolean(ratesObj && ratesObj.pMix && cleanLkrNumber(ratesObj.pMix) !== '0' && cleanLkrNumber(ratesObj.pMix) !== '');
+    }
+
     function getCurrentCostingExcelPayload() {
         calculate();
         const transferPax = Math.max(1, Number(document.getElementById('num_people_transfer')?.value) || 2);
@@ -175,6 +201,7 @@
                 const optHotelDiv = Number(adjSettings.numPeopleHotel) || hotelDivisor;
                 const optIncExtra = Boolean(s.includeChildExtraBed ?? adjSettings.includeChildExtraBed ?? includeChildExtraBed);
                 const optIncShare = Boolean(s.includeChildSharingBed ?? adjSettings.includeChildSharingBed ?? includeChildSharingBed);
+                const optHasMix = resolveSheetMixActive({ hasMix: typeof s.hasMix === 'boolean' ? s.hasMix : undefined }, null, opt.availableCities);
                 return {
                     id: opt.id || ('opt_' + (idx + 1)),
                     packageName: opt.name || (`Option ${String(idx + 1).padStart(2, '0')}`),
@@ -184,7 +211,7 @@
                     hotelDivisor: optHotelDiv,
                     paxText: s.pax || paxText,
                     roe: optRoe,
-                    hasMix: Boolean(s.hasMix),
+                    hasMix: optHasMix,
                     hasChildPrices: Boolean(optIncExtra || optIncShare),
                     includeChildExtraBed: optIncExtra,
                     includeChildSharingBed: optIncShare,
@@ -200,6 +227,7 @@
                     childExtraLabel: s.childExtraLabel || childExtraLabel,
                     childShareLabel: s.childShareLabel || childShareLabel,
                     costing: {
+                        hasMix: optHasMix,
                         availableCities: JSON.parse(JSON.stringify(opt.availableCities || [])),
                         availableTours: JSON.parse(JSON.stringify(opt.availableTours || [])),
                         availableTransfers: JSON.parse(JSON.stringify(opt.availableTransfers || [])),
@@ -207,12 +235,12 @@
                     },
                     rates: {
                         p3: s.prices3Star?.adult ? cleanLkrNumber(s.prices3Star.adult) : cleanLkrNumber(p3Text),
-                        pMix: s.hasMix && s.pricesMix?.adult ? cleanLkrNumber(s.pricesMix.adult) : null,
+                        pMix: optHasMix && s.pricesMix?.adult ? cleanLkrNumber(s.pricesMix.adult) : null,
                         p4: s.prices4Star?.adult ? cleanLkrNumber(s.prices4Star.adult) : cleanLkrNumber(p4Text),
                         childExtra3: optIncExtra && s.prices3Star?.childExtra ? cleanLkrNumber(s.prices3Star.childExtra) : null,
                         childShare3: optIncShare && s.prices3Star?.childShare ? cleanLkrNumber(s.prices3Star.childShare) : null,
-                        childExtraMix: (s.hasMix && optIncExtra && s.pricesMix?.childExtra) ? cleanLkrNumber(s.pricesMix.childExtra) : null,
-                        childShareMix: (s.hasMix && optIncShare && s.pricesMix?.childShare) ? cleanLkrNumber(s.pricesMix.childShare) : null,
+                        childExtraMix: (optHasMix && optIncExtra && s.pricesMix?.childExtra) ? cleanLkrNumber(s.pricesMix.childExtra) : null,
+                        childShareMix: (optHasMix && optIncShare && s.pricesMix?.childShare) ? cleanLkrNumber(s.pricesMix.childShare) : null,
                         childExtra4: optIncExtra && s.prices4Star?.childExtra ? cleanLkrNumber(s.prices4Star.childExtra) : null,
                         childShare4: optIncShare && s.prices4Star?.childShare ? cleanLkrNumber(s.prices4Star.childShare) : null
                     }
@@ -382,7 +410,7 @@
             const tours = costing.availableTours || [];
             const transfers = costing.availableTransfers || [];
             const rates = docData.rates || costing.rates || {};
-            const isMixActive = costing.hasMix ?? (rates && rates.pMix && cleanLkrNumber(rates.pMix) !== '0' && cleanLkrNumber(rates.pMix) !== '');
+            const isMixActive = resolveSheetMixActive(costing, rates, cities);
             const pricingAdj = costing.pricingAdj || docData.pricingAdj || {};
             const settings = pricingAdj.settings || {};
             const cardMarkups = pricingAdj.cardMarkups || {};
@@ -545,7 +573,7 @@
             const tours = costing.availableTours || [];
             const transfers = costing.availableTransfers || [];
             const rates = docData.rates || costing.rates || {};
-            const isMixActive = costing.hasMix ?? (rates && rates.pMix && cleanLkrNumber(rates.pMix) !== '0' && cleanLkrNumber(rates.pMix) !== '');
+            const isMixActive = resolveSheetMixActive(costing, rates, cities);
             const pricingAdj = costing.pricingAdj || docData.pricingAdj || {};
             const settings = pricingAdj.settings || {};
             const cardMarkups = pricingAdj.cardMarkups || {};

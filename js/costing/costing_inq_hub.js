@@ -642,8 +642,9 @@
             countsEl.innerText = availableCities.length + ' Cities • ' + availableTours.length + ' Tours • ' + availableTransfers.length + ' Transfers';
         }
 
+        const isMixCardVisible = Boolean(document.getElementById('result_card_mix')?.style.display !== 'none');
         const p3 = document.getElementById('adult_final_lkr_3star')?.innerText || 'LKR 0';
-        const pMix = document.getElementById('adult_final_lkr_mix')?.innerText || '-';
+        const pMix = isMixCardVisible ? (document.getElementById('adult_final_lkr_mix')?.innerText || '-') : '-';
         const p4 = document.getElementById('adult_final_lkr_4star')?.innerText || 'LKR 0';
 
         const prev3 = document.getElementById('savePreviewPrice3');
@@ -766,22 +767,23 @@
             const includeChildSharingBed = document.getElementById('check_child_sharing_bed')?.checked ?? false;
             const hasChildPrices = (includeChildExtraBed || includeChildSharingBed);
 
+            const isMixCardVisible = Boolean(document.getElementById('result_card_mix')?.style.display !== 'none');
             const p3Text = document.getElementById('adult_final_lkr_3star')?.innerText || '';
-            const pMixText = document.getElementById('adult_final_lkr_mix')?.innerText || '';
+            const pMixText = isMixCardVisible ? (document.getElementById('adult_final_lkr_mix')?.innerText || '') : '';
             const p4Text = document.getElementById('adult_final_lkr_4star')?.innerText || '';
             const p5Text = document.getElementById('adult_final_lkr_5star')?.innerText || '';
 
             const rates = {
                 p3: p3Text ? cleanLkrNumber(p3Text) : '',
-                pMix: pMixText ? cleanLkrNumber(pMixText) : '',
+                pMix: (isMixCardVisible && pMixText) ? cleanLkrNumber(pMixText) : '',
                 p4: p4Text ? cleanLkrNumber(p4Text) : '',
                 p5: p5Text ? cleanLkrNumber(p5Text) : '',
                 childExtra3: includeChildExtraBed ? cleanLkrNumber(document.getElementById('child_final_lkr_3star')?.innerText) : '',
                 childShare3: includeChildSharingBed ? cleanLkrNumber(document.getElementById('child_sharing_final_lkr_3star')?.innerText) : '',
                 childExtra4: includeChildExtraBed ? cleanLkrNumber(document.getElementById('child_final_lkr_4star')?.innerText) : '',
                 childShare4: includeChildSharingBed ? cleanLkrNumber(document.getElementById('child_sharing_final_lkr_4star')?.innerText) : '',
-                childExtraMix: (includeChildExtraBed && document.getElementById('result_card_mix')?.style.display !== 'none') ? cleanLkrNumber(document.getElementById('child_final_lkr_mix')?.innerText) : '',
-                childShareMix: (includeChildSharingBed && document.getElementById('result_card_mix')?.style.display !== 'none') ? cleanLkrNumber(document.getElementById('child_sharing_final_lkr_mix')?.innerText) : ''
+                childExtraMix: (includeChildExtraBed && isMixCardVisible) ? cleanLkrNumber(document.getElementById('child_final_lkr_mix')?.innerText) : '',
+                childShareMix: (includeChildSharingBed && isMixCardVisible) ? cleanLkrNumber(document.getElementById('child_sharing_final_lkr_mix')?.innerText) : ''
             };
 
             const citiesSummary = availableCities.map(c => (c.numberOfNights || 1) + 'N ' + c.name).join(' + ');
@@ -858,7 +860,7 @@
             }
 
             const currentCostingSnapshot = {
-                hasMix: Boolean(document.getElementById('result_card_mix')?.style.display !== 'none'),
+                hasMix: isMixCardVisible,
                 hasChildPrices: hasChildPrices,
                 includeChildExtraBed: includeChildExtraBed,
                 includeChildSharingBed: includeChildSharingBed,
@@ -891,6 +893,7 @@
                 tplRate3: Number(document.getElementById('tpl_rate_3star')?.value) || 800,
                 tplRate4: Number(document.getElementById('tpl_rate_4star')?.value) || 1000,
                 tplRate5: Number(document.getElementById('tpl_rate_5star')?.value) || 1200,
+                hasMix: isMixCardVisible,
                 hasChildPrices: hasChildPrices,
                 includeChildExtraBed: includeChildExtraBed,
                 includeChildSharingBed: includeChildSharingBed,
@@ -1042,6 +1045,7 @@
                 cities: citiesSummary,
                 summary: fullSummary,
                 rates: rates,
+                hasMix: isMixCardVisible,
                 hasChildPrices: hasChildPrices,
                 includeChildExtraBed: includeChildExtraBed,
                 includeChildSharingBed: includeChildSharingBed,
