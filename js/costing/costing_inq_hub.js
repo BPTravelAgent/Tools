@@ -769,6 +769,12 @@
             itineraryPayload.travelMonthDate = travelMonthDate;
 
             const pricingSummary = saveLatestCostingPrices(itineraryPayload);
+            const activePkgPricingSummary = (typeof buildCurrentPricingSummary === 'function')
+                ? buildCurrentPricingSummary(itineraryPayload)
+                : JSON.parse(JSON.stringify(pricingSummary || {}));
+            if (activePkgPricingSummary && activePkgPricingSummary.options) {
+                delete activePkgPricingSummary.options;
+            }
 
             // Rate values
             const includeChildExtraBed = document.getElementById('check_child_extra_bed')?.checked ?? false;
@@ -935,7 +941,7 @@
                 childShareLabel: document.getElementById('exportChildSharingBedLabel')?.value.trim() || 'Per Child (Sharing Bed)',
                 costing: currentCostingSnapshot,
                 itinerary: itineraryPayload,
-                pricingSummary: pricingSummary,
+                pricingSummary: activePkgPricingSummary,
                 updatedAt: nowIso
             };
 
@@ -943,7 +949,7 @@
                 const workspacePackages = window.costingOptionsList.map((opt, idx) => {
                     if (idx === activeOptIdx) return currentPackageSnapshot;
 
-                    const sum = opt.pricingSummary || pricingSummary;
+                    const sum = opt.pricingSummary || activePkgPricingSummary;
                     const adjS = opt.pricingAdj?.settings || {};
                     const optCities = opt.availableCities || availableCities;
                     const optTours = opt.availableTours || availableTours;
@@ -974,8 +980,8 @@
                     optItinerary.packageName = opt.name || ('Option ' + (idx + 1));
 
                     const optSumCopy = JSON.parse(JSON.stringify(sum));
-                    if (Array.isArray(pricingSummary?.options)) {
-                        optSumCopy.options = JSON.parse(JSON.stringify(pricingSummary.options));
+                    if (optSumCopy && optSumCopy.options) {
+                        delete optSumCopy.options;
                     }
 
                     return {
@@ -1443,8 +1449,62 @@
         const allowChildShare = Boolean(docData.includeChildSharingBed ?? (docData.costing?.includeChildSharingBed ?? (docData.rates?.childShare3 || false)));
         const hasChildPrices = Boolean(docData.hasChildPrices ?? (allowChildExtra || allowChildShare));
 
-        const itToUse = (targetPkg && targetPkg.itinerary) ? targetPkg.itinerary : docData.itinerary;
-        const pricesToUse = (targetPkg && targetPkg.pricingSummary) ? targetPkg.pricingSummary : docData.pricingSummary;
+        const buildNormalizedPkgPricingSummary = (pkg, parentDoc) => {
+            const rawSum = pkg?.pricingSummary ? JSON.parse(JSON.stringify(pkg.pricingSummary)) : {};
+            if (rawSum.options) delete rawSum.options;
+            const pkgRates = pkg?.rates || {};
+            const pkgCosting = pkg?.costing || {};
+            const pkgAllowExtra = Boolean(pkg?.includeChildExtraBed ?? pkgCosting.includeChildExtraBed ?? rawSum.includeChildExtraBed ?? allowChildExtra);
+            const pkgAllowShare = Boolean(pkg?.includeChildSharingBed ?? pkgCosting.includeChildSharingBed ?? rawSum.includeChildSharingBed ?? allowChildShare);
+            const fmtLkr = (v) => {
+                const n = cleanLkrNumber(v);
+                return (n && n !== '0') ? ('LKR ' + n) : null;
+            };
+            const hasAuthRates = Boolean(pkgRates && (cleanLkrNumber(pkgRates.p3) || cleanLkrNumber(pkgRates.p4)));
+            const p3Ad = fmtLkr(pkgRates.p3) || rawSum.prices3Star?.adult || null;
+            const p4Ad = fmtLkr(pkgRates.p4) || rawSum.prices4Star?.adult || null;
+            const p5Ad = fmtLkr(pkgRates.p5) || rawSum.prices5Star?.adult || null;
+            const pMixAllowed = pkg?.hasMix !== false && pkgCosting.hasMix !== false && rawSum.hasMix !== false;
+            const pMixAd = pMixAllowed
+                ? ((hasAuthRates && ('pMix' in pkgRates))
+                    ? fmtLkr(pkgRates.pMix)
+                    : (fmtLkr(pkgRates.pMix) || rawSum.pricesMix?.adult || null))
+                : null;
+
+            return {
+                ...rawSum,
+                title: pkg?.title || rawSum.title || parentDoc?.title || 'Tour Package',
+                pax: pkg?.paxText || rawSum.pax || parentDoc?.paxText || '02 Pax',
+                hasMix: Boolean(pMixAd),
+                hasChildPrices: Boolean(pkgAllowExtra || pkgAllowShare),
+                includeChildExtraBed: pkgAllowExtra,
+                includeChildSharingBed: pkgAllowShare,
+                prices3Star: p3Ad ? {
+                    adult: p3Ad,
+                    childExtra: pkgAllowExtra ? (fmtLkr(pkgRates.childExtra3) || rawSum.prices3Star?.childExtra || null) : null,
+                    childShare: pkgAllowShare ? (fmtLkr(pkgRates.childShare3) || rawSum.prices3Star?.childShare || null) : null
+                } : null,
+                prices4Star: p4Ad ? {
+                    adult: p4Ad,
+                    childExtra: pkgAllowExtra ? (fmtLkr(pkgRates.childExtra4) || rawSum.prices4Star?.childExtra || null) : null,
+                    childShare: pkgAllowShare ? (fmtLkr(pkgRates.childShare4) || rawSum.prices4Star?.childShare || null) : null
+                } : null,
+                pricesMix: pMixAd ? {
+                    ...(rawSum.pricesMix || {}),
+                    adult: pMixAd,
+                    childExtra: pkgAllowExtra ? (fmtLkr(pkgRates.childExtraMix) || rawSum.pricesMix?.childExtra || null) : null,
+                    childShare: pkgAllowShare ? (fmtLkr(pkgRates.childShareMix) || rawSum.pricesMix?.childShare || null) : null
+                } : null,
+                prices5Star: p5Ad ? {
+                    adult: p5Ad,
+                    childExtra: pkgAllowExtra ? (rawSum.prices5Star?.childExtra || null) : null,
+                    childShare: pkgAllowShare ? (rawSum.prices5Star?.childShare || null) : null
+                } : null
+            };
+        };
+
+        const rawPricesToUse = targetPkg ? buildNormalizedPkgPricingSummary(targetPkg, docData) : (docData.pricingSummary ? JSON.parse(JSON.stringify(docData.pricingSummary)) : null);
+        const pricesToUse = rawPricesToUse;
 
         if (itToUse) {
             if (docData.travelMonthDate) {
@@ -1473,28 +1533,15 @@
             localStorage.setItem('SLW_PENDING_COSTING_ITINERARY', JSON.stringify(itToUse));
         }
         if (pricesToUse) {
-            pricesToUse.hasChildPrices = hasChildPrices;
-            pricesToUse.includeChildExtraBed = allowChildExtra;
-            pricesToUse.includeChildSharingBed = allowChildShare;
-            if (!allowChildExtra) {
-                if (pricesToUse.prices3Star) pricesToUse.prices3Star.childExtra = null;
-                if (pricesToUse.prices4Star) pricesToUse.prices4Star.childExtra = null;
-                if (pricesToUse.pricesMix) pricesToUse.pricesMix.childExtra = null;
-                if (pricesToUse.prices5Star) pricesToUse.prices5Star.childExtra = null;
-            }
-            if (!allowChildShare) {
-                if (pricesToUse.prices3Star) pricesToUse.prices3Star.childShare = null;
-                if (pricesToUse.prices4Star) pricesToUse.prices4Star.childShare = null;
-                if (pricesToUse.pricesMix) pricesToUse.pricesMix.childShare = null;
-                if (pricesToUse.prices5Star) pricesToUse.prices5Star.childShare = null;
-            }
+            pricesToUse.inq = docData.inq || inqKey;
+            pricesToUse.timestamp = Date.now();
             if (Array.isArray(docData.packages) && docData.packages.length > 1) {
                 pricesToUse.options = docData.packages.map((p, idx) => ({
                     optionIndex: idx,
                     id: p.id || ('pkg_' + (idx + 1)),
                     name: p.packageName || ('Option ' + String(idx + 1).padStart(2, '0')),
                     description: p.description || '',
-                    ...(p.pricingSummary || {})
+                    ...buildNormalizedPkgPricingSummary(p, docData)
                 }));
             }
             localStorage.setItem('SLW_LATEST_COSTING_PRICES', JSON.stringify(pricesToUse));

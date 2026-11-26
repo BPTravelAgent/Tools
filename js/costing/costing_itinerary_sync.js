@@ -1256,10 +1256,12 @@
             }
 
             let summary = currentSummary;
+            const summaryInq = (latestDetails?.inq || '').trim();
             if (Array.isArray(window.costingOptionsList) && window.costingOptionsList.length > 1) {
                 const opt0Sum = window.costingOptionsList[0]?.pricingSummary || currentSummary;
                 summary = {
                     ...JSON.parse(JSON.stringify(opt0Sum)),
+                    inq: summaryInq,
                     timestamp: Date.now(),
                     activeOptionIndex: window.activeCostingOptionIndex || 0,
                     options: window.costingOptionsList.map((opt, idx) => {
@@ -1277,6 +1279,8 @@
                 const optName = (Array.isArray(window.costingOptionsList) && window.costingOptionsList[0]?.name) || 'Option 01 - Standard';
                 summary = {
                     ...currentSummary,
+                    inq: summaryInq,
+                    timestamp: Date.now(),
                     activeOptionIndex: 0,
                     options: [
                         {

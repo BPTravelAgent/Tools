@@ -1,4 +1,4 @@
-const CACHE_NAME = 'bp-tools-v51';
+const CACHE_NAME = 'bp-tools-v52';
 
 const ASSETS_TO_CACHE = [
   '.',
@@ -8,10 +8,10 @@ const ASSETS_TO_CACHE = [
   './js/costing/costing_state.js?v=45',
   './js/costing/costing_master_db.js?v=45',
   './js/costing/costing_ui.js?v=46',
-  './js/costing/costing_itinerary_sync.js?v=45',
+  './js/costing/costing_itinerary_sync.js?v=46',
   './js/costing/costing_calculator.js?v=45',
   './js/costing/costing_presets.js?v=45',
-  './js/costing/costing_inq_hub.js?v=48',
+  './js/costing/costing_inq_hub.js?v=49',
   './js/costing/costing_sheets.js?v=48',
   './js/costing/costing_options.js?v=45',
   './js/costing/costing_init.js?v=45',

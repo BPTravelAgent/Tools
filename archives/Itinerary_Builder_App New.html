@@ -2063,13 +2063,10 @@ function slwGoHome() {
         if (inq) {
             let activePackages = window.__slwActivePackages || [];
             if (activePackages.length === 0 && inq) {
-                try {
-                    const raw = localStorage.getItem(SLW_INQ_DOC_PREFIX + inq);
-                    if (raw) {
-                        const parsed = JSON.parse(raw);
-                        if (Array.isArray(parsed.packages)) activePackages = parsed.packages;
-                    }
-                } catch(e) {}
+                const parsed = slwFindInqDocInLocalStorage(inq);
+                if (parsed && Array.isArray(parsed.packages)) {
+                    activePackages = parsed.packages;
+                }
             }
 
             let packageDropdownHtml = '';
@@ -2195,13 +2192,8 @@ function slwGoHome() {
 
         let activePackages = window.__slwActivePackages || [];
         if (activePackages.length === 0) {
-            try {
-                const raw = localStorage.getItem(SLW_INQ_DOC_PREFIX + inq);
-                if (raw) {
-                    const parsed = JSON.parse(raw);
-                    if (Array.isArray(parsed.packages)) activePackages = parsed.packages;
-                }
-            } catch(e) {}
+            const parsed = slwFindInqDocInLocalStorage(inq);
+            if (parsed && Array.isArray(parsed.packages)) activePackages = parsed.packages;
         }
 
         const selectedPkg = activePackages.find(p => p.id === targetPackageId);
@@ -2216,16 +2208,207 @@ function slwGoHome() {
         }
     };
 
+    function slwNormalizeInqVariants(rawInq) {
+        const raw = String(rawInq || '').trim();
+        if (!raw) return [];
+        const upper = raw.toUpperCase();
+        const stripped = upper.replace(/^INQ[-\s]*/i, '').trim();
+        const variants = new Set([raw, upper]);
+        if (stripped) {
+            variants.add(stripped);
+            variants.add('INQ-' + stripped);
+            variants.add('INQ ' + stripped);
+            if (/^\d+$/.test(stripped)) {
+                const noZero = String(parseInt(stripped, 10));
+                variants.add(noZero);
+                variants.add('INQ-' + noZero);
+                if (noZero.length < 5) {
+                    const padded = noZero.padStart(5, '0');
+                    variants.add(padded);
+                    variants.add('INQ-' + padded);
+                }
+            }
+        }
+        return Array.from(variants);
+    }
+
+    function slwInqsMatch(a, b) {
+        if (!a || !b) return false;
+        const va = slwNormalizeInqVariants(a);
+        const vb = new Set(slwNormalizeInqVariants(b).map(x => String(x).toUpperCase()));
+        return va.some(x => vb.has(String(x).toUpperCase()));
+    }
+
+    function slwFindInqDocInLocalStorage(inqKey) {
+        if (!inqKey) return null;
+        const variants = slwNormalizeInqVariants(inqKey);
+        for (const v of variants) {
+            try {
+                const raw = localStorage.getItem(SLW_INQ_DOC_PREFIX + v);
+                if (raw) return JSON.parse(raw);
+            } catch(e) {}
+        }
+        try {
+            for (let i = 0; i < localStorage.length; i++) {
+                const k = localStorage.key(i);
+                if (k && k.startsWith(SLW_INQ_DOC_PREFIX)) {
+                    const suffix = k.slice(SLW_INQ_DOC_PREFIX.length);
+                    if (slwInqsMatch(suffix, inqKey)) {
+                        const raw = localStorage.getItem(k);
+                        if (raw) return JSON.parse(raw);
+                    }
+                }
+            }
+        } catch(e) {}
+        return null;
+    }
+
+    function slwCleanDigits(val) {
+        if (val === null || val === undefined) return '';
+        let str = String(val).trim();
+        if (str.includes('.')) {
+            str = str.split('.')[0];
+        }
+        return str.replace(/[^0-9]/g, '');
+    }
+
+    function slwFmtLkr(val) {
+        const n = slwCleanDigits(val);
+        if (!n || n === '0') return null;
+        return 'LKR ' + Number(n).toLocaleString('en-US');
+    }
+
+    function slwHasPositivePrice(val) {
+        const n = slwCleanDigits(val);
+        return Boolean(n && n !== '0');
+    }
+
+    // Reconcile pkg.rates (ground truth saved per option) over pkg.pricingSummary
+    // so even INQs saved before Option-01 root override fix resolve exact per-option prices.
+    function slwNormalizePackagePricingSummary(pkg, parentDoc, optIdx = 0) {
+        const rawSum = (pkg && pkg.pricingSummary)
+            ? JSON.parse(JSON.stringify(pkg.pricingSummary))
+            : ((optIdx === 0 && parentDoc && parentDoc.pricingSummary) ? JSON.parse(JSON.stringify(parentDoc.pricingSummary)) : {});
+        if (rawSum.options) delete rawSum.options;
+
+        const pkgRates = (pkg && pkg.rates) || (optIdx === 0 && parentDoc && parentDoc.rates) || {};
+        const pkgCosting = (pkg && pkg.costing) || (optIdx === 0 && parentDoc && parentDoc.costing) || {};
+
+        let allowExtra = Boolean(
+            pkg?.includeChildExtraBed ??
+            pkgCosting.includeChildExtraBed ??
+            rawSum.includeChildExtraBed ??
+            parentDoc?.includeChildExtraBed ??
+            parentDoc?.costing?.includeChildExtraBed ??
+            Boolean(pkgRates.childExtra3 || parentDoc?.rates?.childExtra3)
+        );
+        let allowShare = Boolean(
+            pkg?.includeChildSharingBed ??
+            pkgCosting.includeChildSharingBed ??
+            rawSum.includeChildSharingBed ??
+            parentDoc?.includeChildSharingBed ??
+            parentDoc?.costing?.includeChildSharingBed ??
+            Boolean(pkgRates.childShare3 || parentDoc?.rates?.childShare3)
+        );
+        if (pkg?.hasChildPrices === false) {
+            allowExtra = false;
+            allowShare = false;
+        } else if (
+            pkg?.includeChildExtraBed === undefined &&
+            pkg?.includeChildSharingBed === undefined &&
+            pkg?.hasChildPrices === undefined &&
+            !slwHasPositivePrice(pkgRates.childExtra3) &&
+            !slwHasPositivePrice(pkgRates.childShare3) &&
+            (rawSum.hasChildPrices === false || parentDoc?.hasChildPrices === false)
+        ) {
+            allowExtra = false;
+            allowShare = false;
+        }
+
+        const hasAuthRates = Boolean(pkgRates && (slwHasPositivePrice(pkgRates.p3) || slwHasPositivePrice(pkgRates.p4)));
+        const p3Ad = slwFmtLkr(pkgRates.p3) || (slwHasPositivePrice(rawSum.prices3Star?.adult) ? rawSum.prices3Star.adult : null);
+        const p4Ad = slwFmtLkr(pkgRates.p4) || (slwHasPositivePrice(rawSum.prices4Star?.adult) ? rawSum.prices4Star.adult : null);
+        const p5Ad = slwFmtLkr(pkgRates.p5) || (slwHasPositivePrice(rawSum.prices5Star?.adult) ? rawSum.prices5Star.adult : null);
+
+        const mixAllowed = pkg?.hasMix !== false && pkgCosting.hasMix !== false && rawSum.hasMix !== false;
+        const pMixAd = mixAllowed
+            ? ((hasAuthRates && ('pMix' in pkgRates))
+                ? slwFmtLkr(pkgRates.pMix)
+                : (slwFmtLkr(pkgRates.pMix) || (slwHasPositivePrice(rawSum.pricesMix?.adult) ? rawSum.pricesMix.adult : null)))
+            : null;
+
+        const fallbackName = pkg?.packageName || rawSum.name || ('Option ' + String(optIdx + 1).padStart(2, '0'));
+        return {
+            ...rawSum,
+            optionIndex: optIdx,
+            id: pkg?.id || rawSum.id || ('pkg_' + (optIdx + 1)),
+            name: fallbackName,
+            description: pkg?.description || rawSum.description || '',
+            title: pkg?.title || rawSum.title || parentDoc?.title || 'Tour Package',
+            pax: pkg?.paxText || rawSum.pax || parentDoc?.paxText || '02 Pax',
+            hasMix: Boolean(pMixAd),
+            hasChildPrices: Boolean(allowExtra || allowShare),
+            includeChildExtraBed: allowExtra,
+            includeChildSharingBed: allowShare,
+            prices3Star: p3Ad ? {
+                adult: p3Ad,
+                childExtra: allowExtra ? (slwFmtLkr(pkgRates.childExtra3) || rawSum.prices3Star?.childExtra || null) : null,
+                childShare: allowShare ? (slwFmtLkr(pkgRates.childShare3) || rawSum.prices3Star?.childShare || null) : null
+            } : null,
+            prices4Star: p4Ad ? {
+                adult: p4Ad,
+                childExtra: allowExtra ? (slwFmtLkr(pkgRates.childExtra4) || rawSum.prices4Star?.childExtra || null) : null,
+                childShare: allowShare ? (slwFmtLkr(pkgRates.childShare4) || rawSum.prices4Star?.childShare || null) : null
+            } : null,
+            pricesMix: pMixAd ? {
+                ...(rawSum.pricesMix || {}),
+                adult: pMixAd,
+                childExtra: allowExtra ? (slwFmtLkr(pkgRates.childExtraMix) || rawSum.pricesMix?.childExtra || null) : null,
+                childShare: allowShare ? (slwFmtLkr(pkgRates.childShareMix) || rawSum.pricesMix?.childShare || null) : null
+            } : null,
+            prices5Star: p5Ad ? {
+                adult: p5Ad,
+                childExtra: allowExtra ? (rawSum.prices5Star?.childExtra || null) : null,
+                childShare: allowShare ? (rawSum.prices5Star?.childShare || null) : null
+            } : null
+        };
+    }
+
+    function slwSanitizeCostingSummary(sum) {
+        if (!sum || typeof sum !== 'object') return sum;
+        const copy = JSON.parse(JSON.stringify(sum));
+        if (copy.options) delete copy.options;
+        const childDisabledAll = copy.hasChildPrices === false;
+        if (childDisabledAll || copy.includeChildExtraBed === false) {
+            if (copy.prices3Star) copy.prices3Star.childExtra = null;
+            if (copy.prices4Star) copy.prices4Star.childExtra = null;
+            if (copy.pricesMix) copy.pricesMix.childExtra = null;
+            if (copy.prices5Star) copy.prices5Star.childExtra = null;
+        }
+        if (childDisabledAll || copy.includeChildSharingBed === false) {
+            if (copy.prices3Star) copy.prices3Star.childShare = null;
+            if (copy.prices4Star) copy.prices4Star.childShare = null;
+            if (copy.pricesMix) copy.pricesMix.childShare = null;
+            if (copy.prices5Star) copy.prices5Star.childShare = null;
+        }
+        if (copy.hasMix === false || !slwHasPositivePrice(copy.pricesMix?.adult)) {
+            copy.hasMix = false;
+            copy.pricesMix = null;
+        } else {
+            copy.hasMix = true;
+        }
+        return copy;
+    }
+
+    window.slwFindInqDocInLocalStorage = slwFindInqDocInLocalStorage;
+    window.slwNormalizePackagePricingSummary = slwNormalizePackagePricingSummary;
+
     window.slwLoadItineraryFromInq = async function(inqKey, targetPackageId = null) {
         if (!inqKey) inqKey = window.__slwActiveInq || localStorage.getItem('SLW_ACTIVE_INQ');
         if (!inqKey) return;
         if (!targetPackageId) targetPackageId = window.__slwActivePackageId || localStorage.getItem('SLW_ACTIVE_INQ_PACKAGE_ID');
 
-        let docData = null;
-        try {
-            const raw = localStorage.getItem(SLW_INQ_DOC_PREFIX + inqKey);
-            if (raw) docData = JSON.parse(raw);
-        } catch(e) {}
+        let docData = slwFindInqDocInLocalStorage(inqKey);
 
         if (!docData) {
             try {
@@ -2260,7 +2443,13 @@ function slwGoHome() {
         }
 
         const itToLoad = (targetPackage && targetPackage.itinerary) ? targetPackage.itinerary : docData.itinerary;
-        const pricesToLoad = (targetPackage && targetPackage.pricingSummary) ? targetPackage.pricingSummary : docData.pricingSummary;
+        let targetPkgIdx = (targetPackage && Array.isArray(docData.packages))
+            ? docData.packages.findIndex(p => p.id === targetPackage.id)
+            : 0;
+        if (targetPkgIdx < 0) targetPkgIdx = 0;
+        const pricesToLoad = targetPackage
+            ? slwNormalizePackagePricingSummary(targetPackage, docData, targetPkgIdx)
+            : (docData.pricingSummary ? slwSanitizeCostingSummary(docData.pricingSummary) : null);
         const pkgName = targetPackage ? (targetPackage.packageName || targetPackage.title) : '';
         const pkgPrompt = pkgName ? ` (${pkgName})` : '';
 
@@ -2279,34 +2468,32 @@ function slwGoHome() {
         const hasChildPrices = Boolean(docData.hasChildPrices ?? (allowChildExtra || allowChildShare));
 
         if (pricesToLoad) {
-            pricesToLoad.hasChildPrices = hasChildPrices;
-            pricesToLoad.includeChildExtraBed = allowChildExtra;
-            pricesToLoad.includeChildSharingBed = allowChildShare;
-            if (pricesToLoad.pricesMix && pricesToLoad.pricesMix.adult) {
-                pricesToLoad.hasMix = true;
+            pricesToLoad.inq = docData.inqNumber || inqKey;
+            pricesToLoad.timestamp = Date.now();
+            if (Array.isArray(docData.packages) && docData.packages.length > 0) {
+                const normalizedOptions = docData.packages.map((p, idx) =>
+                    slwNormalizePackagePricingSummary(p, docData, idx)
+                );
+                const activeOpt = normalizedOptions[targetPkgIdx] || normalizedOptions[0];
+                Object.assign(pricesToLoad, JSON.parse(JSON.stringify(activeOpt)));
+                pricesToLoad.activeOptionIndex = targetPkgIdx;
+                pricesToLoad.options = normalizedOptions;
+            } else {
+                pricesToLoad.hasChildPrices = pricesToLoad.hasChildPrices ?? hasChildPrices;
+                pricesToLoad.includeChildExtraBed = pricesToLoad.includeChildExtraBed ?? allowChildExtra;
+                pricesToLoad.includeChildSharingBed = pricesToLoad.includeChildSharingBed ?? allowChildShare;
+                if (slwHasPositivePrice(pricesToLoad.pricesMix?.adult) && pricesToLoad.hasMix !== false) {
+                    pricesToLoad.hasMix = true;
+                }
             }
-            if (!allowChildExtra) {
-                if (pricesToLoad.prices3Star) pricesToLoad.prices3Star.childExtra = null;
-                if (pricesToLoad.prices4Star) pricesToLoad.prices4Star.childExtra = null;
-                if (pricesToLoad.pricesMix) pricesToLoad.pricesMix.childExtra = null;
-                if (pricesToLoad.prices5Star) pricesToLoad.prices5Star.childExtra = null;
+            const sanitizedPrices = slwSanitizeCostingSummary(pricesToLoad);
+            sanitizedPrices.inq = pricesToLoad.inq;
+            sanitizedPrices.timestamp = pricesToLoad.timestamp;
+            if (Array.isArray(pricesToLoad.options)) {
+                sanitizedPrices.options = pricesToLoad.options.map(o => slwSanitizeCostingSummary(o));
+                sanitizedPrices.activeOptionIndex = pricesToLoad.activeOptionIndex;
             }
-            if (!allowChildShare) {
-                if (pricesToLoad.prices3Star) pricesToLoad.prices3Star.childShare = null;
-                if (pricesToLoad.prices4Star) pricesToLoad.prices4Star.childShare = null;
-                if (pricesToLoad.pricesMix) pricesToLoad.pricesMix.childShare = null;
-                if (pricesToLoad.prices5Star) pricesToLoad.prices5Star.childShare = null;
-            }
-            if (Array.isArray(docData.packages) && docData.packages.length > 1) {
-                pricesToLoad.options = docData.packages.map((p, idx) => ({
-                    optionIndex: idx,
-                    id: p.id || ('pkg_' + (idx + 1)),
-                    name: p.packageName || ('Option ' + String(idx + 1).padStart(2, '0')),
-                    description: p.description || '',
-                    ...(p.pricingSummary || {})
-                }));
-            }
-            localStorage.setItem('SLW_LATEST_COSTING_PRICES', JSON.stringify(pricesToLoad));
+            localStorage.setItem('SLW_LATEST_COSTING_PRICES', JSON.stringify(sanitizedPrices));
         }
 
         if (itToLoad && Array.isArray(itToLoad.options)) {
@@ -2941,16 +3128,9 @@ window.slwDownloadCostingExcelFromBuilder = async function() {
     }
 };
 
-window.slwResolveCostingDataForOption = function(targetOptionIndex = 0) {
-        let costingData = null;
+window.slwResolveAllCostingOptionsList = function() {
         const activeInqKey = window.__slwActiveInq || localStorage.getItem('SLW_ACTIVE_INQ');
-        let activeDoc = null;
-        if (activeInqKey) {
-            try {
-                const raw = localStorage.getItem(SLW_INQ_DOC_PREFIX + activeInqKey);
-                if (raw) activeDoc = JSON.parse(raw);
-            } catch(e) {}
-        }
+        const activeDoc = activeInqKey ? slwFindInqDocInLocalStorage(activeInqKey) : null;
 
         let latestCosting = null;
         try {
@@ -2958,54 +3138,74 @@ window.slwResolveCostingDataForOption = function(targetOptionIndex = 0) {
             if (pricingJson) latestCosting = JSON.parse(pricingJson);
         } catch(e) {}
 
-        // Priority 1: Matching option inside SLW_LATEST_COSTING_PRICES.options[targetOptionIndex]
-        if (latestCosting && Array.isArray(latestCosting.options) && latestCosting.options.length > 0) {
-            if (latestCosting.options[targetOptionIndex]) {
-                costingData = JSON.parse(JSON.stringify(latestCosting.options[targetOptionIndex]));
+        const docPackages = (activeDoc && Array.isArray(activeDoc.packages) && activeDoc.packages.length > 0)
+            ? activeDoc.packages
+            : null;
+        const inqOptions = docPackages
+            ? docPackages.map((p, idx) => slwSanitizeCostingSummary(slwNormalizePackagePricingSummary(p, activeDoc, idx)))
+            : [];
+
+        const latestRawOpts = (latestCosting && Array.isArray(latestCosting.options) && latestCosting.options.length > 0)
+            ? latestCosting.options.map(o => slwSanitizeCostingSummary(o))
+            : (latestCosting ? [slwSanitizeCostingSummary(latestCosting)] : []);
+
+        if (inqOptions.length > 0) {
+            const latestInq = String(latestCosting?.inq || '').trim();
+            const docInq = activeDoc.inqNumber || activeInqKey;
+            const latestMatchesDoc = Boolean(latestInq && slwInqsMatch(latestInq, docInq));
+            const latestTs = Number(latestCosting?.timestamp || 0);
+            const docUpdatedMs = Date.parse(activeDoc.updatedAt || '') || 0;
+
+            if (
+                latestMatchesDoc &&
+                latestRawOpts.length >= inqOptions.length &&
+                latestTs > docUpdatedMs
+            ) {
+                return { optionsList: latestRawOpts, activeDoc, latestCosting, source: 'latest-live-inq' };
+            }
+
+            if (
+                latestMatchesDoc &&
+                latestRawOpts.length > inqOptions.length
+            ) {
+                return { optionsList: latestRawOpts, activeDoc, latestCosting, source: 'latest-expanded-inq' };
+            }
+
+            return { optionsList: inqOptions, activeDoc, latestCosting, source: 'inq-packages' };
+        }
+
+        return { optionsList: latestRawOpts, activeDoc, latestCosting, source: 'latest-costing' };
+};
+
+window.slwResolveCostingDataForOption = function(targetOptionIndex = 0) {
+        const { optionsList, activeDoc, latestCosting } = window.slwResolveAllCostingOptionsList();
+        const activeInqKey = window.__slwActiveInq || localStorage.getItem('SLW_ACTIVE_INQ');
+        let costingData = null;
+
+        if (optionsList && optionsList[targetOptionIndex]) {
+            costingData = JSON.parse(JSON.stringify(optionsList[targetOptionIndex]));
+            costingData._matchedOptionIndex = targetOptionIndex;
+            costingData._hasMultipleOptions = optionsList.length > 1;
+        } else if (optionsList && optionsList.length === 1 && targetOptionIndex > 0) {
+            costingData = JSON.parse(JSON.stringify(optionsList[0]));
+            costingData._matchedOptionIndex = 0;
+            costingData._hasMultipleOptions = false;
+        } else if (!activeDoc && latestCosting && !Array.isArray(latestCosting.options)) {
+            costingData = slwSanitizeCostingSummary(latestCosting);
+        }
+
+        if (!costingData && activeDoc && activeDoc.pricingSummary) {
+            const latestInq = String(latestCosting?.inq || '').trim();
+            if (!latestCosting || (latestInq && !slwInqsMatch(latestInq, activeDoc.inqNumber || activeInqKey))) {
+                costingData = slwSanitizeCostingSummary(slwNormalizePackagePricingSummary(null, activeDoc, 0));
+            }
+        }
+
+        if (costingData) {
+            costingData = slwSanitizeCostingSummary(costingData);
+            if (optionsList && optionsList[targetOptionIndex]) {
                 costingData._matchedOptionIndex = targetOptionIndex;
-                costingData._hasMultipleOptions = latestCosting.options.length > 1;
-            }
-        }
-
-        // Priority 2: Active INQ packages[targetOptionIndex]
-        if (!costingData && activeDoc && Array.isArray(activeDoc.packages) && activeDoc.packages.length > 0) {
-            const idxPkg = activeDoc.packages[targetOptionIndex];
-            if (idxPkg && idxPkg.pricingSummary) {
-                costingData = JSON.parse(JSON.stringify(idxPkg.pricingSummary));
-                costingData.name = costingData.name || idxPkg.packageName;
-                costingData._matchedOptionIndex = targetOptionIndex;
-                costingData._hasMultipleOptions = activeDoc.packages.length > 1;
-            } else if (targetOptionIndex === 0) {
-                const activePkgId = window.__slwActivePackageId || localStorage.getItem('SLW_ACTIVE_INQ_PACKAGE_ID') || activeDoc.activePackageId;
-                let targetPkg = (activePkgId ? activeDoc.packages.find(p => p.id === activePkgId) : null) || activeDoc.packages[0];
-                if (targetPkg && targetPkg.pricingSummary) {
-                    costingData = JSON.parse(JSON.stringify(targetPkg.pricingSummary));
-                } else if (activeDoc.pricingSummary) {
-                    costingData = JSON.parse(JSON.stringify(activeDoc.pricingSummary));
-                }
-            }
-        }
-
-        // Priority 3: Fallback to latestCosting (supports single-option edits applied to Option 02)
-        if (!costingData) {
-            if (latestCosting) {
-                costingData = JSON.parse(JSON.stringify(latestCosting));
-            } else if (activeDoc && activeDoc.pricingSummary) {
-                costingData = JSON.parse(JSON.stringify(activeDoc.pricingSummary));
-            }
-        } else if (latestCosting && targetOptionIndex === 0) {
-            if (!costingData.pricesMix && latestCosting.pricesMix) {
-                costingData.pricesMix = latestCosting.pricesMix;
-            }
-            if (latestCosting.hasMix !== undefined) {
-                costingData.hasMix = costingData.hasMix || latestCosting.hasMix;
-            }
-        }
-
-        if (costingData && costingData.pricesMix && costingData.pricesMix.adult) {
-            const cleanAdult = String(costingData.pricesMix.adult).replace(/[^0-9]/g, '');
-            if (cleanAdult && cleanAdult !== '0') {
-                costingData.hasMix = true;
+                costingData._hasMultipleOptions = optionsList.length > 1;
             }
         }
 
@@ -3029,8 +3229,7 @@ window.slwResolveCostingDetails = function() {
         let activeDoc = null;
         if (activeInqKey) {
             try {
-                const rawDoc = localStorage.getItem(SLW_INQ_DOC_PREFIX + activeInqKey);
-                if (rawDoc) activeDoc = JSON.parse(rawDoc);
+                activeDoc = slwFindInqDocInLocalStorage(activeInqKey);
             } catch(e) {}
         }
 
@@ -3093,17 +3292,9 @@ window.slwApplyCostingPrices = function(targetOptionIndex = 0) {
     };
 
 window.slwApplyAllCostingOptions = function() {
-        let latestCosting = null;
-        try {
-            const pricingJson = localStorage.getItem('SLW_LATEST_COSTING_PRICES');
-            if (pricingJson) latestCosting = JSON.parse(pricingJson);
-        } catch(e) {}
+        const { optionsList, latestCosting } = window.slwResolveAllCostingOptionsList();
 
-        const optionsList = (latestCosting && Array.isArray(latestCosting.options) && latestCosting.options.length > 0)
-            ? latestCosting.options
-            : (latestCosting ? [latestCosting] : []);
-
-        if (optionsList.length === 0) {
+        if (!optionsList || optionsList.length === 0) {
             slwShowError("Tour Costing මිල ගණන් හමු නොවීය!");
             return;
         }
@@ -3122,7 +3313,7 @@ window.slwApplyAllCostingOptions = function() {
         window.__slwIsApplyingCosting = true;
         window.__slwApplyAllOptionsMode = true;
         window.__slwTargetCostingOptionIndex = 0;
-        window.__slwTargetCostingData = latestCosting;
+        window.__slwTargetCostingData = optionsList[0] || latestCosting;
         window.__slwAllCostingOptionsList = optionsList;
         exportBtn.click();
     };
@@ -3455,15 +3646,10 @@ window.slwApplyAllCostingOptions = function() {
                     }
 
                     const activeInqKey = window.__slwActiveInq || localStorage.getItem('SLW_ACTIVE_INQ');
-                    let activeDoc = null;
-                    if (activeInqKey) {
-                        try {
-                            const raw = localStorage.getItem(SLW_INQ_DOC_PREFIX + activeInqKey);
-                            if (raw) activeDoc = JSON.parse(raw);
-                        } catch(e) {}
-                    }
+                    const activeDoc = activeInqKey ? slwFindInqDocInLocalStorage(activeInqKey) : null;
 
-                    const applySingleCostingToOptionIndex = (optIdxToUpdate, optCostingData) => {
+                    const applySingleCostingToOptionIndex = (optIdxToUpdate, rawOptCostingData) => {
+                        const optCostingData = slwSanitizeCostingSummary(rawOptCostingData || {});
                         while (currentData.options.length <= optIdxToUpdate) {
                             const nextNum = String(currentData.options.length + 1).padStart(2, '0');
                             currentData.options.push({
@@ -3573,8 +3759,15 @@ window.slwApplyAllCostingOptions = function() {
                             return match && !isPlaceholderHotelNames(match.names) ? JSON.parse(JSON.stringify(match.names)) : null;
                         };
 
+                        const isCloneOfOpt0Names = (names, cat) => {
+                            if (optIdxToUpdate <= 0 || !names) return false;
+                            const opt0Names = getFallbackNamesFromOpt0(cat);
+                            if (!opt0Names) return false;
+                            return JSON.stringify(names) === JSON.stringify(opt0Names);
+                        };
+
                         const applyPricesToHotel = (h, priceObj) => {
-                            if (!h || !priceObj || !priceObj.adult) return;
+                            if (!h || !priceObj || !slwHasPositivePrice(priceObj.adult)) return;
 
                             const paxLabel = `PER PERSON (MINIMUM ${pax.toUpperCase()})`;
                             h.price = `${priceObj.adult} Per Person (Minimum ${pax})`;
@@ -3583,14 +3776,14 @@ window.slwApplyAllCostingOptions = function() {
                                 { label: paxLabel, amount: priceObj.adult }
                             ];
 
-                            if (allowChildExtra && priceObj.childExtra && priceObj.childExtra !== 'LKR 0' && priceObj.childExtra !== 'LKR') {
+                            if (allowChildExtra && slwHasPositivePrice(priceObj.childExtra)) {
                                 updatedPrices.push({
                                     label: childExtraLabel,
                                     amount: priceObj.childExtra
                                 });
                             }
 
-                            if (allowChildShare && priceObj.childShare && priceObj.childShare !== 'LKR 0' && priceObj.childShare !== 'LKR') {
+                            if (allowChildShare && slwHasPositivePrice(priceObj.childShare)) {
                                 updatedPrices.push({
                                     label: childShareLabel,
                                     amount: priceObj.childShare
@@ -3617,12 +3810,12 @@ window.slwApplyAllCostingOptions = function() {
 
                         const cleanNum = (val) => String(val || '').replace(/[^0-9]/g, '');
                         const hasMixPrice = Boolean(
-                            optCostingData.hasMix ||
-                            (optCostingData.pricesMix && optCostingData.pricesMix.adult && cleanNum(optCostingData.pricesMix.adult) !== '0' && cleanNum(optCostingData.pricesMix.adult) !== '')
+                            optCostingData.hasMix !== false &&
+                            (optCostingData.hasMix === true || (optCostingData.pricesMix && optCostingData.pricesMix.adult && cleanNum(optCostingData.pricesMix.adult) !== '0' && cleanNum(optCostingData.pricesMix.adult) !== ''))
                         );
 
                         if (!h3 && otherHotels.length > 0) h3 = otherHotels.shift();
-                        if (!hMix && opt.hotels.length >= 3 && opt.hotels[1] !== h3 && opt.hotels[1] !== h4) {
+                        if (!hMix && hasMixPrice && opt.hotels.length >= 3 && opt.hotels[1] !== h3 && opt.hotels[1] !== h4) {
                             hMix = opt.hotels[1];
                             const oIdx = otherHotels.indexOf(hMix);
                             if (oIdx !== -1) otherHotels.splice(oIdx, 1);
@@ -3633,20 +3826,20 @@ window.slwApplyAllCostingOptions = function() {
                         if (!h4 && otherHotels.length > 0) h4 = otherHotels.shift();
                         if (!h5 && otherHotels.length > 0) h5 = otherHotels.shift();
 
-                        if (optCostingData.prices3Star) {
+                        if (optCostingData.prices3Star && slwHasPositivePrice(optCostingData.prices3Star.adult)) {
                             const names3 = (optCostingData.hotelNames?.star3?.length > 0)
                                 ? optCostingData.hotelNames.star3
                                 : (getFallbackNamesFromOpt0('3star') || ["Standard 3* Hotel Accommodation"]);
                             if (!h3) {
                                 h3 = { rating: "3* Hotel Options", names: names3, price: "", prices: [] };
                                 opt.hotels.unshift(h3);
-                            } else if (isPlaceholderHotelNames(h3.names)) {
+                            } else if (isPlaceholderHotelNames(h3.names) || (optCostingData.hotelNames?.star3?.length > 0 && isCloneOfOpt0Names(h3.names, '3star'))) {
                                 h3.names = names3;
                             }
                             applyPricesToHotel(h3, optCostingData.prices3Star);
                         }
 
-                        if (hasMixPrice && optCostingData.pricesMix && optCostingData.pricesMix.adult) {
+                        if (hasMixPrice && optCostingData.pricesMix && slwHasPositivePrice(optCostingData.pricesMix.adult)) {
                             const mixTitle = optCostingData.pricesMix.title || "Mix Hotel Option";
                             const namesMix = (optCostingData.hotelNames?.mix?.length > 0)
                                 ? optCostingData.hotelNames.mix
@@ -3660,26 +3853,26 @@ window.slwApplyAllCostingOptions = function() {
                                 } else {
                                     opt.hotels.push(hMix);
                                 }
-                            } else if (isPlaceholderHotelNames(hMix.names)) {
+                            } else if (isPlaceholderHotelNames(hMix.names) || (optCostingData.hotelNames?.mix?.length > 0 && isCloneOfOpt0Names(hMix.names, 'mix'))) {
                                 hMix.names = namesMix;
                             }
                             applyPricesToHotel(hMix, optCostingData.pricesMix);
                         }
 
-                        if (optCostingData.prices4Star) {
+                        if (optCostingData.prices4Star && slwHasPositivePrice(optCostingData.prices4Star.adult)) {
                             const names4 = (optCostingData.hotelNames?.star4?.length > 0)
                                 ? optCostingData.hotelNames.star4
                                 : (getFallbackNamesFromOpt0('4star') || ["Standard 4* Hotel Accommodation"]);
                             if (!h4) {
                                 h4 = { rating: "4* Hotel Options", names: names4, price: "", prices: [] };
                                 opt.hotels.push(h4);
-                            } else if (isPlaceholderHotelNames(h4.names)) {
+                            } else if (isPlaceholderHotelNames(h4.names) || (optCostingData.hotelNames?.star4?.length > 0 && isCloneOfOpt0Names(h4.names, '4star'))) {
                                 h4.names = names4;
                             }
                             applyPricesToHotel(h4, optCostingData.prices4Star);
                         }
 
-                        if (optCostingData.prices5Star && h5) {
+                        if (optCostingData.prices5Star && slwHasPositivePrice(optCostingData.prices5Star.adult) && h5) {
                             applyPricesToHotel(h5, optCostingData.prices5Star);
                         }
 
@@ -3720,9 +3913,9 @@ window.slwApplyAllCostingOptions = function() {
                     } else {
                         const opt = applySingleCostingToOptionIndex(targetOptIdx, costingData);
                         const summaryParts = [];
-                        if (costingData.prices3Star?.adult) summaryParts.push(`3*: ${costingData.prices3Star.adult}`);
-                        if (costingData.pricesMix?.adult) summaryParts.push(`Mix: ${costingData.pricesMix.adult}`);
-                        if (costingData.prices4Star?.adult) summaryParts.push(`4*: ${costingData.prices4Star.adult}`);
+                        if (slwHasPositivePrice(costingData.prices3Star?.adult)) summaryParts.push(`3*: ${costingData.prices3Star.adult}`);
+                        if (costingData.hasMix !== false && slwHasPositivePrice(costingData.pricesMix?.adult)) summaryParts.push(`Mix: ${costingData.pricesMix.adult}`);
+                        if (slwHasPositivePrice(costingData.prices4Star?.adult)) summaryParts.push(`4*: ${costingData.prices4Star.adult}`);
                         appliedSummaryText = `${opt.name || ('Option ' + String(targetOptIdx + 1).padStart(2, '0'))} වෙත (${summaryParts.join(' | ')}) මිල ගණන් සාර්ථකව යොදන ලදී.`;
                     }
 
@@ -3991,7 +4184,8 @@ window.slwApplyAllCostingOptions = function() {
                 optCostingBtn.onclick = function(e) {
                     e.preventDefault();
                     e.stopPropagation();
-                    window.slwApplyCostingPrices(optIdx);
+                    const liveIdx = Number(this.dataset.optIdx ?? optIdx);
+                    window.slwApplyCostingPrices(Number.isFinite(liveIdx) ? liveIdx : 0);
                 };
 
                 // Remove inline display on parent container to preserve print:hidden CSS!
@@ -4007,30 +4201,34 @@ window.slwApplyAllCostingOptions = function() {
 
                 parentContainer.insertBefore(optCostingBtn, catBtn);
             }
+            optCostingBtn.dataset.optIdx = String(optIdx);
 
             // Dynamically update price badge on the button (per Option index!)
             const badgeEl = optCostingBtn.querySelector('.slw-costing-badge');
             const resolved = (typeof window.slwResolveCostingDataForOption === 'function')
                 ? window.slwResolveCostingDataForOption(optIdx)
                 : { costingData: null, latestCosting: null };
+            const allRes = (typeof window.slwResolveAllCostingOptionsList === 'function')
+                ? window.slwResolveAllCostingOptionsList()
+                : { optionsList: (resolved.latestCosting && Array.isArray(resolved.latestCosting.options)) ? resolved.latestCosting.options : [] };
             const cd = resolved.costingData;
-            const latestCd = resolved.latestCosting;
-            const hasMultiCosting = Boolean(latestCd && Array.isArray(latestCd.options) && latestCd.options.length > 1);
+            const hasMultiCosting = Boolean(allRes.optionsList && allRes.optionsList.length > 1);
 
             if (badgeEl) {
                 if (cd) {
-                    const p3 = cd.prices3Star?.adult;
-                    const pMix = cd.hasMix !== false ? cd.pricesMix?.adult : null;
-                    const p4 = cd.prices4Star?.adult;
+                    const p3 = slwHasPositivePrice(cd.prices3Star?.adult) ? cd.prices3Star.adult : null;
+                    const pMix = (cd.hasMix !== false && slwHasPositivePrice(cd.pricesMix?.adult)) ? cd.pricesMix.adult : null;
+                    const p4 = slwHasPositivePrice(cd.prices4Star?.adult) ? cd.prices4Star.adult : null;
                     const parts = [];
                     if (p3) parts.push(`3*: ${p3}`);
                     if (pMix) parts.push(`Mix: ${pMix}`);
                     if (p4) parts.push(`4*: ${p4}`);
-                    const optTag = hasMultiCosting ? `Opt ${String(optIdx + 1).padStart(2, '0')} • ` : '';
+                    const matchedIdx = (cd._matchedOptionIndex !== undefined) ? cd._matchedOptionIndex : optIdx;
+                    const optTag = hasMultiCosting ? `Opt ${String(matchedIdx + 1).padStart(2, '0')} • ` : '';
                     if (parts.length > 0) {
                         badgeEl.innerText = `(${optTag}${parts.join(' | ')})`;
                         badgeEl.style.display = 'inline-block';
-                        optCostingBtn.title = `Click to apply ${hasMultiCosting ? 'Option ' + (optIdx + 1) + ' ' : ''}costing prices (${parts.join(', ')}) into this Option`;
+                        optCostingBtn.title = `Click to apply ${hasMultiCosting ? 'Option ' + (matchedIdx + 1) + ' ' : ''}costing prices (${parts.join(', ')}) into this Option`;
                     } else {
                         badgeEl.innerText = '(Ready)';
                     }
@@ -4053,9 +4251,9 @@ window.slwApplyAllCostingOptions = function() {
                     };
                     parentContainer.insertBefore(applyAllBtn, catBtn);
                 }
-                const count = latestCd.options.length;
+                const count = allRes.optionsList.length;
                 applyAllBtn.innerHTML = `<span>⚡</span><span>Apply All ${count} Options (Opt 1-${count})</span>`;
-                applyAllBtn.title = `Automatically add & apply all ${count} options from Tour Costing`;
+                applyAllBtn.title = `Automatically add & apply all ${count} options from Tour Costing / INQ`;
                 applyAllBtn.style.display = 'inline-flex';
             } else if (applyAllBtn) {
                 applyAllBtn.style.display = 'none';
@@ -4185,6 +4383,11 @@ window.slwApplyAllCostingOptions = function() {
                 window.__slwActiveInq = inqFromStorage;
                 window.__slwActiveInqClient = localStorage.getItem('SLW_ACTIVE_INQ_CLIENT') || '';
                 window.__slwActiveInqTitle = localStorage.getItem('SLW_ACTIVE_INQ_TITLE') || '';
+                window.__slwActivePackageId = localStorage.getItem('SLW_ACTIVE_INQ_PACKAGE_ID') || window.__slwActivePackageId || '';
+                const matchedDoc = slwFindInqDocInLocalStorage(inqFromStorage);
+                if (matchedDoc && Array.isArray(matchedDoc.packages)) {
+                    window.__slwActivePackages = matchedDoc.packages;
+                }
                 slwUpdateInqBadges();
             }
 
