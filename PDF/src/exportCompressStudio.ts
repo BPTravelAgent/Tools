@@ -522,7 +522,7 @@ export class ExportCompressStudioModal {
         const eff = pdfManager.getEffectivePageSize(idx);
         totalPixels += eff.width * opts.scale * (eff.height * opts.scale);
       }
-      const bytesPerPixel = 0.095 * Math.max(0.18, opts.quality) * (opts.grayscale ? 0.68 : 1.0);
+      const bytesPerPixel = 0.085 * Math.max(0.18, opts.quality) * (opts.grayscale ? 0.68 : 1.0);
       const est = Math.max(8 * 1024, Math.round(totalPixels * bytesPerPixel + pageCount * 900));
       const estPct = Math.round(((origBytes - est) / origBytes) * 100);
       if (outText) outText.textContent = `~${this.callbacks.formatBytes(est)}`;

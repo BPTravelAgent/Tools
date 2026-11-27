@@ -282,6 +282,31 @@ async function embedImageRobust(outputDoc: PDFDocument, src: string): Promise<an
 }
 
 export class ExportEngine {
+  private static builtinFontBytesCache = new Map<string, ArrayBuffer | null>();
+  private static renderCacheKey: string = '';
+  private static renderCacheCanvases = new Map<
+    number,
+    { canvas: HTMLCanvasElement; ptWidth: number; ptHeight: number }
+  >();
+
+  private static async getBuiltinFontBytes(assetRelPath: string): Promise<ArrayBuffer | null> {
+    if (ExportEngine.builtinFontBytesCache.has(assetRelPath)) {
+      return ExportEngine.builtinFontBytesCache.get(assetRelPath) || null;
+    }
+    try {
+      const resp = await fetch(getAssetUrl(assetRelPath));
+      if (resp.ok) {
+        const bytes = await resp.arrayBuffer();
+        ExportEngine.builtinFontBytesCache.set(assetRelPath, bytes);
+        return bytes;
+      }
+    } catch (e) {
+      console.warn(`Could not load font asset ${assetRelPath}:`, e);
+    }
+    ExportEngine.builtinFontBytesCache.set(assetRelPath, null);
+    return null;
+  }
+
   static async exportPDF(
     pdfManager: PDFManager,
     annotationManager: AnnotationManager,
@@ -294,73 +319,97 @@ export class ExportEngine {
     const originalBytes = pdfManager.getOriginalBytes();
     if (!originalBytes) throw new Error('No PDF bytes available for export');
 
+    const allPagesMeta = pdfManager.getPagesMeta();
+    const targetIndices =
+      saveOptions?.pageIndices && saveOptions.pageIndices.length > 0
+        ? saveOptions.pageIndices.filter((idx) => idx >= 0 && idx < allPagesMeta.length)
+        : allPagesMeta.map((_, idx) => idx);
+    const totalPages = targetIndices.length;
+
+    // Fast shortcut: if no edits/annotations/structural changes & all pages requested with default streams
+    const anyChanges = targetIndices.some(
+      (idx) =>
+        trueEditManager.getChangesForPage(idx).length > 0 ||
+        annotationManager.getAnnotations(idx).some((a) => !a.hidden)
+    );
+    if (!pdfManager.hasStructuralModifications() && !anyChanges && totalPages === allPagesMeta.length) {
+      if (saveOptions?.useObjectStreams === false) {
+        onProgress?.(100, 'Done!');
+        return new Uint8Array(originalBytes.slice(0));
+      }
+    }
+
     // Create a new document to assemble the pages
     const originalDoc = await PDFDocument.load(originalBytes, { ignoreEncryption: true });
     const outputDoc = await PDFDocument.create();
-    outputDoc.registerFontkit(fontkit);
 
-    // Standard fonts for vector text
-    const helvetica = await outputDoc.embedFont(StandardFonts.Helvetica);
-    const helveticaBold = await outputDoc.embedFont(StandardFonts.HelveticaBold);
-    const timesRoman = await outputDoc.embedFont(StandardFonts.TimesRoman);
-    const courier = await outputDoc.embedFont(StandardFonts.Courier);
+    const needsTextFonts = targetIndices.some(
+      (idx) =>
+        trueEditManager.getChangesForPage(idx).length > 0 ||
+        annotationManager.getAnnotations(idx).some((a) => !a.hidden && a.type === 'text')
+    );
 
-    // Custom fonts from Fornt folder
+    let helvetica: any = null;
+    let helveticaBold: any = null;
+    let timesRoman: any = null;
+    let courier: any = null;
     let dmSansRegular: any = null;
     let dmSansBold: any = null;
     let libreBaskervilleRegular: any = null;
     let libreBaskervilleBold: any = null;
-
-    try {
-      const resp = await fetch(getAssetUrl('fonts/DMSans-Regular.ttf'));
-      if (resp.ok) {
-        const bytes = await resp.arrayBuffer();
-        dmSansRegular = await outputDoc.embedFont(bytes);
-      }
-    } catch (e) {
-      console.warn('Could not load DMSans-Regular font:', e);
-    }
-
-    try {
-      const resp = await fetch(getAssetUrl('fonts/DMSans-Bold.ttf'));
-      if (resp.ok) {
-        const bytes = await resp.arrayBuffer();
-        dmSansBold = await outputDoc.embedFont(bytes);
-      }
-    } catch (e) {
-      console.warn('Could not load DMSans-Bold font:', e);
-    }
-
-    try {
-      const resp = await fetch(getAssetUrl('fonts/LibreBaskerville-Regular.ttf'));
-      if (resp.ok) {
-        const bytes = await resp.arrayBuffer();
-        libreBaskervilleRegular = await outputDoc.embedFont(bytes);
-      }
-    } catch (e) {
-      console.warn('Could not load LibreBaskerville-Regular font:', e);
-    }
-
-    try {
-      const resp = await fetch(getAssetUrl('fonts/LibreBaskerville-Bold.ttf'));
-      if (resp.ok) {
-        const bytes = await resp.arrayBuffer();
-        libreBaskervilleBold = await outputDoc.embedFont(bytes);
-      }
-    } catch (e) {
-      console.warn('Could not load LibreBaskerville-Bold font:', e);
-    }
-
-    // Custom uploaded fonts from FontManager
     const customEmbeddedFonts = new Map<string, any>();
-    for (const font of fontManager.getAllFonts()) {
-      if (font.isCustom && font.bytes) {
-        try {
-          const customEmbedded = await outputDoc.embedFont(font.bytes);
-          customEmbeddedFonts.set(font.name.toLowerCase(), customEmbedded);
-          customEmbeddedFonts.set(font.family.toLowerCase(), customEmbedded);
-        } catch (customErr) {
-          console.warn(`Could not embed custom font ${font.name}:`, customErr);
+
+    if (needsTextFonts) {
+      outputDoc.registerFontkit(fontkit);
+      helvetica = await outputDoc.embedFont(StandardFonts.Helvetica);
+      helveticaBold = await outputDoc.embedFont(StandardFonts.HelveticaBold);
+      timesRoman = await outputDoc.embedFont(StandardFonts.TimesRoman);
+      courier = await outputDoc.embedFont(StandardFonts.Courier);
+
+      const usedFamilies = new Set<string>();
+      for (const idx of targetIndices) {
+        for (const ch of trueEditManager.getChangesForPage(idx)) {
+          if (ch.fontFamily) usedFamilies.add(ch.fontFamily.toLowerCase());
+          if (ch.spans) ch.spans.forEach((s) => s.fontFamily && usedFamilies.add(s.fontFamily.toLowerCase()));
+        }
+        for (const ann of annotationManager.getAnnotations(idx)) {
+          if (!ann.hidden && ann.type === 'text' && (ann as TextAnnotation).fontFamily) {
+            usedFamilies.add((ann as TextAnnotation).fontFamily.toLowerCase());
+          }
+        }
+      }
+      const wantsDmSans = Array.from(usedFamilies).some((f) => f.includes('dm sans') || f.includes('dmsans'));
+      const wantsLibre = Array.from(usedFamilies).some((f) => f.includes('baskerville') || f.includes('libre'));
+
+      if (wantsDmSans || usedFamilies.size === 0) {
+        const regBytes = await ExportEngine.getBuiltinFontBytes('fonts/DMSans-Regular.ttf');
+        if (regBytes) dmSansRegular = await outputDoc.embedFont(regBytes);
+        const boldBytes = await ExportEngine.getBuiltinFontBytes('fonts/DMSans-Bold.ttf');
+        if (boldBytes) dmSansBold = await outputDoc.embedFont(boldBytes);
+      }
+      if (wantsLibre) {
+        const regBytes = await ExportEngine.getBuiltinFontBytes('fonts/LibreBaskerville-Regular.ttf');
+        if (regBytes) libreBaskervilleRegular = await outputDoc.embedFont(regBytes);
+        const boldBytes = await ExportEngine.getBuiltinFontBytes('fonts/LibreBaskerville-Bold.ttf');
+        if (boldBytes) libreBaskervilleBold = await outputDoc.embedFont(boldBytes);
+      }
+
+      for (const font of fontManager.getAllFonts()) {
+        if (font.isCustom && font.bytes) {
+          const matchesUsed =
+            usedFamilies.has(font.name.toLowerCase()) ||
+            usedFamilies.has(font.family.toLowerCase()) ||
+            Array.from(usedFamilies).some(
+              (u) => u.includes(font.name.toLowerCase()) || font.name.toLowerCase().includes(u)
+            );
+          if (!matchesUsed) continue;
+          try {
+            const customEmbedded = await outputDoc.embedFont(font.bytes);
+            customEmbeddedFonts.set(font.name.toLowerCase(), customEmbedded);
+            customEmbeddedFonts.set(font.family.toLowerCase(), customEmbedded);
+          } catch (customErr) {
+            console.warn(`Could not embed custom font ${font.name}:`, customErr);
+          }
         }
       }
     }
@@ -368,7 +417,6 @@ export class ExportEngine {
     const resolveFont = (fontFamily: string, bold: boolean) => {
       const name = (fontFamily || '').toLowerCase();
 
-      // 1. Check custom uploaded fonts first
       if (customEmbeddedFonts.has(name)) {
         return customEmbeddedFonts.get(name);
       }
@@ -378,7 +426,6 @@ export class ExportEngine {
         }
       }
 
-      // 2. Built-in bundled TTF fonts
       if (name.includes('dm sans') || name.includes('dmsans')) {
         if (bold && dmSansBold) return dmSansBold;
         if (dmSansRegular) return dmSansRegular;
@@ -392,12 +439,6 @@ export class ExportEngine {
       if (bold) return helveticaBold;
       return helvetica;
     };
-
-    const allPagesMeta = pdfManager.getPagesMeta();
-    const targetIndices = saveOptions?.pageIndices && saveOptions.pageIndices.length > 0
-      ? saveOptions.pageIndices.filter((idx) => idx >= 0 && idx < allPagesMeta.length)
-      : allPagesMeta.map((_, idx) => idx);
-    const totalPages = targetIndices.length;
 
     onProgress?.(25, 'Processing pages and layout...');
 
@@ -1271,7 +1312,8 @@ export class ExportEngine {
     if (!meta) throw new Error(`Page ${pageIndex + 1} not found`);
 
     const canvas = document.createElement('canvas');
-    await pdfManager.renderPageToCanvas(pageIndex, canvas, scale);
+    // Render at exact explicit DPR = 1 so background compression & target size scale predictably (4x faster than 2x retina)
+    await pdfManager.renderPageToCanvas(pageIndex, canvas, scale, 1);
 
     const ptWidth = meta.cropBox ? meta.cropBox.width : meta.width;
     const ctx = canvas.getContext('2d', { willReadFrequently: grayscale });
@@ -1715,8 +1757,112 @@ export class ExportEngine {
     setTimeout(() => URL.revokeObjectURL(url), 10000);
   }
 
+  private static async mapWithConcurrency<T, R>(
+    items: T[],
+    concurrency: number,
+    worker: (item: T, idx: number) => Promise<R>
+  ): Promise<R[]> {
+    const results = new Array<R>(items.length);
+    let nextIdx = 0;
+    const runners = Array.from({ length: Math.min(Math.max(1, concurrency), items.length) }, async () => {
+      while (nextIdx < items.length) {
+        const cur = nextIdx++;
+        results[cur] = await worker(items[cur], cur);
+      }
+    });
+    await Promise.all(runners);
+    return results;
+  }
+
+  private static encodeCanvasToJpgBytes(canvas: HTMLCanvasElement, quality: number): Promise<Uint8Array> {
+    const q = Math.max(0.08, Math.min(1.0, quality));
+    return new Promise<Uint8Array>((resolve, reject) => {
+      canvas.toBlob(
+        async (blob) => {
+          if (!blob) {
+            reject(new Error('Canvas JPEG encode failed'));
+            return;
+          }
+          resolve(new Uint8Array(await blob.arrayBuffer()));
+        },
+        'image/jpeg',
+        q
+      );
+    });
+  }
+
+  private static buildRenderCacheKey(
+    pdfManager: PDFManager,
+    annotationManager: AnnotationManager,
+    trueEditManager: TrueEditManager,
+    scale: number,
+    grayscale: boolean
+  ): string {
+    const metaSig = pdfManager
+      .getPagesMeta()
+      .map(
+        (m) =>
+          `${m.originalPageNumber}:${m.rotation}:${m.width.toFixed(1)}x${m.height.toFixed(1)}:${m.cropBox ? `${m.cropBox.x},${m.cropBox.y},${m.cropBox.width},${m.cropBox.height}` : ''}`
+      )
+      .join('|');
+    const annSig = JSON.stringify(Array.from(annotationManager.getAllAnnotations().entries()));
+    const teSig = JSON.stringify(Array.from(trueEditManager.getAllChanges().entries()));
+    return `${pdfManager.getSessionId()}#${scale.toFixed(3)}#${grayscale ? 1 : 0}#${metaSig}#${annSig}#${teSig}`;
+  }
+
+  private static async getCachedPageCanvas(
+    pdfManager: PDFManager,
+    annotationManager: AnnotationManager,
+    trueEditManager: TrueEditManager,
+    pageIndex: number,
+    scale: number,
+    grayscale: boolean,
+    cacheKey: string
+  ): Promise<{ canvas: HTMLCanvasElement; ptWidth: number; ptHeight: number }> {
+    if (ExportEngine.renderCacheKey !== cacheKey) {
+      ExportEngine.renderCacheCanvases.clear();
+      ExportEngine.renderCacheKey = cacheKey;
+    }
+    const existing = ExportEngine.renderCacheCanvases.get(pageIndex);
+    if (existing) {
+      return existing;
+    }
+    const meta = pdfManager.getPageMeta(pageIndex);
+    const ptWidth = meta ? (meta.cropBox ? meta.cropBox.width : meta.width) : 595.28;
+    const ptHeight = meta ? (meta.cropBox ? meta.cropBox.height : meta.height) : 841.89;
+    const canvas = await ExportEngine.renderPageToCanvasWithEdits(
+      pdfManager,
+      annotationManager,
+      trueEditManager,
+      pageIndex,
+      scale,
+      grayscale
+    );
+    const entry = { canvas, ptWidth, ptHeight };
+    ExportEngine.renderCacheCanvases.set(pageIndex, entry);
+    return entry;
+  }
+
+  private static async assembleJpegPagesToPDF(
+    pages: Array<{ jpgBytes: Uint8Array; ptWidth: number; ptHeight: number }>
+  ): Promise<Uint8Array> {
+    const outputDoc = await PDFDocument.create();
+    for (const item of pages) {
+      const embedded = await outputDoc.embedJpg(item.jpgBytes);
+      const page = outputDoc.addPage([item.ptWidth, item.ptHeight]);
+      page.drawImage(embedded, {
+        x: 0,
+        y: 0,
+        width: item.ptWidth,
+        height: item.ptHeight,
+      });
+    }
+    return await outputDoc.save({ useObjectStreams: true });
+  }
+
   /**
-   * Compresses the PDF to reduce file size (KB / MB) with selectable quality, DPI scale, grayscale, and page selection.
+   * Compresses the PDF to reduce file size (KB / MB) with parallel page processing,
+   * canvas caching across quality adjustments, selectable DPI scale, grayscale, and page selection.
    */
   static async compressPDF(
     pdfManager: PDFManager,
@@ -1731,82 +1877,48 @@ export class ExportEngine {
     onProgress?: (percent: number, status: string) => void
   ): Promise<Uint8Array> {
     const pagesMeta = pdfManager.getPagesMeta();
-    const targetIndices = options.pageIndices && options.pageIndices.length > 0
-      ? options.pageIndices.filter((idx) => idx >= 0 && idx < pagesMeta.length)
-      : pagesMeta.map((_, idx) => idx);
+    const targetIndices =
+      options.pageIndices && options.pageIndices.length > 0
+        ? options.pageIndices.filter((idx) => idx >= 0 && idx < pagesMeta.length)
+        : pagesMeta.map((_, idx) => idx);
     const totalPages = targetIndices.length;
-    const outputDoc = await PDFDocument.create();
+    const cacheKey = ExportEngine.buildRenderCacheKey(
+      pdfManager,
+      annotationManager,
+      trueEditManager,
+      options.scale,
+      !!options.grayscale
+    );
 
-    for (let i = 0; i < totalPages; i++) {
-      const pIdx = targetIndices[i];
-      onProgress?.(
-        Math.round((i / Math.max(1, totalPages)) * 85),
-        `Optimizing & compressing page ${i + 1} of ${totalPages}...`
-      );
-
-      const meta = pagesMeta[pIdx];
-      const ptWidth = meta.cropBox ? meta.cropBox.width : meta.width;
-      const ptHeight = meta.cropBox ? meta.cropBox.height : meta.height;
-
-      const blob = await ExportEngine.renderPageToImageBlob(
+    let completed = 0;
+    const renderedEntries = await ExportEngine.mapWithConcurrency(targetIndices, 4, async (pIdx) => {
+      const cached = await ExportEngine.getCachedPageCanvas(
         pdfManager,
         annotationManager,
         trueEditManager,
         pIdx,
-        'jpeg',
         options.scale,
-        options.quality,
-        !!options.grayscale
+        !!options.grayscale,
+        cacheKey
       );
+      const jpgBytes = await ExportEngine.encodeCanvasToJpgBytes(cached.canvas, options.quality);
+      completed++;
+      onProgress?.(
+        Math.round((completed / Math.max(1, totalPages)) * 88),
+        `Optimizing page ${completed} of ${totalPages}...`
+      );
+      return { jpgBytes, ptWidth: cached.ptWidth, ptHeight: cached.ptHeight };
+    });
 
-      const arrayBuffer = await blob.arrayBuffer();
-      const jpegBytes = new Uint8Array(arrayBuffer);
-      const embedded = await outputDoc.embedJpg(jpegBytes);
-
-      const page = outputDoc.addPage([ptWidth, ptHeight]);
-      page.drawImage(embedded, {
-        x: 0,
-        y: 0,
-        width: ptWidth,
-        height: ptHeight,
-      });
-    }
-
-    onProgress?.(90, 'Finalizing compressed document...');
-    const resultBytes = await outputDoc.save({ useObjectStreams: true });
+    onProgress?.(92, 'Packaging compressed PDF...');
+    const resultBytes = await ExportEngine.assembleJpegPagesToPDF(renderedEntries);
     onProgress?.(100, 'Compression completed!');
     return resultBytes;
   }
 
-  private static async buildPDFFromCachedCanvases(
-    cachedCanvases: Array<{ canvas: HTMLCanvasElement; ptWidth: number; ptHeight: number }>,
-    quality: number
-  ): Promise<Uint8Array> {
-    const outputDoc = await PDFDocument.create();
-    const q = Math.max(0.08, Math.min(1.0, quality));
-    for (const item of cachedCanvases) {
-      const blob = await new Promise<Blob>((resolve, reject) => {
-        item.canvas.toBlob(
-          (b) => (b ? resolve(b) : reject(new Error('Canvas JPEG encode failed'))),
-          'image/jpeg',
-          q
-        );
-      });
-      const bytes = new Uint8Array(await blob.arrayBuffer());
-      const embedded = await outputDoc.embedJpg(bytes);
-      const page = outputDoc.addPage([item.ptWidth, item.ptHeight]);
-      page.drawImage(embedded, {
-        x: 0,
-        y: 0,
-        width: item.ptWidth,
-        height: item.ptHeight,
-      });
-    }
-    return await outputDoc.save({ useObjectStreams: true });
-  }
-
   /**
-   * Adaptively compresses the PDF to fit under a target file size (in bytes) while maximizing visual quality.
+   * Adaptively compresses the PDF to fit under a target file size (in bytes) in minimal time
+   * using zero-copy lossless fast-path, 4-page probe scale search, and direct JPEG byte budgeting.
    */
   static async compressToTargetSize(
     pdfManager: PDFManager,
@@ -1822,23 +1934,30 @@ export class ExportEngine {
   ): Promise<ExportPDFAdvancedResult> {
     const safeTarget = Math.max(20 * 1024, targetBytes);
     const allMeta = pdfManager.getPagesMeta();
-    const targetIndices = options?.pageIndices && options.pageIndices.length > 0
-      ? options.pageIndices.filter((idx) => idx >= 0 && idx < allMeta.length)
-      : allMeta.map((_, idx) => idx);
+    const targetIndices =
+      options?.pageIndices && options.pageIndices.length > 0
+        ? options.pageIndices.filter((idx) => idx >= 0 && idx < allMeta.length)
+        : allMeta.map((_, idx) => idx);
+    const totalPages = Math.max(1, targetIndices.length);
+    const originalBytes = pdfManager.getOriginalBytes();
 
-    // 1. Check if lossless vector PDF already fits under targetBytes!
-    onProgress?.(8, 'Checking lossless vector PDF size...');
-    const vectorBytes = await ExportEngine.exportPDF(
-      pdfManager,
-      annotationManager,
-      trueEditManager,
-      undefined,
-      { useObjectStreams: true, pageIndices: targetIndices }
+    const anyEdits = targetIndices.some(
+      (idx) =>
+        trueEditManager.getChangesForPage(idx).length > 0 ||
+        annotationManager.getAnnotations(idx).some((a) => !a.hidden)
     );
-    if (vectorBytes.byteLength <= safeTarget) {
-      onProgress?.(100, 'Fits target size losslessly!');
+
+    // 1. Instant zero-copy fast path if clean doc already fits under targetBytes
+    if (
+      !pdfManager.hasStructuralModifications() &&
+      !anyEdits &&
+      targetIndices.length === allMeta.length &&
+      originalBytes &&
+      originalBytes.byteLength <= safeTarget
+    ) {
+      onProgress?.(100, 'Already under target size losslessly!');
       return {
-        bytes: vectorBytes,
+        bytes: new Uint8Array(originalBytes.slice(0)),
         method: 'vector',
         achievedScale: 1.0,
         achievedQuality: 1.0,
@@ -1847,121 +1966,316 @@ export class ExportEngine {
       };
     }
 
-    // 2. Adaptive scale + cached-canvas quality binary search
-    const startMaxScale = Math.min(2.0, Math.max(0.75, options?.maxScale ?? 1.5));
-    const scaleTiers = [startMaxScale, 1.15, 0.9, 0.7, 0.55].filter(
-      (s, i, arr) => s <= startMaxScale + 0.01 && arr.indexOf(s) === i
-    );
-    const grayscaleModes = options?.allowGrayscaleFallback ? [false, true] : [false];
-
-    let bestBytes: Uint8Array = vectorBytes;
-    let bestScale = 1.0;
-    let bestQuality = 1.0;
-    let bestGray = false;
-
-    const trackBest = (bytes: Uint8Array, scale: number, quality: number, gray: boolean) => {
-      if (bytes.byteLength < bestBytes.byteLength) {
-        bestBytes = bytes;
-        bestScale = scale;
-        bestQuality = quality;
-        bestGray = gray;
-      }
-    };
-
-    for (const gray of grayscaleModes) {
-      for (let tIdx = 0; tIdx < scaleTiers.length; tIdx++) {
-        const scale = scaleTiers[tIdx];
-        const tierBasePct = 15 + Math.round((tIdx / scaleTiers.length) * 65);
-        onProgress?.(
-          tierBasePct,
-          `Rendering pages at ${scale.toFixed(2)}x${gray ? ' (Grayscale)' : ''}...`
-        );
-
-        const cachedCanvases: Array<{ canvas: HTMLCanvasElement; ptWidth: number; ptHeight: number }> = [];
-        for (let i = 0; i < targetIndices.length; i++) {
-          const pIdx = targetIndices[i];
-          const meta = allMeta[pIdx];
-          const ptWidth = meta.cropBox ? meta.cropBox.width : meta.width;
-          const ptHeight = meta.cropBox ? meta.cropBox.height : meta.height;
-          const canvas = await ExportEngine.renderPageToCanvasWithEdits(
-            pdfManager,
-            annotationManager,
-            trueEditManager,
-            pIdx,
-            scale,
-            gray
-          );
-          cachedCanvases.push({ canvas, ptWidth, ptHeight });
-        }
-
-        const minQ = tIdx === scaleTiers.length - 1 ? 0.14 : 0.30;
-        const maxQ = 0.88;
-
-        // Check maxQ first
-        const highBytes = await ExportEngine.buildPDFFromCachedCanvases(cachedCanvases, maxQ);
-        trackBest(highBytes, scale, maxQ, gray);
-        if (highBytes.byteLength <= safeTarget) {
-          onProgress?.(100, 'Target file size reached!');
-          return {
-            bytes: highBytes,
-            method: 'compressed',
-            achievedScale: scale,
-            achievedQuality: maxQ,
-            grayscale: gray,
-            hitTarget: true,
-          };
-        }
-
-        // Check minQ at this scale
-        const lowBytes = await ExportEngine.buildPDFFromCachedCanvases(cachedCanvases, minQ);
-        trackBest(lowBytes, scale, minQ, gray);
-        if (lowBytes.byteLength > safeTarget) {
-          // Even minQ at this scale exceeds target — move to lower scale tier
-          continue;
-        }
-
-        // Binary search between minQ and maxQ for maximum quality under safeTarget
-        let lo = minQ;
-        let hi = maxQ;
-        let bestUnderBytes = lowBytes;
-        let bestUnderQ = minQ;
-
-        for (let iter = 0; iter < 5; iter++) {
-          const mid = (lo + hi) / 2;
-          onProgress?.(
-            Math.min(95, tierBasePct + 10 + iter * 4),
-            `Tuning quality (${Math.round(mid * 100)}%) to fit target size...`
-          );
-          const midBytes = await ExportEngine.buildPDFFromCachedCanvases(cachedCanvases, mid);
-          if (midBytes.byteLength <= safeTarget) {
-            bestUnderBytes = midBytes;
-            bestUnderQ = mid;
-            lo = mid;
-          } else {
-            hi = mid;
-          }
-        }
-
-        onProgress?.(100, 'Optimal quality found under target size!');
+    // Check lossless object-stream vector PDF ONLY if source could realistically compress losslessly under safeTarget
+    let vectorBytes: Uint8Array | null = null;
+    if (
+      !originalBytes ||
+      targetIndices.length < allMeta.length ||
+      originalBytes.byteLength <= safeTarget * 2.5
+    ) {
+      onProgress?.(8, 'Checking lossless vector PDF size...');
+      vectorBytes = await ExportEngine.exportPDF(
+        pdfManager,
+        annotationManager,
+        trueEditManager,
+        undefined,
+        { useObjectStreams: true, pageIndices: targetIndices }
+      );
+      if (vectorBytes.byteLength <= safeTarget) {
+        onProgress?.(100, 'Fits target size losslessly!');
         return {
-          bytes: bestUnderBytes,
-          method: 'compressed',
-          achievedScale: scale,
-          achievedQuality: bestUnderQ,
-          grayscale: gray,
+          bytes: vectorBytes,
+          method: 'vector',
+          achievedScale: 1.0,
+          achievedQuality: 1.0,
+          grayscale: false,
           hitTarget: true,
         };
       }
     }
 
-    onProgress?.(100, 'Applied maximum compression!');
+    // 2. Choose smart scale tiers based on per-page KB budget
+    const CONTAINER_OVERHEAD = 1600 + totalPages * 340;
+    const jpegBudget = Math.max(12 * 1024, safeTarget - CONTAINER_OVERHEAD);
+    const budgetPerPage = jpegBudget / totalPages;
+
+    const startMaxScale = Math.min(2.0, Math.max(0.75, options?.maxScale ?? 1.5));
+    let rawTiers = [startMaxScale, 1.15, 0.9, 0.72, 0.55].filter(
+      (s, i, arr) => s <= startMaxScale + 0.01 && arr.indexOf(s) === i
+    );
+    if (totalPages >= 5) {
+      if (budgetPerPage < 26 * 1024) {
+        rawTiers = rawTiers.filter((s) => s <= 0.95);
+      } else if (budgetPerPage < 65 * 1024) {
+        rawTiers = rawTiers.filter((s) => s <= 1.18);
+      }
+      if (rawTiers.length === 0) rawTiers = [0.72, 0.55];
+    }
+
+    const grayscaleModes = options?.allowGrayscaleFallback ? [false, true] : [false];
+
+    // Pick up to 4 evenly distributed probe pages for large docs
+    const probeIndices =
+      totalPages <= 4
+        ? targetIndices
+        : Array.from(
+            new Set([
+              targetIndices[0],
+              targetIndices[Math.floor(targetIndices.length / 3)],
+              targetIndices[Math.floor((targetIndices.length * 2) / 3)],
+              targetIndices[targetIndices.length - 1],
+            ])
+          );
+
+    const encodeSet = async (
+      canvases: Array<{ canvas: HTMLCanvasElement; ptWidth: number; ptHeight: number }>,
+      quality: number
+    ) => {
+      const jpgs = await ExportEngine.mapWithConcurrency(canvases, 4, (c) =>
+        ExportEngine.encodeCanvasToJpgBytes(c.canvas, quality)
+      );
+      const totalJpgBytes = jpgs.reduce((sum, j) => sum + j.byteLength, 0);
+      return { jpgs, totalJpgBytes };
+    };
+
+    let bestFallback: {
+      pages: Array<{ jpgBytes: Uint8Array; ptWidth: number; ptHeight: number }>;
+      totalBytes: number;
+      scale: number;
+      quality: number;
+      gray: boolean;
+    } | null = null;
+
+    for (const gray of grayscaleModes) {
+      for (let tIdx = 0; tIdx < rawTiers.length; tIdx++) {
+        const scale = rawTiers[tIdx];
+        const minQ = tIdx === rawTiers.length - 1 ? 0.14 : 0.28;
+        const maxQ = 0.86;
+        const cacheKey = ExportEngine.buildRenderCacheKey(
+          pdfManager,
+          annotationManager,
+          trueEditManager,
+          scale,
+          gray
+        );
+
+        onProgress?.(
+          15 + Math.round((tIdx / rawTiers.length) * 20),
+          totalPages > 4
+            ? `Sampling ${probeIndices.length} pages at ${scale.toFixed(2)}×${gray ? ' (Grayscale)' : ''}...`
+            : `Rendering ${totalPages} page(s) at ${scale.toFixed(2)}×${gray ? ' (Grayscale)' : ''}...`
+        );
+
+        // Render ONLY probe pages first (or all pages if doc <= 4 pages)
+        const probeCanvases = await ExportEngine.mapWithConcurrency(probeIndices, 4, (pIdx) =>
+          ExportEngine.getCachedPageCanvas(
+            pdfManager,
+            annotationManager,
+            trueEditManager,
+            pIdx,
+            scale,
+            gray,
+            cacheKey
+          )
+        );
+
+        // Estimate full doc budget from probes before rendering remaining pages
+        const probeHigh = await encodeSet(probeCanvases, maxQ);
+        const estHighTotal = (probeHigh.totalJpgBytes / probeCanvases.length) * totalPages + CONTAINER_OVERHEAD;
+
+        let estimatedQ = maxQ;
+        if (estHighTotal > safeTarget) {
+          const probeLow = await encodeSet(probeCanvases, minQ);
+          const estLowTotal = (probeLow.totalJpgBytes / probeCanvases.length) * totalPages + CONTAINER_OVERHEAD;
+          // Allow slight tolerance in case probes are heavier than document average
+          if (estLowTotal > safeTarget * 1.12 && !(gray === grayscaleModes[grayscaleModes.length - 1] && tIdx === rawTiers.length - 1)) {
+            continue; // Reject oversized tier after rendering ONLY 4 pages!
+          }
+          if (estLowTotal <= safeTarget) {
+            let lo = minQ;
+            let hi = maxQ;
+            estimatedQ = minQ;
+            for (let it = 0; it < 4; it++) {
+              const mid = (lo + hi) / 2;
+              const pMid = await encodeSet(probeCanvases, mid);
+              const estMid = (pMid.totalJpgBytes / probeCanvases.length) * totalPages + CONTAINER_OVERHEAD;
+              if (estMid <= safeTarget * 0.96) {
+                estimatedQ = mid;
+                lo = mid;
+              } else {
+                hi = mid;
+              }
+            }
+          } else {
+            estimatedQ = minQ;
+          }
+        }
+
+        // Render any remaining pages ONCE at this selected scale tier
+        let allCanvases: Array<{ canvas: HTMLCanvasElement; ptWidth: number; ptHeight: number }>;
+        if (probeCanvases.length === targetIndices.length) {
+          allCanvases = probeCanvases;
+        } else {
+          let doneCount = probeCanvases.length;
+          allCanvases = await ExportEngine.mapWithConcurrency(targetIndices, 4, async (pIdx) => {
+            const wasCached = ExportEngine.renderCacheCanvases.has(pIdx) && ExportEngine.renderCacheKey === cacheKey;
+            const entry = await ExportEngine.getCachedPageCanvas(
+              pdfManager,
+              annotationManager,
+              trueEditManager,
+              pIdx,
+              scale,
+              gray,
+              cacheKey
+            );
+            if (!wasCached) {
+              doneCount++;
+              onProgress?.(
+                Math.min(82, 30 + Math.round((doneCount / totalPages) * 52)),
+                `Rendering page ${Math.min(totalPages, doneCount)} of ${totalPages} at ${scale.toFixed(2)}×...`
+              );
+            }
+            return entry;
+          });
+        }
+
+        onProgress?.(85, `Optimizing JPEG compression (${Math.round(estimatedQ * 100)}%)...`);
+        const firstPass =
+          probeCanvases.length === allCanvases.length && estimatedQ === maxQ
+            ? probeHigh
+            : await encodeSet(allCanvases, estimatedQ);
+
+        let chosenJpgs = firstPass.jpgs;
+        let chosenSum = firstPass.totalJpgBytes;
+        let chosenQ = estimatedQ;
+
+        const recordFallback = (jpgs: Uint8Array[], sum: number, q: number) => {
+          const estTotal = sum + CONTAINER_OVERHEAD;
+          if (!bestFallback || estTotal < bestFallback.totalBytes) {
+            bestFallback = {
+              pages: allCanvases.map((c, idx) => ({ jpgBytes: jpgs[idx], ptWidth: c.ptWidth, ptHeight: c.ptHeight })),
+              totalBytes: estTotal,
+              scale,
+              quality: q,
+              gray,
+            };
+          }
+        };
+        recordFallback(chosenJpgs, chosenSum, chosenQ);
+
+        if (chosenSum + CONTAINER_OVERHEAD > safeTarget) {
+          // Check minQ on full cached canvases (ZERO PDF re-rendering)
+          const fullMin = await encodeSet(allCanvases, minQ);
+          recordFallback(fullMin.jpgs, fullMin.totalJpgBytes, minQ);
+          if (fullMin.totalJpgBytes + CONTAINER_OVERHEAD > safeTarget) {
+            continue; // Need next lower scale or grayscale
+          }
+          let lo = minQ;
+          let hi = chosenQ;
+          chosenJpgs = fullMin.jpgs;
+          chosenSum = fullMin.totalJpgBytes;
+          chosenQ = minQ;
+          for (let it = 0; it < 4; it++) {
+            const mid = (lo + hi) / 2;
+            onProgress?.(86 + it * 2, `Fine-tuning quality (${Math.round(mid * 100)}%)...`);
+            const midRes = await encodeSet(allCanvases, mid);
+            if (midRes.totalJpgBytes + CONTAINER_OVERHEAD <= safeTarget) {
+              chosenJpgs = midRes.jpgs;
+              chosenSum = midRes.totalJpgBytes;
+              chosenQ = mid;
+              lo = mid;
+            } else {
+              hi = mid;
+            }
+          }
+        } else if (chosenQ < maxQ - 0.05) {
+          // Slight upward boost if probes were much denser than rest of document
+          const midUp = Math.min(maxQ, chosenQ + 0.12);
+          const upRes = await encodeSet(allCanvases, midUp);
+          if (upRes.totalJpgBytes + CONTAINER_OVERHEAD <= safeTarget) {
+            chosenJpgs = upRes.jpgs;
+            chosenSum = upRes.totalJpgBytes;
+            chosenQ = midUp;
+          }
+        }
+
+        onProgress?.(94, 'Assembling final PDF...');
+        let finalBytes = await ExportEngine.assembleJpegPagesToPDF(
+          allCanvases.map((c, idx) => ({
+            jpgBytes: chosenJpgs[idx],
+            ptWidth: c.ptWidth,
+            ptHeight: c.ptHeight,
+          }))
+        );
+
+        // Safety trim if actual PDF container overhead slightly exceeded estimate
+        if (finalBytes.byteLength > safeTarget && chosenQ > minQ) {
+          const trimQ = Math.max(minQ, chosenQ * (safeTarget / finalBytes.byteLength) * 0.94);
+          const trimRes = await encodeSet(allCanvases, trimQ);
+          const trimmedPdf = await ExportEngine.assembleJpegPagesToPDF(
+            allCanvases.map((c, idx) => ({
+              jpgBytes: trimRes.jpgs[idx],
+              ptWidth: c.ptWidth,
+              ptHeight: c.ptHeight,
+            }))
+          );
+          if (trimmedPdf.byteLength < finalBytes.byteLength) {
+            finalBytes = trimmedPdf;
+            chosenQ = trimQ;
+          }
+        }
+
+        if (finalBytes.byteLength <= safeTarget) {
+          onProgress?.(100, 'Target file size reached!');
+          return {
+            bytes: finalBytes,
+            method: 'compressed',
+            achievedScale: scale,
+            achievedQuality: chosenQ,
+            grayscale: gray,
+            hitTarget: true,
+          };
+        }
+      }
+    }
+
+    onProgress?.(98, 'Finalizing maximum compression...');
+    if (bestFallback) {
+      const fb = bestFallback as {
+        pages: Array<{ jpgBytes: Uint8Array; ptWidth: number; ptHeight: number }>;
+        totalBytes: number;
+        scale: number;
+        quality: number;
+        gray: boolean;
+      };
+      const fbBytes = await ExportEngine.assembleJpegPagesToPDF(fb.pages);
+      if (!vectorBytes || fbBytes.byteLength < vectorBytes.byteLength) {
+        onProgress?.(100, 'Applied maximum compression!');
+        return {
+          bytes: fbBytes,
+          method: 'compressed',
+          achievedScale: fb.scale,
+          achievedQuality: fb.quality,
+          grayscale: fb.gray,
+          hitTarget: fbBytes.byteLength <= safeTarget,
+        };
+      }
+    }
+
+    const fallbackVector =
+      vectorBytes ||
+      (await ExportEngine.exportPDF(pdfManager, annotationManager, trueEditManager, undefined, {
+        useObjectStreams: true,
+        pageIndices: targetIndices,
+      }));
+    onProgress?.(100, 'Done!');
     return {
-      bytes: bestBytes,
-      method: 'compressed',
-      achievedScale: bestScale,
-      achievedQuality: bestQuality,
-      grayscale: bestGray,
-      hitTarget: bestBytes.byteLength <= safeTarget,
+      bytes: fallbackVector,
+      method: 'vector',
+      achievedScale: 1.0,
+      achievedQuality: 1.0,
+      grayscale: false,
+      hitTarget: fallbackVector.byteLength <= safeTarget,
     };
   }
 

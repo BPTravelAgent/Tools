@@ -21,23 +21,29 @@ export class PDFManager {
   private fileName: string = 'document.pdf';
   private pagesMeta: PageMetadata[] = [];
   private extractedTexts: Map<number, ExtractedTextItem[]> = new Map();
+  private textExtractPromises: Map<number, Promise<ExtractedTextItem[]>> = new Map();
   private thumbnailDataUrls: Map<number, string> = new Map();
   private docSessionId: number = 0;
   private hasStructuralEdits: boolean = false;
 
+  getSessionId(): number {
+    return this.docSessionId;
+  }
+
   async loadPDF(data: ArrayBuffer, fileName: string = 'document.pdf'): Promise<void> {
     this.docSessionId++;
-    this.pdfBytes = data.slice(0); // clone buffer
+    this.pdfBytes = data.slice(0); // clone buffer cleanly before pdf.js worker transfer
     this.fileName = fileName;
     this.hasStructuralEdits = false;
     this.extractedTexts.clear();
+    this.textExtractPromises.clear();
     this.thumbnailDataUrls.clear();
 
     const standardFontDataUrl = getAssetUrl('standard_fonts/');
     const cMapUrl = getAssetUrl('cmaps/');
 
     const loadingTask = pdfjsLib.getDocument({
-      data: new Uint8Array(data),
+      data: new Uint8Array(this.pdfBytes.slice(0)),
       cMapUrl,
       cMapPacked: true,
       standardFontDataUrl,
@@ -45,50 +51,66 @@ export class PDFManager {
 
     this.pdfDocument = await loadingTask.promise;
     const numPages = this.pdfDocument.numPages;
-    this.pagesMeta = [];
+    this.pagesMeta = new Array(numPages);
 
-    for (let i = 1; i <= numPages; i++) {
-      const page = await this.pdfDocument.getPage(i);
-      const viewport = page.getViewport({ scale: 1.0 });
-      this.pagesMeta.push({
-        pageIndex: i - 1,
-        originalPageNumber: i,
-        rotation: 0,
-        width: viewport.width,
-        height: viewport.height,
-        scale: 1.0,
-      });
-
-      // Extract text content for TrueEdit Pro
-      try {
-        await this.extractPageText(i - 1, page, viewport);
-      } catch (err) {
-        console.warn(`Text extraction failed for page ${i}:`, err);
+    // Fetch page dimensions in fast parallel batches (text is extracted lazily on demand)
+    const BATCH = 8;
+    for (let start = 1; start <= numPages; start += BATCH) {
+      const batch: Promise<void>[] = [];
+      for (let i = start; i < start + BATCH && i <= numPages; i++) {
+        const pageNum = i;
+        batch.push(
+          this.pdfDocument.getPage(pageNum).then((page) => {
+            const viewport = page.getViewport({ scale: 1.0 });
+            this.pagesMeta[pageNum - 1] = {
+              pageIndex: pageNum - 1,
+              originalPageNumber: pageNum,
+              rotation: 0,
+              width: viewport.width,
+              height: viewport.height,
+              scale: 1.0,
+            };
+          })
+        );
       }
+      await Promise.all(batch);
     }
   }
 
   /**
    * Guarantees extracted text items are available for a given page index.
-   * If not already cached, extracts them on demand.
+   * Deduplicates concurrent extraction requests and caches results lazily.
    */
   async ensurePageTextExtracted(pageIndex: number): Promise<ExtractedTextItem[]> {
     const existing = this.extractedTexts.get(pageIndex);
-    if (existing && existing.length > 0) {
+    if (existing !== undefined) {
       return existing;
+    }
+    const inflight = this.textExtractPromises.get(pageIndex);
+    if (inflight) {
+      return inflight;
     }
     if (!this.pdfDocument) return [];
     const meta = this.pagesMeta[pageIndex];
-    if (!meta || meta.isBlankPage) return [];
+    if (!meta || meta.isBlankPage || meta.isImagePage || meta.originalPageNumber <= 0) return [];
 
-    try {
-      const page = await this.pdfDocument.getPage(meta.originalPageNumber);
-      const viewport = page.getViewport({ scale: 1.0 });
-      await this.extractPageText(pageIndex, page, viewport);
-    } catch (err) {
-      console.warn(`Fallback text extraction failed for page ${pageIndex}:`, err);
-    }
-    return this.extractedTexts.get(pageIndex) || [];
+    const sessionAtStart = this.docSessionId;
+    const promise = (async () => {
+      try {
+        const page = await this.pdfDocument!.getPage(meta.originalPageNumber);
+        if (this.docSessionId !== sessionAtStart) return [];
+        const viewport = page.getViewport({ scale: 1.0 });
+        await this.extractPageText(pageIndex, page, viewport);
+      } catch (err) {
+        console.warn(`Text extraction failed for page ${pageIndex}:`, err);
+      } finally {
+        this.textExtractPromises.delete(pageIndex);
+      }
+      return this.extractedTexts.get(pageIndex) || [];
+    })();
+
+    this.textExtractPromises.set(pageIndex, promise);
+    return promise;
   }
 
   private async extractPageText(
@@ -256,14 +278,15 @@ export class PDFManager {
   async renderPageToCanvas(
     pageIndex: number,
     canvas: HTMLCanvasElement,
-    scale: number = 1.0
+    scale: number = 1.0,
+    explicitDpr?: number
   ): Promise<{ width: number; height: number }> {
     if (!this.pdfDocument) throw new Error('No PDF document loaded');
 
     const meta = this.pagesMeta[pageIndex];
     if (!meta) throw new Error(`Page index ${pageIndex} not found`);
 
-    const dpr = Math.max(2, window.devicePixelRatio || 1);
+    const dpr = explicitDpr !== undefined ? Math.max(0.5, explicitDpr) : Math.max(2, window.devicePixelRatio || 1);
 
     // If page has an active cropBox, render uncropped page offscreen and blit cropped region
     if (meta.cropBox) {
@@ -277,7 +300,7 @@ export class PDFManager {
       const offscreen = document.createElement('canvas');
       const savedCrop = meta.cropBox;
       meta.cropBox = undefined;
-      await this.renderPageToCanvas(pageIndex, offscreen, scale);
+      await this.renderPageToCanvas(pageIndex, offscreen, scale, explicitDpr);
       meta.cropBox = savedCrop;
 
       const ctx = canvas.getContext('2d');
@@ -390,8 +413,8 @@ export class PDFManager {
     }
 
     const offscreen = document.createElement('canvas');
-    await this.renderPageToCanvas(pageIndex, offscreen, 0.22);
-    const dataUrl = offscreen.toDataURL('image/jpeg', 0.85);
+    await this.renderPageToCanvas(pageIndex, offscreen, 0.28, 1);
+    const dataUrl = offscreen.toDataURL('image/jpeg', 0.82);
     this.thumbnailDataUrls.set(pageIndex, dataUrl);
     return dataUrl;
   }

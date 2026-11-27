@@ -195,6 +195,8 @@ export class PDFEditorUI {
   private preNormalizeSnapshot: { bytes: Uint8Array; fileName: string; activePageIndex: number } | null = null;
   private dismissedMixedBannerForSession: boolean = false;
   private activeToastTimer: any = null;
+  private renderSessionId: number = 0;
+  private thumbSessionId: number = 0;
 
   // Cached DOM elements
   private root: HTMLElement;
@@ -1317,8 +1319,9 @@ export class PDFEditorUI {
       document.querySelectorAll('.trueedit-inline-input').forEach((el) => el.remove());
       document.querySelectorAll('.font-picker-dropdown').forEach((el) => el.remove());
 
+      const sourceByteSize = buffer.byteLength;
       await this.pdfManager.loadPDF(buffer, fileName);
-      this.updateFileSizeBadge(buffer.byteLength);
+      this.updateFileSizeBadge(this.pdfManager.getOriginalBytes()?.byteLength || sourceByteSize);
       this.hideProcessingModal();
 
       // Reset file input value so selecting the same file again triggers change event
@@ -1429,72 +1432,156 @@ export class PDFEditorUI {
   }
 
   private async renderDocumentPages() {
+    const sessionId = ++this.renderSessionId;
     this.pagesWrapper.innerHTML = '';
     const pagesMeta = this.pdfManager.getPagesMeta();
+    const total = pagesMeta.length;
+    if (total === 0) return;
 
-    for (let i = 0; i < pagesMeta.length; i++) {
+    const fragment = document.createDocumentFragment();
+    const pageEntries: Array<{
+      index: number;
+      canvas: HTMLCanvasElement;
+      trueEditLayer: HTMLElement;
+      annLayer: HTMLElement;
+      freehandCanvas: HTMLCanvasElement;
+    }> = [];
+
+    // 1. Build all page wrappers synchronously with exact CSS dimensions so layout/scrollbars are instant
+    for (let i = 0; i < total; i++) {
+      const effSize = this.pdfManager.getEffectivePageSize(i);
+      const cssWNum = Math.max(1, Math.floor(effSize.width * this.currentScale));
+      const cssHNum = Math.max(1, Math.floor(effSize.height * this.currentScale));
+      const cssWidth = `${cssWNum}px`;
+      const cssHeight = `${cssHNum}px`;
+
       const pageContainer = document.createElement('div');
       pageContainer.className = 'pdf-page-container';
       pageContainer.id = `pageContainer-${i}`;
       pageContainer.setAttribute('data-page-index', i.toString());
 
-      // Base Canvas
       const canvas = document.createElement('canvas');
       canvas.className = 'pdf-canvas';
       canvas.id = `pdfCanvas-${i}`;
+      canvas.style.width = cssWidth;
+      canvas.style.height = cssHeight;
 
-      // TrueEdit Layer (for Pro direct text editing)
       const trueEditLayer = document.createElement('div');
       trueEditLayer.className = 'trueedit-layer';
       trueEditLayer.id = `trueEditLayer-${i}`;
+      trueEditLayer.style.width = cssWidth;
+      trueEditLayer.style.height = cssHeight;
 
-      // Annotation Layer (for user additions)
       const annLayer = document.createElement('div');
       annLayer.className = 'annotation-layer';
       annLayer.id = `annLayer-${i}`;
+      annLayer.style.width = cssWidth;
+      annLayer.style.height = cssHeight;
 
-      // Freehand drawing overlay canvas
       const freehandCanvas = document.createElement('canvas');
       freehandCanvas.className = 'freehand-canvas';
       freehandCanvas.id = `freehandCanvas-${i}`;
+      freehandCanvas.style.width = cssWidth;
+      freehandCanvas.style.height = cssHeight;
+      freehandCanvas.width = cssWNum;
+      freehandCanvas.height = cssHNum;
 
       pageContainer.appendChild(canvas);
       pageContainer.appendChild(trueEditLayer);
       pageContainer.appendChild(annLayer);
       pageContainer.appendChild(freehandCanvas);
-      this.pagesWrapper.appendChild(pageContainer);
-
-      // Render PDF page to canvas
-      await this.pdfManager.renderPageToCanvas(i, canvas, this.currentScale);
-
-      // Pre-sample and cache exact text color for all extracted text items on this page
-      let pageTextItems = this.pdfManager.getExtractedTexts(i);
-      if (!pageTextItems || pageTextItems.length === 0) {
-        pageTextItems = await this.pdfManager.ensurePageTextExtracted(i);
-      }
-      for (const tItem of pageTextItems) {
-        if (!tItem.color) {
-          tItem.color = this.sampleTextColorFromCanvas(canvas, tItem.x, tItem.y, tItem.width, tItem.height);
-        }
-      }
-
-      // Match overlays dimensions to canvas size
-      const cssWidth = canvas.style.width || `${Math.floor(canvas.width / (window.devicePixelRatio || 1))}px`;
-      const cssHeight = canvas.style.height || `${Math.floor(canvas.height / (window.devicePixelRatio || 1))}px`;
-      trueEditLayer.style.width = cssWidth;
-      trueEditLayer.style.height = cssHeight;
-      annLayer.style.width = cssWidth;
-      annLayer.style.height = cssHeight;
-      freehandCanvas.style.width = cssWidth;
-      freehandCanvas.style.height = cssHeight;
-      freehandCanvas.width = parseInt(cssWidth, 10) || canvas.width;
-      freehandCanvas.height = parseInt(cssHeight, 10) || canvas.height;
+      fragment.appendChild(pageContainer);
 
       this.setupPageInteraction(i, pageContainer, freehandCanvas);
+      pageEntries.push({ index: i, canvas, trueEditLayer, annLayer, freehandCanvas });
     }
+
+    this.pagesWrapper.appendChild(fragment);
+
+    const renderSinglePage = async (entry: (typeof pageEntries)[number], extractTextToo: boolean) => {
+      if (sessionId !== this.renderSessionId) return;
+      await this.pdfManager.renderPageToCanvas(entry.index, entry.canvas, this.currentScale);
+      if (sessionId !== this.renderSessionId) return;
+
+      const cssWidth = entry.canvas.style.width || `${Math.floor(entry.canvas.width / (window.devicePixelRatio || 1))}px`;
+      const cssHeight = entry.canvas.style.height || `${Math.floor(entry.canvas.height / (window.devicePixelRatio || 1))}px`;
+      entry.trueEditLayer.style.width = cssWidth;
+      entry.trueEditLayer.style.height = cssHeight;
+      entry.annLayer.style.width = cssWidth;
+      entry.annLayer.style.height = cssHeight;
+      entry.freehandCanvas.style.width = cssWidth;
+      entry.freehandCanvas.style.height = cssHeight;
+      entry.freehandCanvas.width = parseInt(cssWidth, 10) || entry.canvas.width;
+      entry.freehandCanvas.height = parseInt(cssHeight, 10) || entry.canvas.height;
+
+      if (extractTextToo) {
+        let pageTextItems = this.pdfManager.getExtractedTexts(entry.index);
+        if (!pageTextItems || pageTextItems.length === 0) {
+          pageTextItems = await this.pdfManager.ensurePageTextExtracted(entry.index);
+        }
+        if (this.currentMode === 'trueedit') {
+          for (const tItem of pageTextItems) {
+            if (!tItem.color) {
+              tItem.color = this.sampleTextColorFromCanvas(
+                entry.canvas,
+                tItem.x,
+                tItem.y,
+                tItem.width,
+                tItem.height
+              );
+            }
+          }
+        }
+      }
+    };
+
+    // 2. Render visible priority pages immediately so editor is responsive right away
+    const prioritySet = new Set<number>();
+    const clampedActive = Math.max(0, Math.min(this.activePageIndex, total - 1));
+    prioritySet.add(clampedActive);
+    prioritySet.add(0);
+    if (clampedActive + 1 < total) prioritySet.add(clampedActive + 1);
+
+    await Promise.all(
+      Array.from(prioritySet).map((idx) => renderSinglePage(pageEntries[idx], true))
+    );
+    if (sessionId !== this.renderSessionId) return;
 
     this.renderCurrentPageAnnotations();
     await this.renderTrueEditOverlays();
+
+    // 3. Progressive viewport-prioritized rendering of remaining offscreen pages in background
+    const remaining = new Set<number>();
+    for (let i = 0; i < total; i++) {
+      if (!prioritySet.has(i)) remaining.add(i);
+    }
+    if (remaining.size > 0) {
+      void (async () => {
+        while (remaining.size > 0) {
+          if (sessionId !== this.renderSessionId) return;
+          // Yield 100% worker bandwidth if user opened Export/Compress or Processing modal
+          const expOpen = !document.getElementById('exportDownloadModal')?.classList.contains('hidden');
+          const procOpen = !document.getElementById('processingModal')?.classList.contains('hidden');
+          if (expOpen || procOpen) {
+            await new Promise((r) => setTimeout(r, 150));
+            continue;
+          }
+          // Pick pages closest to current visible scroll position first!
+          const curVis = this.getVisiblePageIndex();
+          const ordered = Array.from(remaining).sort((a, b) => Math.abs(a - curVis) - Math.abs(b - curVis));
+          const batch = ordered.slice(0, 2);
+          batch.forEach((idx) => remaining.delete(idx));
+          await Promise.all(
+            batch.map((idx) => renderSinglePage(pageEntries[idx], this.currentMode === 'trueedit'))
+          );
+          if (sessionId !== this.renderSessionId) return;
+          if (this.currentMode === 'trueedit') {
+            await this.renderTrueEditOverlays();
+          }
+          await new Promise((r) => setTimeout(r, 8));
+        }
+      })();
+    }
   }
 
   private setupPageInteraction(pageIndex: number, pageContainer: HTMLElement, freehandCanvas: HTMLCanvasElement) {
@@ -1842,6 +1929,9 @@ export class PDFEditorUI {
       this.isDrawingHighlight = true;
       this.highlightDragStart = pt;
       this.currentFreehandPoints = [pt];
+      if (this.annotationManager.currentHighlightVariant === 'text') {
+        void this.pdfManager.ensurePageTextExtracted(pageIndex);
+      }
       freehandCanvas.style.mixBlendMode =
         this.annotationManager.currentHighlightBlendMode === 'normal' ? 'normal' : 'multiply';
       this.drawLiveHighlightPreview(
@@ -2293,11 +2383,14 @@ export class PDFEditorUI {
         if (!container) continue;
 
         container.innerHTML = '';
+        const rawChanges = this.trueEditManager.getChangesForPage(pageIdx);
+        if (this.currentMode !== 'trueedit' && rawChanges.length === 0) {
+          continue;
+        }
         let textItems = this.pdfManager.getExtractedTexts(pageIdx);
         if (!textItems || textItems.length === 0) {
           textItems = await this.pdfManager.ensurePageTextExtracted(pageIdx);
         }
-        const rawChanges = this.trueEditManager.getChangesForPage(pageIdx);
         // Guard against stale changes whose originalText no longer matches the current document elements
         const changes: TrueEditTextChange[] = [];
         for (const ch of rawChanges) {
@@ -4815,9 +4908,12 @@ export class PDFEditorUI {
 
   // Render Thumbnails in Left Sidebar
   private async renderThumbnails() {
+    const thumbSession = ++this.thumbSessionId;
     this.previewPagesContainer.innerHTML = '';
     const pagesMeta = this.pdfManager.getPagesMeta();
     const sizeSummary = this.pdfManager.analyzePageSizes();
+    const thumbFrag = document.createDocumentFragment();
+    const thumbQueue: Array<{ pageIndex: number; img: HTMLImageElement }> = [];
 
     for (let i = 0; i < pagesMeta.length; i++) {
       const effSize = this.pdfManager.getEffectivePageSize(i);
@@ -4930,12 +5026,10 @@ export class PDFEditorUI {
       thumbItem.appendChild(img);
       thumbItem.appendChild(metaRow);
       thumbItem.appendChild(actions);
-      this.previewPagesContainer.appendChild(thumbItem);
+      thumbFrag.appendChild(thumbItem);
 
-      // Async load thumbnail
-      this.pdfManager.generateThumbnail(i).then((dataUrl) => {
-        img.src = dataUrl;
-      });
+      // Queue throttled thumbnail generation
+      thumbQueue.push({ pageIndex: i, img });
 
       // Click to scroll to page
       thumbItem.addEventListener('click', () => {
@@ -4989,6 +5083,28 @@ export class PDFEditorUI {
         e.stopPropagation();
         await this.deletePage(i);
       });
+    }
+
+    this.previewPagesContainer.appendChild(thumbFrag);
+
+    // Run throttled thumbnail renders (max 3 concurrent) without starving main PDF page rendering
+    if (thumbQueue.length > 0) {
+      let nextThumbIdx = 0;
+      const workerCount = Math.min(3, thumbQueue.length);
+      for (let w = 0; w < workerCount; w++) {
+        void (async () => {
+          while (nextThumbIdx < thumbQueue.length) {
+            if (thumbSession !== this.thumbSessionId) return;
+            const item = thumbQueue[nextThumbIdx++];
+            try {
+              const dataUrl = await this.pdfManager.generateThumbnail(item.pageIndex);
+              if (thumbSession === this.thumbSessionId) {
+                item.img.src = dataUrl;
+              }
+            } catch (_) {}
+          }
+        })();
+      }
     }
   }
 
@@ -5065,7 +5181,7 @@ export class PDFEditorUI {
     if (badge && textEl) {
       if (this.currentFileSize > 0) {
         badge.style.display = 'inline-flex';
-        textEl.innerText = this.formatBytes(this.currentFileSize);
+        textEl.textContent = this.formatBytes(this.currentFileSize);
         if (btnCompress) btnCompress.style.display = 'inline-flex';
         if (btnExportImgs) btnExportImgs.style.display = 'inline-flex';
       } else {
