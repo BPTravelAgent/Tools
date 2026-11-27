@@ -24,6 +24,10 @@ import type {
   FreehandAnnotation,
   WhiteoutAnnotation,
   NormalizePagesOptions,
+  ExportPDFAdvancedOptions,
+  ExportPDFAdvancedResult,
+  MergeSourceDoc,
+  MergePagePlanItem,
 } from './types';
 
 // Helper to convert hex color to pdf-lib rgb
@@ -228,7 +232,8 @@ export class ExportEngine {
     pdfManager: PDFManager,
     annotationManager: AnnotationManager,
     trueEditManager: TrueEditManager,
-    onProgress?: (percent: number, statusText: string) => void
+    onProgress?: (percent: number, statusText: string) => void,
+    saveOptions?: { useObjectStreams?: boolean; pageIndices?: number[] }
   ): Promise<Uint8Array> {
     onProgress?.(10, 'Initializing PDF Document...');
 
@@ -334,13 +339,16 @@ export class ExportEngine {
       return helvetica;
     };
 
-    const pagesMeta = pdfManager.getPagesMeta();
-    const totalPages = pagesMeta.length;
+    const allPagesMeta = pdfManager.getPagesMeta();
+    const targetIndices = saveOptions?.pageIndices && saveOptions.pageIndices.length > 0
+      ? saveOptions.pageIndices.filter((idx) => idx >= 0 && idx < allPagesMeta.length)
+      : allPagesMeta.map((_, idx) => idx);
+    const totalPages = targetIndices.length;
 
     onProgress?.(25, 'Processing pages and layout...');
 
     for (let i = 0; i < totalPages; i++) {
-      const meta = pagesMeta[i];
+      const meta = allPagesMeta[targetIndices[i]];
       let newPage: any;
 
       if (meta.isImagePage && meta.imageSrc) {
@@ -822,17 +830,22 @@ export class ExportEngine {
     }
 
     onProgress?.(90, 'Finalizing and compressing PDF...');
-    const resultBytes = await outputDoc.save();
+    const resultBytes = await outputDoc.save({
+      useObjectStreams: saveOptions?.useObjectStreams ?? true,
+    });
     onProgress?.(100, 'Done!');
     return resultBytes;
   }
 
-  static downloadBytes(bytes: Uint8Array, fileName: string) {
+  static downloadBytes(bytes: Uint8Array, fileName: string, exactName: boolean = false) {
     const blob = new Blob([bytes as any], { type: 'application/pdf' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = fileName.replace(/\.pdf$/i, '') + '_edited.pdf';
+    const cleanName = fileName.trim() || 'document.pdf';
+    link.download = exactName
+      ? (cleanName.toLowerCase().endsWith('.pdf') ? cleanName : `${cleanName}.pdf`)
+      : cleanName.replace(/\.pdf$/i, '') + '_edited.pdf';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -955,6 +968,90 @@ export class ExportEngine {
   }
 
   /**
+   * Advanced multi-PDF merger supporting arbitrary page ordering, duplication, rotation, and optional page-size unification.
+   */
+  static async mergeDocumentsAdvanced(
+    sources: MergeSourceDoc[],
+    pagePlan: MergePagePlanItem[],
+    unifyOptions?: NormalizePagesOptions,
+    onProgress?: (percent: number, statusText: string) => void
+  ): Promise<Uint8Array> {
+    if (pagePlan.length === 0) {
+      throw new Error('Select at least one page to merge.');
+    }
+
+    onProgress?.(10, 'Loading source PDF documents...');
+
+    const loadedDocs = new Map<string, PDFDocument>();
+    const sourceById = new Map<string, MergeSourceDoc>();
+    for (const s of sources) {
+      sourceById.set(s.id, s);
+    }
+
+    const neededSourceIds = Array.from(new Set(pagePlan.map((p) => p.sourceId)));
+    for (let i = 0; i < neededSourceIds.length; i++) {
+      const sid = neededSourceIds[i];
+      const src = sourceById.get(sid);
+      if (!src) continue;
+      onProgress?.(
+        10 + Math.round(((i + 1) / neededSourceIds.length) * 25),
+        `Reading "${src.name}"...`
+      );
+      const doc = await PDFDocument.load(src.bytes, { ignoreEncryption: true });
+      loadedDocs.set(sid, doc);
+    }
+
+    onProgress?.(40, 'Copying and assembling pages...');
+    const outputDoc = await PDFDocument.create();
+
+    // Group requested page indices per source doc so PDFObjectCopier shares fonts/images per source
+    const slotsBySource = new Map<string, Array<{ planPos: number; pageIndex: number }>>();
+    for (let i = 0; i < pagePlan.length; i++) {
+      const item = pagePlan[i];
+      const list = slotsBySource.get(item.sourceId) || [];
+      list.push({ planPos: i, pageIndex: item.pageIndex });
+      slotsBySource.set(item.sourceId, list);
+    }
+
+    const copiedPageSlots: any[] = new Array(pagePlan.length);
+    for (const [sid, slots] of slotsBySource.entries()) {
+      const srcDoc = loadedDocs.get(sid);
+      if (!srcDoc) continue;
+      const maxIdx = srcDoc.getPageCount() - 1;
+      const validIndices = slots.map((s) => Math.max(0, Math.min(s.pageIndex, maxIdx)));
+      const copied = await outputDoc.copyPages(srcDoc, validIndices);
+      for (let k = 0; k < slots.length; k++) {
+        copiedPageSlots[slots[k].planPos] = copied[k];
+      }
+    }
+
+    for (let i = 0; i < pagePlan.length; i++) {
+      const page = copiedPageSlots[i];
+      if (!page) continue;
+      const delta = ((pagePlan[i].rotationDelta % 360) + 360) % 360;
+      if (delta !== 0) {
+        const curRot = page.getRotation().angle;
+        page.setRotation(degrees((curRot + delta) % 360));
+      }
+      outputDoc.addPage(page);
+    }
+
+    onProgress?.(75, 'Finalizing merged document...');
+    let mergedBytes = await outputDoc.save({ useObjectStreams: true });
+
+    if (unifyOptions) {
+      onProgress?.(82, 'Unifying merged page sizes & layout...');
+      const unified = await ExportEngine.normalizePages(mergedBytes, unifyOptions, (pct, stat) => {
+        onProgress?.(82 + Math.round(pct * 0.18), stat);
+      });
+      mergedBytes = unified.bytes;
+    }
+
+    onProgress?.(100, 'Merge complete!');
+    return mergedBytes;
+  }
+
+  /**
    * Retrieves page count of an external PDF file
    */
   static async getPDFInfo(bytes: Uint8Array): Promise<{ pageCount: number }> {
@@ -963,17 +1060,16 @@ export class ExportEngine {
   }
 
   /**
-   * Renders a document page with all TrueEdit modifications and annotations to a high-res image Blob
+   * Renders a document page with all TrueEdit modifications and annotations onto an HTMLCanvasElement.
    */
-  static async renderPageToImageBlob(
+  static async renderPageToCanvasWithEdits(
     pdfManager: PDFManager,
     annotationManager: AnnotationManager,
     trueEditManager: TrueEditManager,
     pageIndex: number,
-    format: 'png' | 'jpeg' | 'webp',
     scale: number = 1.5,
-    quality: number = 0.8
-  ): Promise<Blob> {
+    grayscale: boolean = false
+  ): Promise<HTMLCanvasElement> {
     const meta = pdfManager.getPageMeta(pageIndex);
     if (!meta) throw new Error(`Page ${pageIndex + 1} not found`);
 
@@ -981,51 +1077,129 @@ export class ExportEngine {
     await pdfManager.renderPageToCanvas(pageIndex, canvas, scale);
 
     const ptWidth = meta.cropBox ? meta.cropBox.width : meta.width;
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { willReadFrequently: grayscale });
     if (ctx) {
       const dpr = canvas.width / (ptWidth * scale);
       const drawScale = scale * dpr;
 
-      // 1. Draw TrueEdit text changes (whiteout backgrounds and new text)
+      // 1. Draw TrueEdit text changes (whiteout backgrounds and replacement text)
       const trueEditChanges = trueEditManager.getChangesForPage(pageIndex);
+
+      // Pass 1: Whiteout masks over original positions (with full ascender/descender coverage)
       for (const change of trueEditChanges) {
+        const origX = change.origX ?? change.x;
+        const origY = change.origY ?? change.y;
+        const origW = change.origWidth ?? change.width;
+        const origH = change.origHeight ?? change.height;
+        const padX = 2.5;
+        const padY = Math.max(2, change.fontSize * 0.18);
+
         ctx.fillStyle = change.backgroundColor || '#ffffff';
         ctx.fillRect(
-          (change.origX ?? change.x) * drawScale,
-          (change.origY ?? change.y) * drawScale,
-          (change.origWidth ?? change.width) * drawScale,
-          (change.origHeight ?? change.height) * drawScale
+          Math.max(0, origX - padX) * drawScale,
+          Math.max(0, origY - padY) * drawScale,
+          (origW + padX * 2) * drawScale,
+          (origH + padY * 2) * drawScale
         );
 
-        if (!change.deleted && change.newText) {
-          ctx.font = `${change.bold ? 'bold ' : ''}${change.italic ? 'italic ' : ''}${change.fontSize * drawScale}px "${change.fontFamily || 'DM Sans'}", sans-serif`;
-          ctx.fillStyle = change.color || '#000000';
-          ctx.textBaseline = 'top';
-
-          if (change.spans && change.spans.length > 0) {
-            let curX = change.x * drawScale;
-            for (const span of change.spans) {
-              const spanSize = (span.fontSize || change.fontSize || 12) * drawScale;
-              ctx.font = `${span.bold ? 'bold ' : ''}${span.italic ? 'italic ' : ''}${spanSize}px "${span.fontFamily || change.fontFamily || 'DM Sans'}", sans-serif`;
-              ctx.fillStyle = span.color || change.color || '#000000';
-              ctx.fillText(span.text, curX, change.y * drawScale);
-              curX += ctx.measureText(span.text).width;
-            }
-          } else {
-            ctx.fillText(change.newText, change.x * drawScale, change.y * drawScale);
-          }
+        const wasMoved =
+          change.origX !== undefined &&
+          change.origY !== undefined &&
+          (Math.abs(change.x - change.origX) > 1 || Math.abs(change.y - change.origY) > 1);
+        if (wasMoved && !change.deleted && change.newText.trim().length > 0) {
+          ctx.fillRect(
+            Math.max(0, change.x - padX) * drawScale,
+            Math.max(0, change.y - padY) * drawScale,
+            ((change.width || origW) + padX * 2) * drawScale,
+            (origH + padY * 2) * drawScale
+          );
         }
       }
 
-      // 2. Draw annotations
-      const anns = annotationManager.getAnnotations(pageIndex);
+      // Pass 2: Replacement text
+      for (const change of trueEditChanges) {
+        if (change.deleted || !change.newText || change.newText.trim().length === 0) continue;
+
+        ctx.textBaseline = 'top';
+        const lineHeight = change.fontSize * 1.25;
+
+        if (change.spans && change.spans.length > 0) {
+          // Group spans into lines split by newline
+          const lines: Array<typeof change.spans> = [[]];
+          for (const span of change.spans) {
+            const parts = span.text.split('\n');
+            for (let p = 0; p < parts.length; p++) {
+              if (p > 0) lines.push([]);
+              if (parts[p].length > 0) {
+                lines[lines.length - 1].push({ ...span, text: parts[p] });
+              }
+            }
+          }
+
+          lines.forEach((lSpans, lIdx) => {
+            let lineW = 0;
+            for (const sp of lSpans) {
+              const spSize = (sp.fontSize || change.fontSize || 12) * drawScale;
+              ctx.font = `${sp.bold ? 'bold ' : ''}${sp.italic ? 'italic ' : ''}${spSize}px "${sp.fontFamily || change.fontFamily || 'DM Sans'}", sans-serif`;
+              lineW += ctx.measureText(sp.text).width;
+            }
+            const boxW = Math.max(change.width * drawScale, lineW);
+            let curX = change.x * drawScale;
+            if (change.align === 'center') curX += Math.max(0, (boxW - lineW) / 2);
+            else if (change.align === 'right') curX += Math.max(0, boxW - lineW);
+
+            const lineY = (change.y + lIdx * lineHeight) * drawScale;
+            for (const sp of lSpans) {
+              const spSize = (sp.fontSize || change.fontSize || 12) * drawScale;
+              ctx.font = `${sp.bold ? 'bold ' : ''}${sp.italic ? 'italic ' : ''}${spSize}px "${sp.fontFamily || change.fontFamily || 'DM Sans'}", sans-serif`;
+              ctx.fillStyle = sp.color || change.color || '#000000';
+              ctx.fillText(sp.text, curX, lineY);
+              curX += ctx.measureText(sp.text).width;
+            }
+          });
+        } else {
+          ctx.font = `${change.bold ? 'bold ' : ''}${change.italic ? 'italic ' : ''}${change.fontSize * drawScale}px "${change.fontFamily || 'DM Sans'}", sans-serif`;
+          ctx.fillStyle = change.color || '#000000';
+          const rawLines = change.newText.split('\n');
+          rawLines.forEach((rl, lIdx) => {
+            const lineW = ctx.measureText(rl).width;
+            const boxW = Math.max(change.width * drawScale, lineW);
+            let curX = change.x * drawScale;
+            if (change.align === 'center') curX += Math.max(0, (boxW - lineW) / 2);
+            else if (change.align === 'right') curX += Math.max(0, boxW - lineW);
+            ctx.fillText(rl, curX, (change.y + lIdx * lineHeight) * drawScale);
+          });
+        }
+      }
+
+      // 2. Draw annotations (whiteouts first, then foreground elements in z-order)
+      const anns = annotationManager
+        .getAnnotations(pageIndex)
+        .slice()
+        .sort((a, b) => {
+          const aWo = a.type === 'whiteout' ? 0 : 1;
+          const bWo = b.type === 'whiteout' ? 0 : 1;
+          if (aWo !== bWo) return aWo - bWo;
+          return a.zIndex - b.zIndex;
+        });
+
       for (const ann of anns) {
+        if (ann.hidden) continue;
         ctx.save();
         ctx.globalAlpha = ann.opacity ?? 1.0;
 
+        if (ann.rotation && ann.rotation % 360 !== 0) {
+          const cx = (ann.x + ann.width / 2) * drawScale;
+          const cy = (ann.y + ann.height / 2) * drawScale;
+          ctx.translate(cx, cy);
+          ctx.rotate((ann.rotation * Math.PI) / 180);
+          ctx.translate(-cx, -cy);
+        }
+
         if (ann.type === 'whiteout') {
-          ctx.fillStyle = '#ffffff';
-          ctx.fillRect(ann.x * drawScale, ann.y * drawScale, ann.width * drawScale, ann.height * drawScale);
+          const wo = ann as WhiteoutAnnotation;
+          ctx.fillStyle = wo.fillColor || '#ffffff';
+          ctx.fillRect(wo.x * drawScale, wo.y * drawScale, wo.width * drawScale, wo.height * drawScale);
         } else if (ann.type === 'text') {
           const textAnn = ann as TextAnnotation;
           if (textAnn.backgroundColor && textAnn.backgroundColor !== 'transparent') {
@@ -1035,31 +1209,61 @@ export class ExportEngine {
           ctx.font = `${textAnn.bold ? 'bold ' : ''}${textAnn.italic ? 'italic ' : ''}${textAnn.fontSize * drawScale}px "${textAnn.fontFamily || 'DM Sans'}", sans-serif`;
           ctx.fillStyle = textAnn.color || '#000000';
           ctx.textBaseline = 'top';
-          ctx.fillText(textAnn.text, textAnn.x * drawScale, textAnn.y * drawScale);
+          const lines = (textAnn.text || '').split('\n');
+          const lineH = textAnn.fontSize * 1.25;
+          lines.forEach((line, lIdx) => {
+            ctx.fillText(line, (textAnn.x + 4) * drawScale, (textAnn.y + 3 + lIdx * lineH) * drawScale);
+          });
         } else if (ann.type === 'shape') {
           const shapeAnn = ann as ShapeAnnotation;
           ctx.strokeStyle = shapeAnn.strokeColor || '#E5322D';
           ctx.lineWidth = (shapeAnn.strokeWidth || 2) * drawScale;
-          ctx.fillStyle = shapeAnn.fillColor && shapeAnn.fillColor !== 'transparent' ? shapeAnn.fillColor : 'transparent';
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+          const hasFill = shapeAnn.fillColor && shapeAnn.fillColor !== 'transparent';
+          if (hasFill) ctx.fillStyle = shapeAnn.fillColor;
+
+          const sx = shapeAnn.x * drawScale;
+          const sy = shapeAnn.y * drawScale;
+          const sw = shapeAnn.width * drawScale;
+          const sh = shapeAnn.height * drawScale;
 
           if (shapeAnn.shape === 'rectangle') {
-            if (shapeAnn.fillColor && shapeAnn.fillColor !== 'transparent') {
-              ctx.fillRect(shapeAnn.x * drawScale, shapeAnn.y * drawScale, shapeAnn.width * drawScale, shapeAnn.height * drawScale);
-            }
-            ctx.strokeRect(shapeAnn.x * drawScale, shapeAnn.y * drawScale, shapeAnn.width * drawScale, shapeAnn.height * drawScale);
+            if (hasFill) ctx.fillRect(sx, sy, sw, sh);
+            ctx.strokeRect(sx, sy, sw, sh);
           } else if (shapeAnn.shape === 'ellipse') {
             ctx.beginPath();
-            const cx = (shapeAnn.x + shapeAnn.width / 2) * drawScale;
-            const cy = (shapeAnn.y + shapeAnn.height / 2) * drawScale;
-            const rx = (shapeAnn.width / 2) * drawScale;
-            const ry = (shapeAnn.height / 2) * drawScale;
-            ctx.ellipse(cx, cy, Math.max(1, rx), Math.max(1, ry), 0, 0, Math.PI * 2);
-            if (shapeAnn.fillColor && shapeAnn.fillColor !== 'transparent') ctx.fill();
+            ctx.ellipse(sx + sw / 2, sy + sh / 2, Math.max(1, sw / 2), Math.max(1, sh / 2), 0, 0, Math.PI * 2);
+            if (hasFill) ctx.fill();
             ctx.stroke();
           } else if (shapeAnn.shape === 'line') {
             ctx.beginPath();
-            ctx.moveTo(shapeAnn.x * drawScale, shapeAnn.y * drawScale);
-            ctx.lineTo((shapeAnn.x + shapeAnn.width) * drawScale, (shapeAnn.y + shapeAnn.height) * drawScale);
+            ctx.moveTo(sx, sy + sh / 2);
+            ctx.lineTo(sx + sw, sy + sh / 2);
+            ctx.stroke();
+          } else if (shapeAnn.shape === 'arrow') {
+            const midY = sy + sh / 2;
+            const head = Math.max(6, (shapeAnn.strokeWidth || 2) * 3) * drawScale;
+            ctx.beginPath();
+            ctx.moveTo(sx, midY);
+            ctx.lineTo(sx + sw, midY);
+            ctx.moveTo(sx + sw - head, midY - head);
+            ctx.lineTo(sx + sw, midY);
+            ctx.lineTo(sx + sw - head, midY + head);
+            ctx.stroke();
+          } else if (shapeAnn.shape === 'check') {
+            ctx.lineWidth = Math.max(3, shapeAnn.strokeWidth || 2) * drawScale;
+            ctx.beginPath();
+            ctx.moveTo(sx + sw * 0.1, sy + sh * 0.5);
+            ctx.lineTo(sx + sw * 0.4, sy + sh * 0.8);
+            ctx.lineTo(sx + sw * 0.9, sy + sh * 0.15);
+            ctx.stroke();
+          } else if (shapeAnn.shape === 'cross') {
+            ctx.beginPath();
+            ctx.moveTo(sx, sy);
+            ctx.lineTo(sx + sw, sy + sh);
+            ctx.moveTo(sx, sy + sh);
+            ctx.lineTo(sx + sw, sy);
             ctx.stroke();
           }
         } else if (ann.type === 'freehand') {
@@ -1079,22 +1283,69 @@ export class ExportEngine {
         } else if (ann.type === 'image') {
           const imgAnn = ann as ImageAnnotation;
           if (imgAnn.src) {
-            const img = new Image();
-            img.src = imgAnn.src;
-            if (img.complete && img.naturalWidth > 0) {
-              ctx.drawImage(img, imgAnn.x * drawScale, imgAnn.y * drawScale, imgAnn.width * drawScale, imgAnn.height * drawScale);
+            const loadedImg = await new Promise<HTMLImageElement | null>((resolve) => {
+              const img = new Image();
+              img.onload = () => resolve(img);
+              img.onerror = () => resolve(null);
+              img.src = imgAnn.src;
+              if (img.complete && img.naturalWidth > 0) resolve(img);
+            });
+            if (loadedImg) {
+              ctx.drawImage(
+                loadedImg,
+                imgAnn.x * drawScale,
+                imgAnn.y * drawScale,
+                imgAnn.width * drawScale,
+                imgAnn.height * drawScale
+              );
             }
           }
         }
         ctx.restore();
       }
+
+      if (grayscale) {
+        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const data = imgData.data;
+        for (let p = 0; p < data.length; p += 4) {
+          const lum = (data[p] * 77 + data[p + 1] * 150 + data[p + 2] * 29) >> 8;
+          data[p] = lum;
+          data[p + 1] = lum;
+          data[p + 2] = lum;
+        }
+        ctx.putImageData(imgData, 0, 0);
+      }
     }
+
+    return canvas;
+  }
+
+  /**
+   * Renders a document page with all TrueEdit modifications and annotations to a high-res image Blob
+   */
+  static async renderPageToImageBlob(
+    pdfManager: PDFManager,
+    annotationManager: AnnotationManager,
+    trueEditManager: TrueEditManager,
+    pageIndex: number,
+    format: 'png' | 'jpeg' | 'webp',
+    scale: number = 1.5,
+    quality: number = 0.8,
+    grayscale: boolean = false
+  ): Promise<Blob> {
+    const canvas = await ExportEngine.renderPageToCanvasWithEdits(
+      pdfManager,
+      annotationManager,
+      trueEditManager,
+      pageIndex,
+      scale,
+      grayscale
+    );
 
     return new Promise<Blob>((resolve, reject) => {
       let mime = 'image/jpeg';
       if (format === 'png') mime = 'image/png';
       else if (format === 'webp') mime = 'image/webp';
-      else mime = 'image/jpeg';
 
       const q = format === 'png' ? undefined : Math.max(0.05, Math.min(1.0, quality));
       canvas.toBlob((blob) => {
@@ -1202,7 +1453,7 @@ export class ExportEngine {
   }
 
   /**
-   * Compresses the PDF to reduce file size (KB / MB) with selectable quality / DPI presets
+   * Compresses the PDF to reduce file size (KB / MB) with selectable quality, DPI scale, grayscale, and page selection.
    */
   static async compressPDF(
     pdfManager: PDFManager,
@@ -1211,38 +1462,44 @@ export class ExportEngine {
     options: {
       scale: number;
       quality: number;
+      grayscale?: boolean;
+      pageIndices?: number[];
     },
     onProgress?: (percent: number, status: string) => void
   ): Promise<Uint8Array> {
     const pagesMeta = pdfManager.getPagesMeta();
-    const totalPages = pagesMeta.length;
+    const targetIndices = options.pageIndices && options.pageIndices.length > 0
+      ? options.pageIndices.filter((idx) => idx >= 0 && idx < pagesMeta.length)
+      : pagesMeta.map((_, idx) => idx);
+    const totalPages = targetIndices.length;
     const outputDoc = await PDFDocument.create();
 
     for (let i = 0; i < totalPages; i++) {
+      const pIdx = targetIndices[i];
       onProgress?.(
-        Math.round((i / totalPages) * 85),
-        `Optimizing and compressing page ${i + 1} of ${totalPages}...`
+        Math.round((i / Math.max(1, totalPages)) * 85),
+        `Optimizing & compressing page ${i + 1} of ${totalPages}...`
       );
 
-      const meta = pagesMeta[i];
+      const meta = pagesMeta[pIdx];
       const ptWidth = meta.cropBox ? meta.cropBox.width : meta.width;
       const ptHeight = meta.cropBox ? meta.cropBox.height : meta.height;
 
-      // 1. Render page with edits to an offscreen image blob
       const blob = await ExportEngine.renderPageToImageBlob(
         pdfManager,
         annotationManager,
         trueEditManager,
-        i,
+        pIdx,
         'jpeg',
-        options.scale
+        options.scale,
+        options.quality,
+        !!options.grayscale
       );
 
       const arrayBuffer = await blob.arrayBuffer();
       const jpegBytes = new Uint8Array(arrayBuffer);
       const embedded = await outputDoc.embedJpg(jpegBytes);
 
-      // 2. Add page with exact original PDF point dimensions
       const page = outputDoc.addPage([ptWidth, ptHeight]);
       page.drawImage(embedded, {
         x: 0,
@@ -1253,9 +1510,264 @@ export class ExportEngine {
     }
 
     onProgress?.(90, 'Finalizing compressed document...');
-    const resultBytes = await outputDoc.save();
+    const resultBytes = await outputDoc.save({ useObjectStreams: true });
     onProgress?.(100, 'Compression completed!');
     return resultBytes;
+  }
+
+  private static async buildPDFFromCachedCanvases(
+    cachedCanvases: Array<{ canvas: HTMLCanvasElement; ptWidth: number; ptHeight: number }>,
+    quality: number
+  ): Promise<Uint8Array> {
+    const outputDoc = await PDFDocument.create();
+    const q = Math.max(0.08, Math.min(1.0, quality));
+    for (const item of cachedCanvases) {
+      const blob = await new Promise<Blob>((resolve, reject) => {
+        item.canvas.toBlob(
+          (b) => (b ? resolve(b) : reject(new Error('Canvas JPEG encode failed'))),
+          'image/jpeg',
+          q
+        );
+      });
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      const embedded = await outputDoc.embedJpg(bytes);
+      const page = outputDoc.addPage([item.ptWidth, item.ptHeight]);
+      page.drawImage(embedded, {
+        x: 0,
+        y: 0,
+        width: item.ptWidth,
+        height: item.ptHeight,
+      });
+    }
+    return await outputDoc.save({ useObjectStreams: true });
+  }
+
+  /**
+   * Adaptively compresses the PDF to fit under a target file size (in bytes) while maximizing visual quality.
+   */
+  static async compressToTargetSize(
+    pdfManager: PDFManager,
+    annotationManager: AnnotationManager,
+    trueEditManager: TrueEditManager,
+    targetBytes: number,
+    options?: {
+      pageIndices?: number[];
+      allowGrayscaleFallback?: boolean;
+      maxScale?: number;
+    },
+    onProgress?: (percent: number, status: string) => void
+  ): Promise<ExportPDFAdvancedResult> {
+    const safeTarget = Math.max(20 * 1024, targetBytes);
+    const allMeta = pdfManager.getPagesMeta();
+    const targetIndices = options?.pageIndices && options.pageIndices.length > 0
+      ? options.pageIndices.filter((idx) => idx >= 0 && idx < allMeta.length)
+      : allMeta.map((_, idx) => idx);
+
+    // 1. Check if lossless vector PDF already fits under targetBytes!
+    onProgress?.(8, 'Checking lossless vector PDF size...');
+    const vectorBytes = await ExportEngine.exportPDF(
+      pdfManager,
+      annotationManager,
+      trueEditManager,
+      undefined,
+      { useObjectStreams: true, pageIndices: targetIndices }
+    );
+    if (vectorBytes.byteLength <= safeTarget) {
+      onProgress?.(100, 'Fits target size losslessly!');
+      return {
+        bytes: vectorBytes,
+        method: 'vector',
+        achievedScale: 1.0,
+        achievedQuality: 1.0,
+        grayscale: false,
+        hitTarget: true,
+      };
+    }
+
+    // 2. Adaptive scale + cached-canvas quality binary search
+    const startMaxScale = Math.min(2.0, Math.max(0.75, options?.maxScale ?? 1.5));
+    const scaleTiers = [startMaxScale, 1.15, 0.9, 0.7, 0.55].filter(
+      (s, i, arr) => s <= startMaxScale + 0.01 && arr.indexOf(s) === i
+    );
+    const grayscaleModes = options?.allowGrayscaleFallback ? [false, true] : [false];
+
+    let bestBytes: Uint8Array = vectorBytes;
+    let bestScale = 1.0;
+    let bestQuality = 1.0;
+    let bestGray = false;
+
+    const trackBest = (bytes: Uint8Array, scale: number, quality: number, gray: boolean) => {
+      if (bytes.byteLength < bestBytes.byteLength) {
+        bestBytes = bytes;
+        bestScale = scale;
+        bestQuality = quality;
+        bestGray = gray;
+      }
+    };
+
+    for (const gray of grayscaleModes) {
+      for (let tIdx = 0; tIdx < scaleTiers.length; tIdx++) {
+        const scale = scaleTiers[tIdx];
+        const tierBasePct = 15 + Math.round((tIdx / scaleTiers.length) * 65);
+        onProgress?.(
+          tierBasePct,
+          `Rendering pages at ${scale.toFixed(2)}x${gray ? ' (Grayscale)' : ''}...`
+        );
+
+        const cachedCanvases: Array<{ canvas: HTMLCanvasElement; ptWidth: number; ptHeight: number }> = [];
+        for (let i = 0; i < targetIndices.length; i++) {
+          const pIdx = targetIndices[i];
+          const meta = allMeta[pIdx];
+          const ptWidth = meta.cropBox ? meta.cropBox.width : meta.width;
+          const ptHeight = meta.cropBox ? meta.cropBox.height : meta.height;
+          const canvas = await ExportEngine.renderPageToCanvasWithEdits(
+            pdfManager,
+            annotationManager,
+            trueEditManager,
+            pIdx,
+            scale,
+            gray
+          );
+          cachedCanvases.push({ canvas, ptWidth, ptHeight });
+        }
+
+        const minQ = tIdx === scaleTiers.length - 1 ? 0.14 : 0.30;
+        const maxQ = 0.88;
+
+        // Check maxQ first
+        const highBytes = await ExportEngine.buildPDFFromCachedCanvases(cachedCanvases, maxQ);
+        trackBest(highBytes, scale, maxQ, gray);
+        if (highBytes.byteLength <= safeTarget) {
+          onProgress?.(100, 'Target file size reached!');
+          return {
+            bytes: highBytes,
+            method: 'compressed',
+            achievedScale: scale,
+            achievedQuality: maxQ,
+            grayscale: gray,
+            hitTarget: true,
+          };
+        }
+
+        // Check minQ at this scale
+        const lowBytes = await ExportEngine.buildPDFFromCachedCanvases(cachedCanvases, minQ);
+        trackBest(lowBytes, scale, minQ, gray);
+        if (lowBytes.byteLength > safeTarget) {
+          // Even minQ at this scale exceeds target — move to lower scale tier
+          continue;
+        }
+
+        // Binary search between minQ and maxQ for maximum quality under safeTarget
+        let lo = minQ;
+        let hi = maxQ;
+        let bestUnderBytes = lowBytes;
+        let bestUnderQ = minQ;
+
+        for (let iter = 0; iter < 5; iter++) {
+          const mid = (lo + hi) / 2;
+          onProgress?.(
+            Math.min(95, tierBasePct + 10 + iter * 4),
+            `Tuning quality (${Math.round(mid * 100)}%) to fit target size...`
+          );
+          const midBytes = await ExportEngine.buildPDFFromCachedCanvases(cachedCanvases, mid);
+          if (midBytes.byteLength <= safeTarget) {
+            bestUnderBytes = midBytes;
+            bestUnderQ = mid;
+            lo = mid;
+          } else {
+            hi = mid;
+          }
+        }
+
+        onProgress?.(100, 'Optimal quality found under target size!');
+        return {
+          bytes: bestUnderBytes,
+          method: 'compressed',
+          achievedScale: scale,
+          achievedQuality: bestUnderQ,
+          grayscale: gray,
+          hitTarget: true,
+        };
+      }
+    }
+
+    onProgress?.(100, 'Applied maximum compression!');
+    return {
+      bytes: bestBytes,
+      method: 'compressed',
+      achievedScale: bestScale,
+      achievedQuality: bestQuality,
+      grayscale: bestGray,
+      hitTarget: bestBytes.byteLength <= safeTarget,
+    };
+  }
+
+  /**
+   * Unified advanced export supporting Vector, Custom Compression, or Target KB/MB Size.
+   */
+  static async exportPDFAdvanced(
+    pdfManager: PDFManager,
+    annotationManager: AnnotationManager,
+    trueEditManager: TrueEditManager,
+    options: ExportPDFAdvancedOptions,
+    onProgress?: (percent: number, status: string) => void
+  ): Promise<ExportPDFAdvancedResult> {
+    if (options.mode === 'vector') {
+      const bytes = await ExportEngine.exportPDF(
+        pdfManager,
+        annotationManager,
+        trueEditManager,
+        onProgress,
+        {
+          useObjectStreams: options.optimizeObjectStreams ?? true,
+          pageIndices: options.pageIndices,
+        }
+      );
+      return {
+        bytes,
+        method: 'vector',
+        achievedScale: 1.0,
+        achievedQuality: 1.0,
+        grayscale: false,
+        hitTarget: true,
+      };
+    }
+
+    if (options.mode === 'target' && options.targetBytes) {
+      return await ExportEngine.compressToTargetSize(
+        pdfManager,
+        annotationManager,
+        trueEditManager,
+        options.targetBytes,
+        {
+          pageIndices: options.pageIndices,
+          allowGrayscaleFallback: options.allowGrayscaleFallback ?? true,
+          maxScale: options.scale || 1.5,
+        },
+        onProgress
+      );
+    }
+
+    const bytes = await ExportEngine.compressPDF(
+      pdfManager,
+      annotationManager,
+      trueEditManager,
+      {
+        scale: options.scale,
+        quality: options.quality,
+        grayscale: options.grayscale,
+        pageIndices: options.pageIndices,
+      },
+      onProgress
+    );
+    return {
+      bytes,
+      method: 'compressed',
+      achievedScale: options.scale,
+      achievedQuality: options.quality,
+      grayscale: !!options.grayscale,
+      hitTarget: true,
+    };
   }
 
   /**

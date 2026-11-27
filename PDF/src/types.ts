@@ -205,3 +205,37 @@ export interface PageSizeSummary {
   largestSize: { width: number; height: number; label: string };
   smallestSize: { width: number; height: number; label: string };
 }
+
+export type ExportCompressMode = 'vector' | 'compress' | 'target';
+
+export interface ExportPDFAdvancedOptions {
+  mode: ExportCompressMode;
+  pageIndices?: number[];
+  optimizeObjectStreams?: boolean;
+  scale: number;
+  quality: number;
+  grayscale?: boolean;
+  targetBytes?: number;
+  allowGrayscaleFallback?: boolean;
+}
+
+export interface ExportPDFAdvancedResult {
+  bytes: Uint8Array;
+  method: 'vector' | 'compressed';
+  achievedScale: number;
+  achievedQuality: number;
+  grayscale: boolean;
+  hitTarget: boolean;
+}
+
+export interface MergeSourceDoc {
+  id: string;
+  name: string;
+  bytes: Uint8Array;
+}
+
+export interface MergePagePlanItem {
+  sourceId: string;
+  pageIndex: number;
+  rotationDelta: number;
+}

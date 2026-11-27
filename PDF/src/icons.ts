@@ -293,5 +293,23 @@ export const ICONS = {
       <polyline points="10 7 8 9 10 11"/>
       <polyline points="14 13 16 15 14 17"/>
     </svg>
+  `,
+
+  mergeMulti: `
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M16 3h5v5"/>
+      <path d="M8 3H3v5"/>
+      <path d="M12 22v-8.3a4 4 0 0 0-1.172-2.872L3 3"/>
+      <path d="m15 9 6-6"/>
+    </svg>
+  `,
+
+  compress: `
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="4 14 10 14 10 20"/>
+      <polyline points="20 10 14 10 14 4"/>
+      <line x1="14" y1="10" x2="21" y2="3"/>
+      <line x1="3" y1="21" x2="10" y2="14"/>
+    </svg>
   `
 };
