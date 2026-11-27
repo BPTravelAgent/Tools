@@ -3,6 +3,8 @@ import {
   rgb,
   degrees,
   StandardFonts,
+  BlendMode,
+  LineCapStyle,
   pushGraphicsState,
   popGraphicsState,
   rectangle,
@@ -14,6 +16,10 @@ import UPNG from '@pdf-lib/upng';
 import JSZip from 'jszip';
 import { fontManager } from './fontManager';
 import { getAssetUrl } from './utils';
+import {
+  computeEffectiveHighlightColor,
+  computeHighlightBorderColor,
+} from './annotationManager';
 import type { PDFManager } from './pdfManager';
 import type { AnnotationManager } from './annotationManager';
 import type { TrueEditManager } from './trueEditManager';
@@ -23,12 +29,60 @@ import type {
   ImageAnnotation,
   FreehandAnnotation,
   WhiteoutAnnotation,
+  HighlightAnnotation,
   NormalizePagesOptions,
   ExportPDFAdvancedOptions,
   ExportPDFAdvancedResult,
   MergeSourceDoc,
   MergePagePlanItem,
 } from './types';
+
+function buildCenteredRoundedRectSvgPath(w: number, h: number, radius: number): string {
+  const hw = Math.max(1, w) / 2;
+  const hh = Math.max(1, h) / 2;
+  const r = Math.max(0, Math.min(radius, hw - 0.1, hh - 0.1));
+  if (r <= 0.25) {
+    return `M ${-hw} ${-hh} L ${hw} ${-hh} L ${hw} ${hh} L ${-hw} ${hh} Z`;
+  }
+  return [
+    `M ${-hw + r} ${-hh}`,
+    `L ${hw - r} ${-hh}`,
+    `Q ${hw} ${-hh} ${hw} ${-hh + r}`,
+    `L ${hw} ${hh - r}`,
+    `Q ${hw} ${hh} ${hw - r} ${hh}`,
+    `L ${-hw + r} ${hh}`,
+    `Q ${-hw} ${hh} ${-hw} ${hh - r}`,
+    `L ${-hw} ${-hh + r}`,
+    `Q ${-hw} ${-hh} ${-hw + r} ${-hh}`,
+    'Z',
+  ].join(' ');
+}
+
+function drawCanvasRoundedRectPath(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  radius: number
+) {
+  const r = Math.max(0, Math.min(radius, w / 2, h / 2));
+  ctx.beginPath();
+  if (r <= 0.25) {
+    ctx.rect(x, y, w, h);
+    return;
+  }
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
 
 // Helper to convert hex color to pdf-lib rgb
 function hexToRgb(hex: string): { r: number; g: number; b: number } {
@@ -820,6 +874,149 @@ export class ExportEngine {
               }
             }
           }
+        } else if (ann.type === 'highlight') {
+          const hl = ann as HighlightAnnotation;
+          const effectiveHex = computeEffectiveHighlightColor(hl.color, hl.intensity ?? 1.0);
+          const borderHex = computeHighlightBorderColor(effectiveHex);
+          const fillRgb = hexToRgb(effectiveHex);
+          const borderRgb = hexToRgb(borderHex);
+          const blend = hl.blendMode === 'normal' ? BlendMode.Normal : BlendMode.Multiply;
+          const op = Math.max(0.05, Math.min(0.95, hl.opacity ?? 0.38));
+          const borderOp = hl.fillEnabled ? Math.min(0.95, op + 0.35) : op;
+          const rot = hl.rotation || 0;
+
+          if (hl.variant === 'box' || hl.variant === 'text') {
+            const pathStr = buildCenteredRoundedRectSvgPath(hl.width, hl.height, hl.borderRadius || 0);
+            const drawOpts: any = {
+              x: hl.x + hl.width / 2,
+              y: pdfY + hl.height / 2,
+              blendMode: blend,
+            };
+            if (rot % 360 !== 0) {
+              drawOpts.rotate = degrees(-rot);
+            }
+            if (hl.fillEnabled) {
+              drawOpts.color = rgb(fillRgb.r, fillRgb.g, fillRgb.b);
+              drawOpts.opacity = op;
+            }
+            if (hl.borderWidth > 0) {
+              drawOpts.borderColor = rgb(borderRgb.r, borderRgb.g, borderRgb.b);
+              drawOpts.borderWidth = hl.borderWidth;
+              drawOpts.borderOpacity = borderOp;
+            } else if (!hl.fillEnabled) {
+              // Ensure hollow highlight without border still renders hairline accent
+              drawOpts.borderColor = rgb(borderRgb.r, borderRgb.g, borderRgb.b);
+              drawOpts.borderWidth = 2;
+              drawOpts.borderOpacity = borderOp;
+            }
+            newPage.drawSvgPath(pathStr, drawOpts);
+          } else if (hl.variant === 'circle') {
+            const drawOpts: any = {
+              x: hl.x + hl.width / 2,
+              y: pdfY + hl.height / 2,
+              xScale: Math.max(2, hl.width / 2),
+              yScale: Math.max(2, hl.height / 2),
+              blendMode: blend,
+            };
+            if (rot % 360 !== 0) {
+              drawOpts.rotate = degrees(-rot);
+            }
+            if (hl.fillEnabled) {
+              drawOpts.color = rgb(fillRgb.r, fillRgb.g, fillRgb.b);
+              drawOpts.opacity = op;
+            }
+            if (hl.borderWidth > 0 || !hl.fillEnabled) {
+              drawOpts.borderColor = rgb(borderRgb.r, borderRgb.g, borderRgb.b);
+              drawOpts.borderWidth = hl.borderWidth > 0 ? hl.borderWidth : 2;
+              drawOpts.borderOpacity = borderOp;
+            }
+            newPage.drawEllipse(drawOpts);
+          } else if (hl.variant === 'underline' && hl.points && hl.points.length >= 2) {
+            const p0 = hl.points[0];
+            const p1 = hl.points[hl.points.length - 1];
+            const cx = hl.x + hl.width / 2;
+            const cy = hl.y + hl.height / 2;
+            const rotPt = (pt: { x: number; y: number }) => {
+              if (rot % 360 === 0) return pt;
+              const rad = (rot * Math.PI) / 180;
+              const dx = pt.x - cx;
+              const dy = pt.y - cy;
+              return {
+                x: cx + dx * Math.cos(rad) - dy * Math.sin(rad),
+                y: cy + dx * Math.sin(rad) + dy * Math.cos(rad),
+              };
+            };
+            const rp0 = rotPt(p0);
+            const rp1 = rotPt(p1);
+            newPage.drawLine({
+              start: { x: rp0.x, y: pageHeight - rp0.y },
+              end: { x: rp1.x, y: pageHeight - rp1.y },
+              thickness: Math.max(2, hl.strokeWidth || 16),
+              color: rgb(fillRgb.r, fillRgb.g, fillRgb.b),
+              opacity: op,
+              lineCap: hl.lineCap === 'square' ? LineCapStyle.Butt : LineCapStyle.Round,
+              blendMode: blend,
+            });
+          } else if (hl.points && hl.points.length > 0) {
+            // Pen freehand highlight stroke rendered at 2x resolution onto PNG, drawn with Multiply/Normal + opacity
+            const offscreen = document.createElement('canvas');
+            const dpr = 2;
+            const strokeW = Math.max(1, Math.ceil(hl.width * dpr));
+            const strokeH = Math.max(1, Math.ceil(hl.height * dpr));
+            offscreen.width = strokeW;
+            offscreen.height = strokeH;
+            const ctx = offscreen.getContext('2d');
+            if (ctx) {
+              ctx.scale(dpr, dpr);
+              const cap = hl.lineCap === 'square' ? 'square' : 'round';
+              ctx.strokeStyle = effectiveHex;
+              ctx.fillStyle = effectiveHex;
+              ctx.lineWidth = hl.strokeWidth || 18;
+              ctx.lineCap = cap;
+              ctx.lineJoin = 'round';
+
+              if (hl.points.length === 1) {
+                const pt = hl.points[0];
+                ctx.beginPath();
+                ctx.arc(pt.x - hl.x, pt.y - hl.y, (hl.strokeWidth || 18) / 2, 0, Math.PI * 2);
+                ctx.fill();
+              } else {
+                ctx.beginPath();
+                ctx.moveTo(hl.points[0].x - hl.x, hl.points[0].y - hl.y);
+                for (let pi = 1; pi < hl.points.length; pi++) {
+                  ctx.lineTo(hl.points[pi].x - hl.x, hl.points[pi].y - hl.y);
+                }
+                ctx.stroke();
+              }
+
+              try {
+                const strokeBytes = dataUriToUint8Array(offscreen.toDataURL('image/png'));
+                const embeddedStroke = await outputDoc.embedPng(strokeBytes);
+                let drawX = hl.x;
+                let drawY = pdfY;
+                if (rot % 360 !== 0) {
+                  const rad = (-rot * Math.PI) / 180;
+                  const vx = -hl.width / 2;
+                  const vy = -hl.height / 2;
+                  const cxPdf = hl.x + hl.width / 2;
+                  const cyPdf = pdfY + hl.height / 2;
+                  drawX = cxPdf + vx * Math.cos(rad) - vy * Math.sin(rad);
+                  drawY = cyPdf + vx * Math.sin(rad) + vy * Math.cos(rad);
+                }
+                newPage.drawImage(embeddedStroke, {
+                  x: drawX,
+                  y: drawY,
+                  width: hl.width,
+                  height: hl.height,
+                  opacity: op,
+                  blendMode: blend,
+                  ...(rot % 360 !== 0 ? { rotate: degrees(-rot) } : {}),
+                });
+              } catch (hlErr) {
+                console.warn('Failed to embed pen highlight:', hlErr);
+              }
+            }
+          }
         }
       }
 
@@ -1279,6 +1476,72 @@ export class ExportEngine {
               ctx.lineTo(fh.points[p].x * drawScale, fh.points[p].y * drawScale);
             }
             ctx.stroke();
+          }
+        } else if (ann.type === 'highlight') {
+          const hl = ann as HighlightAnnotation;
+          const effectiveHex = computeEffectiveHighlightColor(hl.color, hl.intensity ?? 1.0);
+          const borderHex = computeHighlightBorderColor(effectiveHex);
+          const op = Math.max(0.05, Math.min(0.95, hl.opacity ?? 0.38));
+          const borderOp = hl.fillEnabled ? Math.min(0.95, op + 0.35) : op;
+          ctx.globalCompositeOperation = hl.blendMode === 'normal' ? 'source-over' : 'multiply';
+
+          const hx = hl.x * drawScale;
+          const hy = hl.y * drawScale;
+          const hw = hl.width * drawScale;
+          const hh = hl.height * drawScale;
+
+          if (hl.variant === 'box' || hl.variant === 'text') {
+            drawCanvasRoundedRectPath(ctx, hx, hy, hw, hh, (hl.borderRadius || 0) * drawScale);
+            if (hl.fillEnabled) {
+              ctx.globalAlpha = op;
+              ctx.fillStyle = effectiveHex;
+              ctx.fill();
+            }
+            if (hl.borderWidth > 0 || !hl.fillEnabled) {
+              ctx.globalAlpha = borderOp;
+              ctx.strokeStyle = borderHex;
+              ctx.lineWidth = (hl.borderWidth > 0 ? hl.borderWidth : 2) * drawScale;
+              ctx.stroke();
+            }
+          } else if (hl.variant === 'circle') {
+            ctx.beginPath();
+            ctx.ellipse(hx + hw / 2, hy + hh / 2, Math.max(1, hw / 2), Math.max(1, hh / 2), 0, 0, Math.PI * 2);
+            if (hl.fillEnabled) {
+              ctx.globalAlpha = op;
+              ctx.fillStyle = effectiveHex;
+              ctx.fill();
+            }
+            if (hl.borderWidth > 0 || !hl.fillEnabled) {
+              ctx.globalAlpha = borderOp;
+              ctx.strokeStyle = borderHex;
+              ctx.lineWidth = (hl.borderWidth > 0 ? hl.borderWidth : 2) * drawScale;
+              ctx.stroke();
+            }
+          } else if (hl.points && hl.points.length > 0) {
+            ctx.globalAlpha = op;
+            ctx.strokeStyle = effectiveHex;
+            ctx.fillStyle = effectiveHex;
+            ctx.lineWidth = (hl.strokeWidth || 18) * drawScale;
+            ctx.lineCap = hl.lineCap === 'square' ? 'square' : 'round';
+            ctx.lineJoin = 'round';
+            if (hl.points.length === 1) {
+              ctx.beginPath();
+              ctx.arc(
+                hl.points[0].x * drawScale,
+                hl.points[0].y * drawScale,
+                ((hl.strokeWidth || 18) * drawScale) / 2,
+                0,
+                Math.PI * 2
+              );
+              ctx.fill();
+            } else {
+              ctx.beginPath();
+              ctx.moveTo(hl.points[0].x * drawScale, hl.points[0].y * drawScale);
+              for (let p = 1; p < hl.points.length; p++) {
+                ctx.lineTo(hl.points[p].x * drawScale, hl.points[p].y * drawScale);
+              }
+              ctx.stroke();
+            }
           }
         } else if (ann.type === 'image') {
           const imgAnn = ann as ImageAnnotation;

@@ -588,19 +588,20 @@ body, html, #app {
    Submenu Context Ribbon (Property Bar)
    -------------------------------------------------------------------------- */
 .submenu-ribbon {
-  height: var(--submenu-height);
+  min-height: var(--submenu-height);
   background-color: #fafbfc;
   border-bottom: 1px solid var(--border-color);
   display: flex;
   align-items: center;
-  padding: 0 16px;
+  padding: 5px 16px;
   z-index: 20;
 }
 
 .submenu-content {
   display: flex;
   align-items: center;
-  gap: 16px;
+  flex-wrap: wrap;
+  gap: 10px 14px;
   width: 100%;
 }
 
@@ -770,6 +771,7 @@ input[type="range"] {
 
 .pdf-page-container {
   position: relative;
+  isolation: isolate;
   background-color: #ffffff;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   border-radius: 2px;
@@ -795,7 +797,7 @@ input[type="range"] {
   left: 0;
   width: 100%;
   height: 100%;
-  z-index: 25;
+  z-index: auto;
   pointer-events: none;
 }
 
@@ -811,6 +813,12 @@ input[type="range"] {
   height: 100%;
   z-index: 30;
   pointer-events: none;
+}
+
+.tool-freehand-active .freehand-canvas,
+.tool-highlight-active .freehand-canvas {
+  pointer-events: auto !important;
+  cursor: crosshair;
 }
 
 /* --------------------------------------------------------------------------
@@ -3813,4 +3821,251 @@ input[type="range"] {
   .mm-options-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* ========================================================================= */
+/* HIGHLIGHTER STUDIO PRO CONTROLS                                           */
+/* ========================================================================= */
+
+.tool-btn-highlight {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 8px;
+}
+
+.hl-btn-swatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1px solid rgba(15, 23, 42, 0.3);
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.hl-caret {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.78;
+  padding: 2px 1px;
+}
+
+.highlight-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
+  min-width: 235px;
+  padding: 6px 0;
+  display: none;
+  flex-direction: column;
+  z-index: 300;
+}
+
+.highlight-menu.active {
+  display: flex;
+}
+
+.hl-menu-header {
+  padding: 6px 14px 5px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #64748b;
+  border-bottom: 1px solid #f1f5f9;
+  margin-bottom: 4px;
+}
+
+.hl-mode-option {
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e293b;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  transition: background-color 0.14s ease, color 0.14s ease;
+}
+
+.hl-mode-option small {
+  font-size: 11px;
+  font-weight: 400;
+  color: #64748b;
+}
+
+.hl-mode-option:hover {
+  background-color: #fefce8;
+  color: #b45309;
+}
+
+.hl-mode-option.active {
+  background-color: #fef9c3;
+  color: #92400e;
+  border-left: 3px solid #eab308;
+  padding-left: 11px;
+}
+
+/* Submenu Highlighter Ribbon */
+.hl-sub-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding-right: 10px;
+  border-right: 1px solid #e2e8f0;
+  font-size: 12px;
+}
+
+.hl-sub-group:last-child {
+  border-right: none;
+  padding-right: 0;
+}
+
+.hl-sub-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #475569;
+  white-space: nowrap;
+}
+
+.hl-mode-pills {
+  display: inline-flex;
+  align-items: center;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 7px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.hl-pill-btn {
+  border: none;
+  background: transparent;
+  padding: 4px 8px;
+  border-radius: 5px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #475569;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.14s ease;
+}
+
+.hl-pill-btn:hover {
+  color: #0f172a;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.hl-pill-btn.active {
+  background: #ffffff;
+  color: #b45309;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+}
+
+.hl-swatches {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.hl-swatch-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(15, 23, 42, 0.22);
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.hl-swatch-dot:hover {
+  transform: scale(1.14);
+}
+
+.hl-swatch-dot.active {
+  border: 2px solid #0f172a;
+  box-shadow: 0 0 0 2px #ffffff, 0 0 0 3.5px #eab308;
+  transform: scale(1.1);
+}
+
+.hl-color-native {
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid #cbd5e1;
+  border-radius: 5px;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.hl-range {
+  width: 74px;
+  accent-color: #eab308;
+  cursor: pointer;
+}
+
+.hl-val-badge {
+  font-size: 11px;
+  font-weight: 700;
+  color: #0f172a;
+  background: #f1f5f9;
+  padding: 2px 6px;
+  border-radius: 5px;
+  min-width: 36px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.hl-toggle-btn {
+  padding: 4px 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #475569;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.14s ease;
+}
+
+.hl-toggle-btn:hover {
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+.hl-toggle-btn.active {
+  background: #fef9c3;
+  border-color: #eab308;
+  color: #92400e;
+}
+
+.hl-select-mini {
+  padding: 3px 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #334155;
+  cursor: pointer;
+}
+
+.annotation-highlight {
+  user-select: none;
+}
+
+.layer-color-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1px solid rgba(15, 23, 42, 0.25);
+  display: inline-block;
+  flex-shrink: 0;
 }

@@ -5,13 +5,74 @@ import type {
   ImageAnnotation,
   FreehandAnnotation,
   WhiteoutAnnotation,
+  HighlightAnnotation,
+  HighlightVariant,
+  HighlightBlendMode,
+  FreehandPoint,
   ShapeType,
 } from './types';
+
+function clampByte(n: number): number {
+  return Math.max(0, Math.min(255, Math.round(n)));
+}
+
+function parseHexColor(hex: string): { r: number; g: number; b: number } {
+  let clean = (hex || '#FDE047').replace('#', '').trim();
+  if (clean.length === 3) {
+    clean = clean.split('').map((c) => c + c).join('');
+  }
+  const intVal = parseInt(clean, 16);
+  if (isNaN(intVal)) return { r: 253, g: 224, b: 71 };
+  return {
+    r: (intVal >> 16) & 255,
+    g: (intVal >> 8) & 255,
+    b: intVal & 255,
+  };
+}
+
+function rgbToHex(r: number, g: number, b: number): string {
+  return (
+    '#' +
+    [clampByte(r), clampByte(g), clampByte(b)]
+      .map((v) => v.toString(16).padStart(2, '0'))
+      .join('')
+  );
+}
+
+/**
+ * Adjusts highlight color tone lightness/depth (`intensity`: 0.25 light pastel .. 1.0 base .. 1.5 deep bold).
+ */
+export function computeEffectiveHighlightColor(baseHex: string, intensity: number = 1.0): string {
+  const { r, g, b } = parseHexColor(baseHex);
+  const clamped = Math.max(0.2, Math.min(1.6, intensity || 1.0));
+  if (Math.abs(clamped - 1.0) < 0.01) {
+    return rgbToHex(r, g, b);
+  }
+  if (clamped < 1.0) {
+    // Shift toward soft pastel tint on white
+    return rgbToHex(
+      255 - (255 - r) * clamped,
+      255 - (255 - g) * clamped,
+      255 - (255 - b) * clamped
+    );
+  }
+  // Shift richer / deeper while preserving hue chroma
+  const depth = 1 - (clamped - 1.0) * 0.42;
+  return rgbToHex(r * depth, g * depth, b * depth);
+}
+
+/**
+ * Computes a crisp accent outline color for bordered/hollow highlight shapes.
+ */
+export function computeHighlightBorderColor(effectiveHex: string): string {
+  const { r, g, b } = parseHexColor(effectiveHex);
+  return rgbToHex(r * 0.72, g * 0.72, b * 0.72);
+}
 
 export class AnnotationManager {
   private annotations: Map<number, Annotation[]> = new Map();
   private selectedId: string | null = null;
-  private undoStack: string[] = [];
+  private undoStack: string[] = ['[]'];
   private redoStack: string[] = [];
 
   // Default styling presets
@@ -33,6 +94,18 @@ export class AnnotationManager {
   public currentBrushColor: string = '#E5322D';
   public currentBrushWidth: number = 3;
 
+  // Highlighter Studio presets
+  public currentHighlightVariant: HighlightVariant = 'box';
+  public currentHighlightColor: string = '#FDE047';
+  public currentHighlightOpacity: number = 0.38;
+  public currentHighlightIntensity: number = 1.0;
+  public currentHighlightBlendMode: HighlightBlendMode = 'multiply';
+  public currentHighlightFillEnabled: boolean = true;
+  public currentHighlightBorderWidth: number = 0;
+  public currentHighlightBorderRadius: number = 3;
+  public currentHighlightStrokeWidth: number = 18;
+  public currentHighlightLineCap: 'round' | 'square' = 'round';
+
   private onChangeCallback: (() => void) | null = null;
 
   setOnChange(callback: () => void) {
@@ -50,17 +123,20 @@ export class AnnotationManager {
 
   private pushHistory() {
     const snapshot = JSON.stringify(Array.from(this.annotations.entries()));
+    if (this.undoStack.length > 0 && this.undoStack[this.undoStack.length - 1] === snapshot) {
+      return;
+    }
     this.undoStack.push(snapshot);
-    if (this.undoStack.length > 30) this.undoStack.shift();
+    if (this.undoStack.length > 35) this.undoStack.shift();
     this.redoStack = []; // clear redo on new action
   }
 
   undo() {
-    if (this.undoStack.length === 0) return;
-    const currentSnapshot = JSON.stringify(Array.from(this.annotations.entries()));
+    if (this.undoStack.length <= 1) return;
+    const currentSnapshot = this.undoStack.pop()!;
     this.redoStack.push(currentSnapshot);
 
-    const prev = this.undoStack.pop()!;
+    const prev = this.undoStack[this.undoStack.length - 1];
     const entries = JSON.parse(prev);
     this.annotations = new Map(entries);
     this.selectedId = null;
@@ -69,10 +145,9 @@ export class AnnotationManager {
 
   redo() {
     if (this.redoStack.length === 0) return;
-    const currentSnapshot = JSON.stringify(Array.from(this.annotations.entries()));
-    this.undoStack.push(currentSnapshot);
-
     const next = this.redoStack.pop()!;
+    this.undoStack.push(next);
+
     const entries = JSON.parse(next);
     this.annotations = new Map(entries);
     this.selectedId = null;
@@ -291,6 +366,130 @@ export class AnnotationManager {
     return ann;
   }
 
+  private buildHighlightAnnotation(
+    pageIndex: number,
+    zIndex: number,
+    params: {
+      variant: HighlightVariant;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      points?: FreehandPoint[];
+      color?: string;
+      opacity?: number;
+      intensity?: number;
+      blendMode?: HighlightBlendMode;
+      fillEnabled?: boolean;
+      borderWidth?: number;
+      borderRadius?: number;
+      strokeWidth?: number;
+      lineCap?: 'round' | 'square';
+    }
+  ): HighlightAnnotation {
+    const id = `ann-hl-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+    let x = params.x;
+    let y = params.y;
+    let width = Math.max(8, params.width);
+    let height = Math.max(6, params.height);
+    const strokeWidth = params.strokeWidth ?? this.currentHighlightStrokeWidth;
+
+    if ((params.variant === 'pen' || params.variant === 'underline') && params.points && params.points.length > 0) {
+      let minX = Infinity,
+        minY = Infinity,
+        maxX = -Infinity,
+        maxY = -Infinity;
+      for (const p of params.points) {
+        if (p.x < minX) minX = p.x;
+        if (p.y < minY) minY = p.y;
+        if (p.x > maxX) maxX = p.x;
+        if (p.y > maxY) maxY = p.y;
+      }
+      const pad = Math.max(6, Math.ceil(strokeWidth / 2) + 2);
+      x = Math.max(0, minX - pad);
+      y = Math.max(0, minY - pad);
+      width = Math.max(16, maxX - minX + pad * 2);
+      height = Math.max(14, maxY - minY + pad * 2);
+    }
+
+    return {
+      id,
+      pageIndex,
+      type: 'highlight',
+      variant: params.variant,
+      x: Math.round(x),
+      y: Math.round(y),
+      width: Math.round(width),
+      height: Math.round(height),
+      rotation: 0,
+      opacity: Math.max(0.05, Math.min(0.95, params.opacity ?? this.currentHighlightOpacity)),
+      zIndex,
+      color: params.color ?? this.currentHighlightColor,
+      intensity: Math.max(0.2, Math.min(1.6, params.intensity ?? this.currentHighlightIntensity)),
+      blendMode: params.blendMode ?? this.currentHighlightBlendMode,
+      fillEnabled: params.fillEnabled ?? this.currentHighlightFillEnabled,
+      borderWidth: params.borderWidth ?? this.currentHighlightBorderWidth,
+      borderRadius: params.borderRadius ?? this.currentHighlightBorderRadius,
+      points: params.points ? params.points.map((p) => ({ x: p.x, y: p.y })) : undefined,
+      strokeWidth,
+      lineCap: params.lineCap ?? this.currentHighlightLineCap,
+    };
+  }
+
+  addHighlight(
+    pageIndex: number,
+    params: {
+      variant: HighlightVariant;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      points?: FreehandPoint[];
+      color?: string;
+      opacity?: number;
+      intensity?: number;
+      blendMode?: HighlightBlendMode;
+      fillEnabled?: boolean;
+      borderWidth?: number;
+      borderRadius?: number;
+      strokeWidth?: number;
+      lineCap?: 'round' | 'square';
+    }
+  ): HighlightAnnotation {
+    const pageAnns = this.annotations.get(pageIndex) || [];
+    const ann = this.buildHighlightAnnotation(pageIndex, pageAnns.length + 1, params);
+    pageAnns.push(ann);
+    this.annotations.set(pageIndex, pageAnns);
+    this.selectedId = ann.id;
+    this.notifyChange();
+    return ann;
+  }
+
+  addHighlightsBatch(
+    pageIndex: number,
+    items: Array<{
+      variant: HighlightVariant;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      points?: FreehandPoint[];
+    }>
+  ): HighlightAnnotation[] {
+    if (!items || items.length === 0) return [];
+    const pageAnns = this.annotations.get(pageIndex) || [];
+    const created: HighlightAnnotation[] = [];
+    for (const item of items) {
+      const ann = this.buildHighlightAnnotation(pageIndex, pageAnns.length + 1, item);
+      pageAnns.push(ann);
+      created.push(ann);
+    }
+    this.annotations.set(pageIndex, pageAnns);
+    this.selectedId = created[created.length - 1].id;
+    this.notifyChange();
+    return created;
+  }
+
   updateAnnotation(id: string, updates: Partial<Annotation>, saveHistory: boolean = true) {
     for (const [pageIdx, list] of this.annotations.entries()) {
       const idx = list.findIndex((a) => a.id === id);
@@ -336,6 +535,9 @@ export class AnnotationManager {
       y: this.clipboardAnnotation.y + 20,
       zIndex: pageAnns.length + 1,
     };
+    if ('points' in pasted && Array.isArray(pasted.points)) {
+      pasted.points = pasted.points.map((pt) => ({ x: pt.x + 20, y: pt.y + 20 }));
+    }
     pageAnns.push(pasted);
     this.annotations.set(targetPageIndex, pageAnns);
     this.selectedId = newId;
@@ -362,6 +564,9 @@ export class AnnotationManager {
       y: target.y + 15,
       zIndex: pageAnns.length + 1,
     };
+    if ('points' in cloned && Array.isArray(cloned.points)) {
+      cloned.points = cloned.points.map((pt) => ({ x: pt.x + 15, y: pt.y + 15 }));
+    }
 
     pageAnns.push(cloned);
     this.annotations.set(pageIndex, pageAnns);
@@ -493,9 +698,10 @@ export class AnnotationManager {
   clearAll(pageIndex?: number) {
     if (pageIndex !== undefined) {
       this.annotations.delete(pageIndex);
+      this.pushHistory();
     } else {
       this.annotations.clear();
-      this.undoStack = [];
+      this.undoStack = ['[]'];
       this.redoStack = [];
     }
     this.selectedId = null;

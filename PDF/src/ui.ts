@@ -1,6 +1,10 @@
 import { ICONS } from './icons';
 import { PDFManager } from './pdfManager';
-import { AnnotationManager } from './annotationManager';
+import {
+  AnnotationManager,
+  computeEffectiveHighlightColor,
+  computeHighlightBorderColor,
+} from './annotationManager';
 import { TrueEditManager } from './trueEditManager';
 import { ExportEngine } from './exportEngine';
 import { fontManager, createSearchableFontPicker } from './fontManager';
@@ -18,10 +22,22 @@ import type {
   ShapeAnnotation,
   ImageAnnotation,
   FreehandAnnotation,
+  HighlightAnnotation,
+  HighlightVariant,
   ExtractedTextItem,
   RichTextSpan,
   TrueEditTextChange,
 } from './types';
+
+const HIGHLIGHT_SWATCHES: Array<{ hex: string; name: string }> = [
+  { hex: '#FDE047', name: 'Neon Yellow' },
+  { hex: '#F9A8D4', name: 'Neon Pink' },
+  { hex: '#86EFAC', name: 'Mint Green' },
+  { hex: '#7DD3FC', name: 'Sky Cyan' },
+  { hex: '#FDBA74', name: 'Warm Orange' },
+  { hex: '#D8B4FE', name: 'Soft Purple' },
+  { hex: '#FCA5A5', name: 'Coral Red' },
+];
 
 // Helper to normalize any color string (hex, rgb) to lowercase hex
 function normalizeColorToHex(col: string): string {
@@ -162,6 +178,10 @@ export class PDFEditorUI {
   private currentScale: number = 1.0;
   private activePageIndex: number = 0;
   private isDrawingFreehand: boolean = false;
+  private isDrawingHighlight: boolean = false;
+  private activeDrawingPageIndex: number = -1;
+  private highlightDragStart: { x: number; y: number } | null = null;
+  private suppressSubmenuRebuild: boolean = false;
   private currentFreehandPoints: { x: number; y: number }[] = [];
   private activeCropState: { pageIndex: number; x: number; y: number; width: number; height: number } | null = null;
   private editingAnnotationId: string | null = null;
@@ -323,6 +343,21 @@ export class PDFEditorUI {
                 <button class="tool-btn" data-tool="freehand" title="Freehand drawing / Signature">
                   ${ICONS.freehand}
                 </button>
+                <div class="dropdown-wrapper">
+                  <button class="tool-btn tool-btn-highlight" data-tool="highlight" id="btnHighlightDropdown" title="Highlighter Studio Pro (Text, Box, Circle, Pen, Line)">
+                    ${ICONS.highlighter}
+                    <span class="hl-btn-swatch" id="hlToolbarSwatch" style="background: #FDE047;"></span>
+                    <span class="hl-caret" id="btnHighlightCaret" title="Choose Highlighter Mode">${ICONS.chevronDown}</span>
+                  </button>
+                  <div class="highlight-menu" id="highlightMenu">
+                    <div class="hl-menu-header">Highlighter Studio</div>
+                    <div class="hl-mode-option" data-hl-mode="text">✨ Smart Text Snap <small>Auto-align to text lines</small></div>
+                    <div class="hl-mode-option active" data-hl-mode="box">▭ Highlight Box <small>Translucent rectangle</small></div>
+                    <div class="hl-mode-option" data-hl-mode="circle">◯ Circle / Oval <small>Encircle items &amp; figures</small></div>
+                    <div class="hl-mode-option" data-hl-mode="pen">🖍️ Marker Pen <small>Freehand · Shift = straight</small></div>
+                    <div class="hl-mode-option" data-hl-mode="underline">▁ Straight Line / Bar <small>Horizontal marker strip</small></div>
+                  </div>
+                </div>
                 <div class="dropdown-wrapper">
                   <button class="tool-btn" data-tool="shapes" id="btnShapesDropdown" title="Add shapes and symbols">
                     ${ICONS.shapes} ${ICONS.chevronDown}
@@ -637,7 +672,10 @@ export class PDFEditorUI {
     this.annotationManager.setOnChange(() => {
       this.renderCurrentPageAnnotations();
       this.renderLayersSidebar();
-      this.updateSubmenu();
+      if (!this.suppressSubmenuRebuild) {
+        this.updateSubmenu();
+      }
+      this.syncHighlightModeIndicators();
     });
 
     this.trueEditManager.setOnChange(() => {
@@ -827,15 +865,46 @@ export class PDFEditorUI {
     // 3. Tool Selection
     const toolBtns = document.querySelectorAll('.tool-btn[data-tool]');
     toolBtns.forEach((btn) => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', (e) => {
         const tool = btn.getAttribute('data-tool') as ToolType;
         if (tool === 'shapes') {
-          // Toggle shapes dropdown
+          document.getElementById('highlightMenu')?.classList.remove('active');
           const menu = document.getElementById('shapesMenu');
           menu?.classList.toggle('active');
           return;
         }
+        if (tool === 'highlight') {
+          e.stopPropagation();
+          document.getElementById('shapesMenu')?.classList.remove('active');
+          const menu = document.getElementById('highlightMenu');
+          const clickedCaret = !!(e.target as HTMLElement | null)?.closest('.hl-caret');
+          if (clickedCaret || this.currentTool === 'highlight') {
+            menu?.classList.toggle('active');
+          } else {
+            menu?.classList.remove('active');
+          }
+          if (this.currentTool !== 'highlight') {
+            this.setTool('highlight');
+          }
+          return;
+        }
+        document.getElementById('shapesMenu')?.classList.remove('active');
+        document.getElementById('highlightMenu')?.classList.remove('active');
         this.setTool(tool);
+      });
+    });
+
+    // Highlighter mode dropdown selection
+    document.querySelectorAll('.hl-mode-option').forEach((opt) => {
+      opt.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const mode = opt.getAttribute('data-hl-mode') as HighlightVariant;
+        if (mode) {
+          this.annotationManager.currentHighlightVariant = mode;
+        }
+        document.getElementById('highlightMenu')?.classList.remove('active');
+        this.setTool('highlight');
+        this.syncHighlightModeIndicators();
       });
     });
 
@@ -899,6 +968,7 @@ export class PDFEditorUI {
       if (!target.closest('.dropdown-wrapper')) {
         document.getElementById('shapesMenu')?.classList.remove('active');
         document.getElementById('rotateMenu')?.classList.remove('active');
+        document.getElementById('highlightMenu')?.classList.remove('active');
       }
     });
 
@@ -1311,17 +1381,25 @@ export class PDFEditorUI {
     const body = document.querySelector('.ilovepdf-app');
     body?.classList.toggle('tool-eraser-active', tool === 'eraser' || tool === 'whiteout');
     body?.classList.toggle('tool-snip-active', tool === 'snip');
+    body?.classList.toggle('tool-freehand-active', tool === 'freehand');
+    body?.classList.toggle('tool-highlight-active', tool === 'highlight');
 
     const scroller = document.getElementById('viewportScroller');
     if (scroller) {
+      scroller.classList.remove('cursor-hand', 'cursor-text', 'cursor-crosshair');
       if (tool === 'hand') {
         scroller.classList.add('cursor-hand');
       } else if (tool === 'text') {
         scroller.classList.add('cursor-text');
-      } else if (tool === 'freehand' || tool === 'eraser' || tool === 'whiteout' || tool === 'snip' || tool === 'crop') {
+      } else if (
+        tool === 'freehand' ||
+        tool === 'highlight' ||
+        tool === 'eraser' ||
+        tool === 'whiteout' ||
+        tool === 'snip' ||
+        tool === 'crop'
+      ) {
         scroller.classList.add('cursor-crosshair');
-      } else {
-        scroller.className = 'viewport-scroller';
       }
     }
 
@@ -1331,7 +1409,23 @@ export class PDFEditorUI {
       this.removeCropOverlay();
     }
 
+    this.syncHighlightModeIndicators();
     this.updateSubmenu();
+  }
+
+  private syncHighlightModeIndicators() {
+    const mode = this.annotationManager.currentHighlightVariant;
+    document.querySelectorAll('.hl-mode-option').forEach((opt) => {
+      opt.classList.toggle('active', opt.getAttribute('data-hl-mode') === mode);
+    });
+    const swatch = document.getElementById('hlToolbarSwatch');
+    if (swatch) {
+      swatch.style.backgroundColor = computeEffectiveHighlightColor(
+        this.annotationManager.currentHighlightColor,
+        this.annotationManager.currentHighlightIntensity
+      );
+      swatch.style.opacity = Math.max(0.35, this.annotationManager.currentHighlightOpacity).toString();
+    }
   }
 
   private async renderDocumentPages() {
@@ -1700,50 +1794,456 @@ export class PDFEditorUI {
       }
     });
 
-    // 2. Freehand Drawing
+    // 2. Freehand Drawing & Highlighter Studio Pro
     const ctx = freehandCanvas.getContext('2d');
     if (!ctx) return;
 
-    freehandCanvas.addEventListener('mousedown', (e) => {
-      if (this.currentTool !== 'freehand') return;
-      this.isDrawingFreehand = true;
-      this.currentFreehandPoints = [];
-
+    const toPageCoords = (clientX: number, clientY: number) => {
       const rect = freehandCanvas.getBoundingClientRect();
-      const x = (e.clientX - rect.left) / this.currentScale;
-      const y = (e.clientY - rect.top) / this.currentScale;
-      this.currentFreehandPoints.push({ x, y });
+      const pageMeta = this.pdfManager.getPageMeta(pageIndex);
+      const maxW = pageMeta ? pageMeta.width : rect.width / this.currentScale;
+      const maxH = pageMeta ? pageMeta.height : rect.height / this.currentScale;
+      const rawX = (clientX - rect.left) / this.currentScale;
+      const rawY = (clientY - rect.top) / this.currentScale;
+      return {
+        x: Math.max(0, Math.min(maxW, rawX)),
+        y: Math.max(0, Math.min(maxH, rawY)),
+      };
+    };
 
-      ctx.save();
-      ctx.strokeStyle = this.annotationManager.currentBrushColor;
-      ctx.lineWidth = this.annotationManager.currentBrushWidth * this.currentScale;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      ctx.beginPath();
-      ctx.moveTo(x * this.currentScale, y * this.currentScale);
+    freehandCanvas.addEventListener('mousedown', (e) => {
+      if (this.currentTool !== 'freehand' && this.currentTool !== 'highlight') return;
+      e.preventDefault();
+      e.stopPropagation();
+
+      this.activeDrawingPageIndex = pageIndex;
+      this.activePageIndex = pageIndex;
+      this.updateViewbar();
+
+      const pt = toPageCoords(e.clientX, e.clientY);
+
+      if (this.currentTool === 'freehand') {
+        this.isDrawingFreehand = true;
+        this.currentFreehandPoints = [pt];
+        freehandCanvas.style.mixBlendMode = 'normal';
+
+        ctx.save();
+        ctx.clearRect(0, 0, freehandCanvas.width, freehandCanvas.height);
+        ctx.strokeStyle = this.annotationManager.currentBrushColor;
+        ctx.lineWidth = this.annotationManager.currentBrushWidth * this.currentScale;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        ctx.moveTo(pt.x * this.currentScale, pt.y * this.currentScale);
+        return;
+      }
+
+      // Highlight tool start
+      this.isDrawingHighlight = true;
+      this.highlightDragStart = pt;
+      this.currentFreehandPoints = [pt];
+      freehandCanvas.style.mixBlendMode =
+        this.annotationManager.currentHighlightBlendMode === 'normal' ? 'normal' : 'multiply';
+      this.drawLiveHighlightPreview(
+        ctx,
+        freehandCanvas,
+        pageIndex,
+        this.annotationManager.currentHighlightVariant,
+        pt,
+        pt,
+        this.currentFreehandPoints,
+        e.shiftKey
+      );
     });
 
     window.addEventListener('mousemove', (e) => {
-      if (!this.isDrawingFreehand || this.currentTool !== 'freehand') return;
-      const rect = freehandCanvas.getBoundingClientRect();
-      const x = (e.clientX - rect.left) / this.currentScale;
-      const y = (e.clientY - rect.top) / this.currentScale;
-      this.currentFreehandPoints.push({ x, y });
+      if (this.activeDrawingPageIndex !== pageIndex) return;
 
-      ctx.lineTo(x * this.currentScale, y * this.currentScale);
-      ctx.stroke();
+      if (this.isDrawingFreehand && this.currentTool === 'freehand') {
+        const pt = toPageCoords(e.clientX, e.clientY);
+        this.currentFreehandPoints.push(pt);
+        ctx.lineTo(pt.x * this.currentScale, pt.y * this.currentScale);
+        ctx.stroke();
+        return;
+      }
+
+      if (this.isDrawingHighlight && this.currentTool === 'highlight' && this.highlightDragStart) {
+        const pt = toPageCoords(e.clientX, e.clientY);
+        const variant = this.annotationManager.currentHighlightVariant;
+        if (variant === 'pen' && !e.shiftKey) {
+          const last = this.currentFreehandPoints[this.currentFreehandPoints.length - 1];
+          if (!last || Math.hypot(pt.x - last.x, pt.y - last.y) >= 2) {
+            this.currentFreehandPoints.push(pt);
+          }
+        }
+        this.drawLiveHighlightPreview(
+          ctx,
+          freehandCanvas,
+          pageIndex,
+          variant,
+          this.highlightDragStart,
+          pt,
+          this.currentFreehandPoints,
+          e.shiftKey
+        );
+      }
     });
 
-    window.addEventListener('mouseup', () => {
-      if (!this.isDrawingFreehand) return;
-      this.isDrawingFreehand = false;
-      ctx.clearRect(0, 0, freehandCanvas.width, freehandCanvas.height);
-      ctx.restore();
+    window.addEventListener('mouseup', (e) => {
+      if (this.activeDrawingPageIndex !== pageIndex) return;
+      this.activeDrawingPageIndex = -1;
 
-      if (this.currentFreehandPoints.length > 2) {
-        this.annotationManager.addFreehand(pageIndex, this.currentFreehandPoints);
+      if (this.isDrawingFreehand) {
+        this.isDrawingFreehand = false;
+        ctx.clearRect(0, 0, freehandCanvas.width, freehandCanvas.height);
+        ctx.restore();
+
+        if (this.currentFreehandPoints.length > 2) {
+          this.annotationManager.addFreehand(pageIndex, this.currentFreehandPoints);
+        }
+        this.currentFreehandPoints = [];
+        return;
       }
-      this.currentFreehandPoints = [];
+
+      if (this.isDrawingHighlight) {
+        this.isDrawingHighlight = false;
+        ctx.clearRect(0, 0, freehandCanvas.width, freehandCanvas.height);
+        freehandCanvas.style.mixBlendMode = 'normal';
+
+        const start = this.highlightDragStart;
+        const end = toPageCoords(e.clientX, e.clientY);
+        const variant = this.annotationManager.currentHighlightVariant;
+        const points = this.currentFreehandPoints.slice();
+
+        this.highlightDragStart = null;
+        this.currentFreehandPoints = [];
+
+        if (!start) return;
+        this.commitHighlightInteraction(pageIndex, variant, start, end, points, e.shiftKey);
+      }
+    });
+  }
+
+  private computeHighlightDragBox(
+    start: { x: number; y: number },
+    cur: { x: number; y: number },
+    variant: HighlightVariant,
+    shiftKey: boolean
+  ): { x: number; y: number; width: number; height: number } {
+    let dx = cur.x - start.x;
+    let dy = cur.y - start.y;
+    if (shiftKey && (variant === 'box' || variant === 'circle')) {
+      const size = Math.max(Math.abs(dx), Math.abs(dy));
+      dx = (dx >= 0 ? 1 : -1) * size;
+      dy = (dy >= 0 ? 1 : -1) * size;
+    }
+    const endX = start.x + dx;
+    const endY = start.y + dy;
+    return {
+      x: Math.min(start.x, endX),
+      y: Math.min(start.y, endY),
+      width: Math.abs(endX - start.x),
+      height: Math.abs(endY - start.y),
+    };
+  }
+
+  private snapEndpointAngle(
+    start: { x: number; y: number },
+    cur: { x: number; y: number },
+    shiftKey: boolean
+  ): { x: number; y: number } {
+    const dx = cur.x - start.x;
+    const dy = cur.y - start.y;
+    if (shiftKey) {
+      const angle = Math.atan2(dy, dx);
+      const snappedAngle = Math.round(angle / (Math.PI / 4)) * (Math.PI / 4);
+      const len = Math.hypot(dx, dy);
+      return {
+        x: start.x + Math.cos(snappedAngle) * len,
+        y: start.y + Math.sin(snappedAngle) * len,
+      };
+    }
+    // Gentle auto-level horizontal snap for straight highlighter strips
+    if (Math.abs(dy) <= Math.max(7, Math.abs(dx) * 0.08)) {
+      return { x: cur.x, y: start.y };
+    }
+    return cur;
+  }
+
+  private getHighlightedTextLineRects(
+    pageIndex: number,
+    left: number,
+    top: number,
+    width: number,
+    height: number
+  ): Array<{ x: number; y: number; width: number; height: number }> {
+    const right = left + Math.max(1, width);
+    const bottom = top + Math.max(1, height);
+    const items = this.pdfManager.getExtractedTexts(pageIndex) || [];
+    const intersecting = items.filter((item) => {
+      if (!item.text || !item.text.trim()) return false;
+      const ir = item.x + item.width;
+      const ib = item.y + item.height;
+      return item.x < right && ir > left && item.y < bottom && ib > top;
+    });
+
+    if (intersecting.length === 0) return [];
+
+    // Group intersecting text chunks by line Y so multi-line drags create crisp uniform strips
+    const sorted = intersecting.slice().sort((a, b) => a.y - b.y || a.x - b.x);
+    const rows: ExtractedTextItem[][] = [];
+
+    for (const item of sorted) {
+      const cy = item.y + item.height / 2;
+      let targetRow = rows.find((row) => {
+        const first = row[0];
+        const rowCy = first.y + first.height / 2;
+        return Math.abs(cy - rowCy) <= Math.max(5, Math.min(first.height, item.height) * 0.6);
+      });
+      if (!targetRow) {
+        targetRow = [];
+        rows.push(targetRow);
+      }
+      targetRow.push(item);
+    }
+
+    const dragIsTiny = width < 8 && height < 8;
+    const lineRects: Array<{ x: number; y: number; width: number; height: number }> = [];
+
+    for (const row of rows) {
+      let minX = Infinity;
+      let maxR = -Infinity;
+      let minY = Infinity;
+      let maxB = -Infinity;
+
+      for (const it of row) {
+        let ix = it.x;
+        let ir = it.x + it.width;
+        // If single extracted line item is much wider than user's horizontal drag, clip gently to drag span
+        if (!dragIsTiny && it.width > Math.max(90, width * 1.6)) {
+          ix = Math.max(it.x, left);
+          ir = Math.min(it.x + it.width, right);
+        }
+        if (ix < minX) minX = ix;
+        if (ir > maxR) maxR = ir;
+        if (it.y < minY) minY = it.y;
+        if (it.y + it.height > maxB) maxB = it.y + it.height;
+      }
+
+      if (maxR > minX && maxB > minY) {
+        lineRects.push({
+          x: Math.max(0, Math.round(minX - 2)),
+          y: Math.max(0, Math.round(minY - 1)),
+          width: Math.max(10, Math.round(maxR - minX + 4)),
+          height: Math.max(10, Math.round(maxB - minY + 3)),
+        });
+      }
+    }
+
+    return lineRects;
+  }
+
+  private drawLiveHighlightPreview(
+    ctx: CanvasRenderingContext2D,
+    canvas: HTMLCanvasElement,
+    pageIndex: number,
+    variant: HighlightVariant,
+    start: { x: number; y: number },
+    cur: { x: number; y: number },
+    points: { x: number; y: number }[],
+    shiftKey: boolean
+  ) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    const am = this.annotationManager;
+    const effColor = computeEffectiveHighlightColor(am.currentHighlightColor, am.currentHighlightIntensity);
+    const borderColor = computeHighlightBorderColor(effColor);
+    const op = am.currentHighlightOpacity;
+    const borderOp = am.currentHighlightFillEnabled ? Math.min(0.95, op + 0.35) : op;
+    const s = this.currentScale;
+
+    ctx.save();
+    if (variant === 'pen' || variant === 'underline') {
+      const drawPts =
+        variant === 'underline'
+          ? [start, this.snapEndpointAngle(start, cur, shiftKey)]
+          : shiftKey
+          ? [start, cur]
+          : points;
+
+      ctx.globalAlpha = op;
+      ctx.strokeStyle = effColor;
+      ctx.fillStyle = effColor;
+      ctx.lineWidth = am.currentHighlightStrokeWidth * s;
+      ctx.lineCap = am.currentHighlightLineCap;
+      ctx.lineJoin = 'round';
+
+      if (drawPts.length === 1) {
+        ctx.beginPath();
+        ctx.arc(drawPts[0].x * s, drawPts[0].y * s, (am.currentHighlightStrokeWidth * s) / 2, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (drawPts.length >= 2) {
+        ctx.beginPath();
+        ctx.moveTo(drawPts[0].x * s, drawPts[0].y * s);
+        for (let i = 1; i < drawPts.length; i++) {
+          ctx.lineTo(drawPts[i].x * s, drawPts[i].y * s);
+        }
+        ctx.stroke();
+      }
+    } else if (variant === 'circle') {
+      const box = this.computeHighlightDragBox(start, cur, variant, shiftKey);
+      ctx.beginPath();
+      ctx.ellipse(
+        (box.x + box.width / 2) * s,
+        (box.y + box.height / 2) * s,
+        Math.max(2, (box.width * s) / 2),
+        Math.max(2, (box.height * s) / 2),
+        0,
+        0,
+        Math.PI * 2
+      );
+      if (am.currentHighlightFillEnabled) {
+        ctx.globalAlpha = op;
+        ctx.fillStyle = effColor;
+        ctx.fill();
+      }
+      ctx.globalAlpha = borderOp;
+      ctx.strokeStyle = borderColor;
+      ctx.lineWidth = Math.max(1.5, am.currentHighlightBorderWidth || 1.5) * s;
+      ctx.stroke();
+    } else {
+      const box = this.computeHighlightDragBox(start, cur, variant, shiftKey);
+      const drawBox = (bx: number, by: number, bw: number, bh: number, radiusPx: number) => {
+        const r = Math.max(0, Math.min(radiusPx * s, (bw * s) / 2, (bh * s) / 2));
+        ctx.beginPath();
+        if (r <= 0.25) {
+          ctx.rect(bx * s, by * s, bw * s, bh * s);
+        } else {
+          ctx.moveTo(bx * s + r, by * s);
+          ctx.lineTo((bx + bw) * s - r, by * s);
+          ctx.quadraticCurveTo((bx + bw) * s, by * s, (bx + bw) * s, by * s + r);
+          ctx.lineTo((bx + bw) * s, (by + bh) * s - r);
+          ctx.quadraticCurveTo((bx + bw) * s, (by + bh) * s, (bx + bw) * s - r, (by + bh) * s);
+          ctx.lineTo(bx * s + r, (by + bh) * s);
+          ctx.quadraticCurveTo(bx * s, (by + bh) * s, bx * s, (by + bh) * s - r);
+          ctx.lineTo(bx * s, by * s + r);
+          ctx.quadraticCurveTo(bx * s, by * s, bx * s + r, by * s);
+          ctx.closePath();
+        }
+        if (am.currentHighlightFillEnabled) {
+          ctx.globalAlpha = op;
+          ctx.fillStyle = effColor;
+          ctx.fill();
+        }
+        if (am.currentHighlightBorderWidth > 0 || !am.currentHighlightFillEnabled) {
+          ctx.globalAlpha = borderOp;
+          ctx.strokeStyle = borderColor;
+          ctx.lineWidth = (am.currentHighlightBorderWidth > 0 ? am.currentHighlightBorderWidth : 2) * s;
+          ctx.stroke();
+        }
+      };
+
+      if (variant === 'text') {
+        const snapped = this.getHighlightedTextLineRects(pageIndex, box.x, box.y, box.width, box.height);
+        if (snapped.length > 0) {
+          for (const lr of snapped) {
+            drawBox(lr.x, lr.y, lr.width, lr.height, am.currentHighlightBorderRadius);
+          }
+          // Light selection guide frame
+          ctx.globalAlpha = 0.65;
+          ctx.setLineDash([4, 3]);
+          ctx.strokeStyle = borderColor;
+          ctx.lineWidth = 1;
+          ctx.strokeRect(box.x * s, box.y * s, box.width * s, box.height * s);
+        } else {
+          drawBox(box.x, box.y, box.width, box.height, am.currentHighlightBorderRadius);
+        }
+      } else {
+        drawBox(box.x, box.y, box.width, box.height, am.currentHighlightBorderRadius);
+      }
+    }
+    ctx.restore();
+  }
+
+  private commitHighlightInteraction(
+    pageIndex: number,
+    variant: HighlightVariant,
+    start: { x: number; y: number },
+    end: { x: number; y: number },
+    points: { x: number; y: number }[],
+    shiftKey: boolean
+  ) {
+    const dist = Math.hypot(end.x - start.x, end.y - start.y);
+
+    if (variant === 'pen') {
+      const finalPts = shiftKey && dist >= 4 ? [start, end] : points.length > 0 ? points : [start];
+      this.annotationManager.addHighlight(pageIndex, {
+        variant: 'pen',
+        x: start.x,
+        y: start.y,
+        width: 24,
+        height: 24,
+        points: finalPts,
+      });
+      return;
+    }
+
+    if (variant === 'underline') {
+      const snappedEnd = dist < 5 ? { x: start.x + 150, y: start.y } : this.snapEndpointAngle(start, end, shiftKey);
+      const finalStart = dist < 5 ? { x: Math.max(0, start.x - 75), y: start.y } : start;
+      const finalEnd = dist < 5 ? { x: finalStart.x + 150, y: start.y } : snappedEnd;
+      this.annotationManager.addHighlight(pageIndex, {
+        variant: 'underline',
+        x: Math.min(finalStart.x, finalEnd.x),
+        y: Math.min(finalStart.y, finalEnd.y),
+        width: Math.max(16, Math.abs(finalEnd.x - finalStart.x)),
+        height: 20,
+        points: [finalStart, finalEnd],
+      });
+      return;
+    }
+
+    if (dist < 5) {
+      if (variant === 'text') {
+        const lineRects = this.getHighlightedTextLineRects(pageIndex, start.x - 2, start.y - 2, 4, 4);
+        if (lineRects.length > 0) {
+          this.annotationManager.addHighlightsBatch(
+            pageIndex,
+            lineRects.map((r) => ({ variant: 'text', ...r }))
+          );
+          return;
+        }
+      }
+      const defW = variant === 'circle' ? 80 : 150;
+      const defH = variant === 'circle' ? 80 : 26;
+      this.annotationManager.addHighlight(pageIndex, {
+        variant,
+        x: Math.max(0, Math.round(start.x - defW / 2)),
+        y: Math.max(0, Math.round(start.y - defH / 2)),
+        width: defW,
+        height: defH,
+      });
+      return;
+    }
+
+    const box = this.computeHighlightDragBox(start, end, variant, shiftKey);
+    if (variant === 'text') {
+      const lineRects = this.getHighlightedTextLineRects(pageIndex, box.x, box.y, box.width, box.height);
+      if (lineRects.length > 0) {
+        this.annotationManager.addHighlightsBatch(
+          pageIndex,
+          lineRects.map((r) => ({ variant: 'text', ...r }))
+        );
+        return;
+      }
+    }
+
+    this.annotationManager.addHighlight(pageIndex, {
+      variant,
+      x: Math.round(box.x),
+      y: Math.round(box.y),
+      width: Math.max(10, Math.round(box.width)),
+      height: Math.max(10, Math.round(box.height)),
     });
   }
 
@@ -3031,8 +3531,15 @@ export class PDFEditorUI {
         el.style.top = `${ann.y * this.currentScale}px`;
         el.style.width = `${ann.width * this.currentScale}px`;
         el.style.height = `${ann.height * this.currentScale}px`;
-        el.style.zIndex = ann.type === 'whiteout' ? '1' : Math.max(10, ann.zIndex || 10).toString();
-        el.style.opacity = ann.opacity.toString();
+        el.style.zIndex = ann.type === 'whiteout' ? '1' : Math.max(12, (ann.zIndex || 1) + 11).toString();
+        if (ann.type === 'highlight') {
+          const h = ann as HighlightAnnotation;
+          el.setAttribute('data-hl-variant', h.variant);
+          el.style.opacity = '1';
+          el.style.mixBlendMode = h.blendMode === 'normal' ? 'normal' : 'multiply';
+        } else {
+          el.style.opacity = ann.opacity.toString();
+        }
         el.style.transform = `rotate(${ann.rotation}deg)`;
 
         // Render specific inner content
@@ -3087,6 +3594,9 @@ export class PDFEditorUI {
         } else if (ann.type === 'freehand') {
           const f = ann as FreehandAnnotation;
           el.appendChild(this.renderFreehandSVG(f));
+        } else if (ann.type === 'highlight') {
+          const h = ann as HighlightAnnotation;
+          el.appendChild(this.renderHighlightSVG(h));
         }
 
         // Selection & Drag Handles (hidden when actively editing inline)
@@ -3189,6 +3699,94 @@ export class PDFEditorUI {
     return svg;
   }
 
+  private renderHighlightSVG(h: HighlightAnnotation): SVGElement {
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('width', '100%');
+    svg.setAttribute('height', '100%');
+    svg.style.overflow = 'visible';
+    svg.style.display = 'block';
+
+    const effColor = computeEffectiveHighlightColor(h.color, h.intensity ?? 1.0);
+    const borderColor = computeHighlightBorderColor(effColor);
+    const op = Math.max(0.05, Math.min(0.95, h.opacity ?? 0.38));
+    const borderOp = h.fillEnabled ? Math.min(0.95, op + 0.35) : op;
+    const bw = (h.borderWidth > 0 ? h.borderWidth : !h.fillEnabled ? 2 : 0) * this.currentScale;
+
+    if (h.variant === 'box' || h.variant === 'text') {
+      const rect = document.createElementNS(ns, 'rect');
+      rect.setAttribute('x', '0');
+      rect.setAttribute('y', '0');
+      rect.setAttribute('width', '100%');
+      rect.setAttribute('height', '100%');
+      const r = (h.borderRadius || 0) * this.currentScale;
+      if (r > 0) {
+        rect.setAttribute('rx', r.toString());
+        rect.setAttribute('ry', r.toString());
+      }
+      rect.setAttribute('fill', h.fillEnabled ? effColor : 'none');
+      rect.setAttribute('fill-opacity', op.toString());
+      if (bw > 0) {
+        rect.setAttribute('stroke', borderColor);
+        rect.setAttribute('stroke-width', bw.toString());
+        rect.setAttribute('stroke-opacity', borderOp.toString());
+      }
+      svg.appendChild(rect);
+      return svg;
+    }
+
+    if (h.variant === 'circle') {
+      const ell = document.createElementNS(ns, 'ellipse');
+      ell.setAttribute('cx', '50%');
+      ell.setAttribute('cy', '50%');
+      ell.setAttribute('rx', '49.5%');
+      ell.setAttribute('ry', '49.5%');
+      ell.setAttribute('fill', h.fillEnabled ? effColor : 'none');
+      ell.setAttribute('fill-opacity', op.toString());
+      if (bw > 0) {
+        ell.setAttribute('stroke', borderColor);
+        ell.setAttribute('stroke-width', bw.toString());
+        ell.setAttribute('stroke-opacity', borderOp.toString());
+      }
+      svg.appendChild(ell);
+      return svg;
+    }
+
+    // 'pen' or 'underline': wrap path inside <g opacity="..."> so self-intersections blend uniformly
+    const pts = h.points || [];
+    const g = document.createElementNS(ns, 'g');
+    g.setAttribute('opacity', op.toString());
+    const sw = Math.max(2, h.strokeWidth || 18) * this.currentScale;
+    const cap = h.lineCap === 'square' ? 'square' : 'round';
+
+    if (pts.length === 1) {
+      const c = document.createElementNS(ns, 'circle');
+      c.setAttribute('cx', ((pts[0].x - h.x) * this.currentScale).toString());
+      c.setAttribute('cy', ((pts[0].y - h.y) * this.currentScale).toString());
+      c.setAttribute('r', (sw / 2).toString());
+      c.setAttribute('fill', effColor);
+      g.appendChild(c);
+    } else if (pts.length >= 2) {
+      const path = document.createElementNS(ns, 'path');
+      let d = '';
+      for (let i = 0; i < pts.length; i++) {
+        const relX = (pts[i].x - h.x) * this.currentScale;
+        const relY = (pts[i].y - h.y) * this.currentScale;
+        d += i === 0 ? `M ${relX} ${relY}` : ` L ${relX} ${relY}`;
+      }
+      path.setAttribute('d', d);
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke', effColor);
+      path.setAttribute('stroke-width', sw.toString());
+      path.setAttribute('stroke-linecap', cap);
+      path.setAttribute('stroke-linejoin', 'round');
+      g.appendChild(path);
+    }
+
+    svg.appendChild(g);
+    return svg;
+  }
+
   private attachTransformHandles(el: HTMLElement, ann: Annotation) {
     const handles = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w', 'rot'];
     for (const h of handles) {
@@ -3210,6 +3808,10 @@ export class PDFEditorUI {
     const startMouseY = e.clientY;
     const startAnnX = ann.x;
     const startAnnY = ann.y;
+    const origPoints =
+      'points' in ann && Array.isArray(ann.points)
+        ? ann.points.map((pt) => ({ x: pt.x, y: pt.y }))
+        : null;
     let hasMoved = false;
 
     const onMouseMove = (moveEvt: MouseEvent) => {
@@ -3221,12 +3823,18 @@ export class PDFEditorUI {
       }
       if (!hasMoved) return;
 
+      const rx = Math.round(dx);
+      const ry = Math.round(dy);
+      const updates: any = {
+        x: Math.round(startAnnX + rx),
+        y: Math.round(startAnnY + ry),
+      };
+      if (origPoints) {
+        updates.points = origPoints.map((pt) => ({ x: pt.x + rx, y: pt.y + ry }));
+      }
       this.annotationManager.updateAnnotation(
         ann.id,
-        {
-          x: Math.round(startAnnX + dx),
-          y: Math.round(startAnnY + dy),
-        },
+        updates,
         false // don't push undo stack on every pixel
       );
     };
@@ -3251,6 +3859,10 @@ export class PDFEditorUI {
     const startY = ann.y;
     const startW = ann.width;
     const startH = ann.height;
+    const origPoints =
+      'points' in ann && Array.isArray(ann.points)
+        ? ann.points.map((pt) => ({ x: pt.x, y: pt.y }))
+        : null;
     let hasTransformed = false;
 
     const onMouseMove = (moveEvt: MouseEvent) => {
@@ -3291,14 +3903,26 @@ export class PDFEditorUI {
         newH = startH - diff;
       }
 
+      const rx = Math.round(newX);
+      const ry = Math.round(newY);
+      const rw = Math.round(newW);
+      const rh = Math.round(newH);
+      const updates: any = {
+        x: rx,
+        y: ry,
+        width: rw,
+        height: rh,
+      };
+      if (origPoints && startW > 0 && startH > 0) {
+        updates.points = origPoints.map((pt) => ({
+          x: rx + ((pt.x - startX) / startW) * rw,
+          y: ry + ((pt.y - startY) / startH) * rh,
+        }));
+      }
+
       this.annotationManager.updateAnnotation(
         ann.id,
-        {
-          x: Math.round(newX),
-          y: Math.round(newY),
-          width: Math.round(newW),
-          height: Math.round(newH),
-        },
+        updates,
         false
       );
     };
@@ -3643,6 +4267,10 @@ export class PDFEditorUI {
       document.getElementById('btnDelElem')?.addEventListener('click', () => {
         this.annotationManager.deleteAnnotation(img.id);
       });
+    } else if (sel && sel.type === 'highlight' && this.currentTool !== 'highlight') {
+      this.renderHighlightSubmenu(sel as HighlightAnnotation);
+    } else if (this.currentTool === 'highlight') {
+      this.renderHighlightSubmenu();
     } else if (this.currentTool === 'text') {
       sub.innerHTML = `
         <div class="prop-group">
@@ -3781,6 +4409,287 @@ export class PDFEditorUI {
     }
   }
 
+  private renderHighlightSubmenu(target?: HighlightAnnotation) {
+    const sub = this.subMenuContainer;
+    const am = this.annotationManager;
+
+    const variant = target ? target.variant : am.currentHighlightVariant;
+    const color = target ? target.color : am.currentHighlightColor;
+    const opacity = target ? target.opacity : am.currentHighlightOpacity;
+    const intensity = target ? target.intensity ?? 1.0 : am.currentHighlightIntensity;
+    const blendMode = target ? target.blendMode : am.currentHighlightBlendMode;
+    const fillEnabled = target ? target.fillEnabled : am.currentHighlightFillEnabled;
+    const borderWidth = target ? target.borderWidth : am.currentHighlightBorderWidth;
+    const borderRadius = target ? target.borderRadius : am.currentHighlightBorderRadius;
+    const strokeWidth = target ? target.strokeWidth || 18 : am.currentHighlightStrokeWidth;
+    const lineCap = target ? target.lineCap || 'round' : am.currentHighlightLineCap;
+
+    const isBoxOrCircle = variant === 'box' || variant === 'circle' || variant === 'text';
+    const isStroke = variant === 'pen' || variant === 'underline';
+    const curStyleMode = !fillEnabled ? 'outline' : borderWidth > 0 ? 'both' : 'fill';
+
+    const modePillsHtml = target
+      ? target.variant === 'box' || target.variant === 'circle' || target.variant === 'text'
+        ? `
+          <div class="hl-sub-group">
+            <span class="hl-sub-label">Shape:</span>
+            <div class="hl-mode-pills">
+              <button type="button" class="hl-pill-btn ${target.variant !== 'circle' ? 'active' : ''}" data-hl-shape="box">▭ Box</button>
+              <button type="button" class="hl-pill-btn ${target.variant === 'circle' ? 'active' : ''}" data-hl-shape="circle">◯ Circle</button>
+            </div>
+          </div>
+        `
+        : `<div class="hl-sub-group"><span class="hl-val-badge">${target.variant === 'pen' ? '🖍️ Marker Pen' : '▁ Straight Line'}</span></div>`
+      : `
+        <div class="hl-sub-group">
+          <div class="hl-mode-pills">
+            <button type="button" class="hl-pill-btn ${variant === 'text' ? 'active' : ''}" data-hl-v="text" title="Drag across PDF text to snap highlight bars cleanly per line">✨ Text</button>
+            <button type="button" class="hl-pill-btn ${variant === 'box' ? 'active' : ''}" data-hl-v="box" title="Drag a highlight rectangle anywhere">▭ Box</button>
+            <button type="button" class="hl-pill-btn ${variant === 'circle' ? 'active' : ''}" data-hl-v="circle" title="Drag a circle or oval highlight (Shift = perfect circle)">◯ Circle</button>
+            <button type="button" class="hl-pill-btn ${variant === 'pen' ? 'active' : ''}" data-hl-v="pen" title="Freehand marker pen (hold Shift for straight line)">🖍️ Pen</button>
+            <button type="button" class="hl-pill-btn ${variant === 'underline' ? 'active' : ''}" data-hl-v="underline" title="Straight marker strip / underline">▁ Line</button>
+          </div>
+        </div>
+      `;
+
+    const swatchesHtml = HIGHLIGHT_SWATCHES.map(
+      (sw) => `
+        <button
+          type="button"
+          class="hl-swatch-dot ${color.toLowerCase() === sw.hex.toLowerCase() ? 'active' : ''}"
+          data-hl-color="${sw.hex}"
+          title="${sw.name}"
+          style="background-color: ${sw.hex};"
+        ></button>
+      `
+    ).join('');
+
+    const styleControlsHtml = isBoxOrCircle
+      ? `
+        <div class="hl-sub-group">
+          <span class="hl-sub-label">Style:</span>
+          <div class="hl-mode-pills">
+            <button type="button" class="hl-pill-btn ${curStyleMode === 'fill' ? 'active' : ''}" data-hl-style="fill" title="Transparent filled highlight">Fill</button>
+            <button type="button" class="hl-pill-btn ${curStyleMode === 'outline' ? 'active' : ''}" data-hl-style="outline" title="Hollow highlight frame / ring">Outline</button>
+            <button type="button" class="hl-pill-btn ${curStyleMode === 'both' ? 'active' : ''}" data-hl-style="both" title="Transparent fill + glowing border">Both</button>
+          </div>
+          ${
+            curStyleMode !== 'fill'
+              ? `
+                <select id="hlBorderWidthSel" class="hl-select-mini" title="Border thickness">
+                  ${[1, 2, 3, 4, 6, 8]
+                    .map((w) => `<option value="${w}" ${(borderWidth || 2) === w ? 'selected' : ''}>${w}px</option>`)
+                    .join('')}
+                </select>
+              `
+              : ''
+          }
+          ${
+            variant === 'box' || variant === 'text'
+              ? `
+                <select id="hlRadiusSel" class="hl-select-mini" title="Box corner style">
+                  <option value="0" ${borderRadius === 0 ? 'selected' : ''}>Sharp</option>
+                  <option value="3" ${borderRadius > 0 && borderRadius < 10 ? 'selected' : ''}>Soft</option>
+                  <option value="14" ${borderRadius >= 10 ? 'selected' : ''}>Pill</option>
+                </select>
+              `
+              : ''
+          }
+        </div>
+      `
+      : '';
+
+    const strokeControlsHtml = isStroke
+      ? `
+        <div class="hl-sub-group">
+          <span class="hl-sub-label">Size:</span>
+          <input type="range" class="hl-range" id="hlStrokeSlider" min="4" max="42" value="${Math.round(strokeWidth)}" title="Marker thickness" />
+          <span class="hl-val-badge" id="hlStrokeVal">${Math.round(strokeWidth)}px</span>
+          <button type="button" class="hl-toggle-btn ${lineCap === 'square' ? 'active' : ''}" id="btnHlLineCap" title="Toggle Round vs Chisel flat nib">
+            ${lineCap === 'square' ? 'Chisel' : 'Round'}
+          </button>
+        </div>
+      `
+      : '';
+
+    const tailActionsHtml = target
+      ? `
+        <div class="hl-sub-group">
+          <button type="button" class="prop-btn" id="btnHlLayerUp" title="Bring Forward">${ICONS.layerUp}</button>
+          <button type="button" class="prop-btn" id="btnHlLayerDown" title="Send Backward">${ICONS.layerDown}</button>
+          <button type="button" class="prop-btn" id="btnHlDup" title="Duplicate Highlight">${ICONS.duplicate}</button>
+          <button type="button" class="prop-btn btn-danger" id="btnHlDel" title="Delete Highlight">${ICONS.trash}</button>
+        </div>
+      `
+      : `
+        <div class="hl-sub-group">
+          <button type="button" class="hl-toggle-btn" id="btnHlToSelect" title="Switch to Select mode to move, resize, or recolor existing highlights">✎ Move / Resize</button>
+        </div>
+      `;
+
+    sub.innerHTML = `
+      ${modePillsHtml}
+      <div class="hl-sub-group">
+        <div class="hl-swatches">${swatchesHtml}</div>
+        <input type="color" class="hl-color-native" id="hlColorPicker" value="${color}" title="Pick any custom color" />
+      </div>
+      <div class="hl-sub-group">
+        <span class="hl-sub-label" title="Make color softer/lighter or richer/deeper">Color:</span>
+        <input type="range" class="hl-range" id="hlIntensitySlider" min="25" max="150" value="${Math.round(intensity * 100)}" title="Adjust color strength (Light ↔ Deep)" />
+        <span class="hl-val-badge" id="hlIntensityVal">${Math.round(intensity * 100)}%</span>
+      </div>
+      <div class="hl-sub-group">
+        <span class="hl-sub-label" title="Adjust transparency so text underneath stays visible">Opacity:</span>
+        <input type="range" class="hl-range" id="hlOpacitySlider" min="10" max="90" value="${Math.round(opacity * 100)}" title="Adjust highlight transparency (10%–90%)" />
+        <span class="hl-val-badge" id="hlOpacityVal">${Math.round(opacity * 100)}%</span>
+      </div>
+      ${styleControlsHtml}
+      ${strokeControlsHtml}
+      <div class="hl-sub-group">
+        <button type="button" class="hl-toggle-btn ${blendMode === 'multiply' ? 'active' : ''}" id="btnHlBlend" title="Multiply blend keeps underlying dark text razor-sharp">
+          ✨ Sharp Text
+        </button>
+      </div>
+      ${tailActionsHtml}
+    `;
+
+    const applyUpdate = (updates: Partial<HighlightAnnotation>, saveHistory: boolean = true, rebuildMenu: boolean = true) => {
+      if (target) {
+        if (!rebuildMenu) this.suppressSubmenuRebuild = true;
+        this.annotationManager.updateAnnotation(target.id, updates, saveHistory);
+        this.suppressSubmenuRebuild = false;
+      } else {
+        if (updates.variant !== undefined) am.currentHighlightVariant = updates.variant;
+        if (updates.color !== undefined) am.currentHighlightColor = updates.color;
+        if (updates.opacity !== undefined) am.currentHighlightOpacity = updates.opacity;
+        if (updates.intensity !== undefined) am.currentHighlightIntensity = updates.intensity;
+        if (updates.blendMode !== undefined) am.currentHighlightBlendMode = updates.blendMode;
+        if (updates.fillEnabled !== undefined) am.currentHighlightFillEnabled = updates.fillEnabled;
+        if (updates.borderWidth !== undefined) am.currentHighlightBorderWidth = updates.borderWidth;
+        if (updates.borderRadius !== undefined) am.currentHighlightBorderRadius = updates.borderRadius;
+        if (updates.strokeWidth !== undefined) am.currentHighlightStrokeWidth = updates.strokeWidth;
+        if (updates.lineCap !== undefined) am.currentHighlightLineCap = updates.lineCap;
+        this.syncHighlightModeIndicators();
+        if (rebuildMenu) this.updateSubmenu();
+      }
+    };
+
+    // Variant switching (when creating new highlights)
+    sub.querySelectorAll('[data-hl-v]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const nextV = btn.getAttribute('data-hl-v') as HighlightVariant;
+        if (!nextV) return;
+        applyUpdate({ variant: nextV }, true, true);
+      });
+    });
+
+    // Shape conversion when editing existing box/circle highlight
+    sub.querySelectorAll('[data-hl-shape]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const nextShape = btn.getAttribute('data-hl-shape') as 'box' | 'circle';
+        if (nextShape) applyUpdate({ variant: nextShape }, true, true);
+      });
+    });
+
+    // Swatch color clicks
+    sub.querySelectorAll('[data-hl-color]').forEach((swBtn) => {
+      swBtn.addEventListener('click', () => {
+        const hex = swBtn.getAttribute('data-hl-color');
+        if (!hex) return;
+        applyUpdate({ color: hex }, true, true);
+      });
+    });
+
+    // Custom color picker
+    document.getElementById('hlColorPicker')?.addEventListener('input', (e) => {
+      const hex = (e.target as HTMLInputElement).value;
+      sub.querySelectorAll('.hl-swatch-dot').forEach((d) => d.classList.remove('active'));
+      applyUpdate({ color: hex }, false, false);
+    });
+    document.getElementById('hlColorPicker')?.addEventListener('change', () => {
+      if (target) am.updateAnnotation(target.id, {}, true);
+    });
+
+    // Color Intensity / Strength slider
+    const intSlider = document.getElementById('hlIntensitySlider') as HTMLInputElement | null;
+    const intVal = document.getElementById('hlIntensityVal');
+    intSlider?.addEventListener('input', () => {
+      const val = Math.max(25, Math.min(150, parseInt(intSlider.value, 10) || 100));
+      if (intVal) intVal.textContent = `${val}%`;
+      applyUpdate({ intensity: val / 100 }, false, false);
+    });
+    intSlider?.addEventListener('change', () => {
+      if (target) am.updateAnnotation(target.id, {}, true);
+    });
+
+    // Opacity / Transparency slider
+    const opSlider = document.getElementById('hlOpacitySlider') as HTMLInputElement | null;
+    const opVal = document.getElementById('hlOpacityVal');
+    opSlider?.addEventListener('input', () => {
+      const val = Math.max(10, Math.min(90, parseInt(opSlider.value, 10) || 38));
+      if (opVal) opVal.textContent = `${val}%`;
+      applyUpdate({ opacity: val / 100 }, false, false);
+    });
+    opSlider?.addEventListener('change', () => {
+      if (target) am.updateAnnotation(target.id, {}, true);
+    });
+
+    // Style mode: Fill / Outline / Both
+    sub.querySelectorAll('[data-hl-style]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const mode = btn.getAttribute('data-hl-style');
+        if (mode === 'fill') {
+          applyUpdate({ fillEnabled: true, borderWidth: 0 }, true, true);
+        } else if (mode === 'outline') {
+          applyUpdate({ fillEnabled: false, borderWidth: Math.max(2, borderWidth || 3) }, true, true);
+        } else if (mode === 'both') {
+          applyUpdate({ fillEnabled: true, borderWidth: Math.max(2, borderWidth || 2) }, true, true);
+        }
+      });
+    });
+
+    document.getElementById('hlBorderWidthSel')?.addEventListener('change', (e) => {
+      const bw = parseInt((e.target as HTMLSelectElement).value, 10) || 2;
+      applyUpdate({ borderWidth: bw }, true, true);
+    });
+
+    document.getElementById('hlRadiusSel')?.addEventListener('change', (e) => {
+      const r = parseInt((e.target as HTMLSelectElement).value, 10);
+      applyUpdate({ borderRadius: isNaN(r) ? 3 : r }, true, true);
+    });
+
+    // Pen / Underline stroke thickness slider
+    const strokeSlider = document.getElementById('hlStrokeSlider') as HTMLInputElement | null;
+    const strokeVal = document.getElementById('hlStrokeVal');
+    strokeSlider?.addEventListener('input', () => {
+      const sw = Math.max(4, Math.min(42, parseInt(strokeSlider.value, 10) || 18));
+      if (strokeVal) strokeVal.textContent = `${sw}px`;
+      applyUpdate({ strokeWidth: sw }, false, false);
+    });
+    strokeSlider?.addEventListener('change', () => {
+      if (target) am.updateAnnotation(target.id, {}, true);
+    });
+
+    document.getElementById('btnHlLineCap')?.addEventListener('click', () => {
+      applyUpdate({ lineCap: lineCap === 'square' ? 'round' : 'square' }, true, true);
+    });
+
+    document.getElementById('btnHlBlend')?.addEventListener('click', () => {
+      applyUpdate({ blendMode: blendMode === 'multiply' ? 'normal' : 'multiply' }, true, true);
+    });
+
+    document.getElementById('btnHlToSelect')?.addEventListener('click', () => {
+      this.setTool('select');
+    });
+
+    if (target) {
+      document.getElementById('btnHlLayerUp')?.addEventListener('click', () => am.bringToFront(target.id));
+      document.getElementById('btnHlLayerDown')?.addEventListener('click', () => am.sendToBack(target.id));
+      document.getElementById('btnHlDup')?.addEventListener('click', () => am.duplicateAnnotation(target.id));
+      document.getElementById('btnHlDel')?.addEventListener('click', () => am.deleteAnnotation(target.id));
+    }
+  }
+
   // Render Right Sidebar Layers / Elements
   private renderLayersSidebar() {
     const list = this.layersContainer;
@@ -3845,6 +4754,7 @@ export class PDFEditorUI {
       item.className = `layer-item ${ann.id === selId ? 'active' : ''}`;
 
       let label = ann.type.toUpperCase();
+      let swatchHtml = '';
       if (ann.type === 'text') {
         label = `Text: "${(ann as TextAnnotation).text.substring(0, 15)}..."`;
       } else if (ann.type === 'shape') {
@@ -3853,11 +4763,24 @@ export class PDFEditorUI {
         label = `Image (${ann.width}x${ann.height})`;
       } else if (ann.type === 'whiteout') {
         label = `Whiteout`;
+      } else if (ann.type === 'highlight') {
+        const hl = ann as HighlightAnnotation;
+        const effColor = computeEffectiveHighlightColor(hl.color, hl.intensity ?? 1.0);
+        const pct = Math.round((hl.opacity ?? 0.38) * 100);
+        const vMap: Record<HighlightVariant, string> = {
+          text: 'Text',
+          box: 'Box',
+          circle: 'Circle',
+          pen: 'Pen',
+          underline: 'Line',
+        };
+        label = `Highlight (${vMap[hl.variant] || hl.variant} · ${pct}%)`;
+        swatchHtml = `<span class="layer-color-swatch" style="background:${effColor}; opacity:${Math.max(0.35, hl.opacity ?? 0.38)};"></span>`;
       }
 
       item.innerHTML = `
         <div class="layer-info">
-          <span class="layer-icon">${ICONS.layers}</span>
+          <span class="layer-icon">${swatchHtml || ICONS.layers}</span>
           <span class="layer-name">${label}</span>
         </div>
         <div class="layer-actions">

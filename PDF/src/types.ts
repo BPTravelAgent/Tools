@@ -6,11 +6,15 @@ export type ToolType =
   | 'text' 
   | 'img' 
   | 'freehand' 
+  | 'highlight'
   | 'shapes' 
   | 'whiteout' 
   | 'eraser'
   | 'snip'
   | 'crop';
+
+export type HighlightVariant = 'text' | 'box' | 'circle' | 'pen' | 'underline';
+export type HighlightBlendMode = 'multiply' | 'normal';
 
 export type ShapeType = 
   | 'rectangle' 
@@ -81,12 +85,27 @@ export interface WhiteoutAnnotation extends BaseAnnotation {
   fillColor: string;
 }
 
+export interface HighlightAnnotation extends BaseAnnotation {
+  type: 'highlight';
+  variant: HighlightVariant;
+  color: string;
+  intensity: number;
+  blendMode: HighlightBlendMode;
+  fillEnabled: boolean;
+  borderWidth: number;
+  borderRadius: number;
+  points?: FreehandPoint[];
+  strokeWidth?: number;
+  lineCap?: 'round' | 'square';
+}
+
 export type Annotation = 
   | TextAnnotation 
   | ShapeAnnotation 
   | ImageAnnotation 
   | FreehandAnnotation 
-  | WhiteoutAnnotation;
+  | WhiteoutAnnotation
+  | HighlightAnnotation;
 
 export interface ExtractedTextItem {
   id: string;
