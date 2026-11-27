@@ -1,4 +1,14 @@
-import { PDFDocument, rgb, degrees, StandardFonts } from 'pdf-lib';
+import {
+  PDFDocument,
+  rgb,
+  degrees,
+  StandardFonts,
+  pushGraphicsState,
+  popGraphicsState,
+  rectangle,
+  clip,
+  endPath,
+} from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import UPNG from '@pdf-lib/upng';
 import JSZip from 'jszip';
@@ -13,6 +23,7 @@ import type {
   ImageAnnotation,
   FreehandAnnotation,
   WhiteoutAnnotation,
+  NormalizePagesOptions,
 } from './types';
 
 // Helper to convert hex color to pdf-lib rgb
@@ -1262,5 +1273,391 @@ export class ExportEngine {
     const copied = await extractedDoc.copyPages(fullDoc, selectedPageIndices);
     copied.forEach((p) => extractedDoc.addPage(p));
     return await extractedDoc.save();
+  }
+
+  /**
+   * Computes target page dimensions and scaled content layout for a given source page.
+   * Shared between live UI preview and actual PDF export.
+   */
+  static computeNormalizedPageLayout(
+    visW: number,
+    visH: number,
+    options: NormalizePagesOptions
+  ): {
+    dstW: number;
+    dstH: number;
+    drawVisW: number;
+    drawVisH: number;
+    boxX: number;
+    boxY: number;
+    safeMargin: number;
+    availW: number;
+    availH: number;
+    scaleX: number;
+    scaleY: number;
+    isAlreadyMatching: boolean;
+  } {
+    const baseW = Math.max(36, options.targetWidth);
+    const baseH = Math.max(36, options.targetHeight);
+    const tol = options.tolerancePt ?? 2.0;
+
+    let dstW: number;
+    let dstH: number;
+    if (options.orientationMode === 'portrait') {
+      dstW = Math.min(baseW, baseH);
+      dstH = Math.max(baseW, baseH);
+    } else if (options.orientationMode === 'landscape') {
+      dstW = Math.max(baseW, baseH);
+      dstH = Math.min(baseW, baseH);
+    } else {
+      // keep per-page orientation
+      if (visW > visH + 1) {
+        dstW = Math.max(baseW, baseH);
+        dstH = Math.min(baseW, baseH);
+      } else {
+        dstW = Math.min(baseW, baseH);
+        dstH = Math.max(baseW, baseH);
+      }
+    }
+
+    const safeMargin = Math.max(0, Math.min(options.marginPt || 0, Math.min(dstW, dstH) * 0.4));
+    const availW = Math.max(10, dstW - safeMargin * 2);
+    const availH = Math.max(10, dstH - safeMargin * 2);
+
+    const safeVisW = Math.max(1, visW);
+    const safeVisH = Math.max(1, visH);
+
+    let drawVisW = safeVisW;
+    let drawVisH = safeVisH;
+
+    if (options.fitMode === 'contain') {
+      const s = Math.min(availW / safeVisW, availH / safeVisH);
+      drawVisW = safeVisW * s;
+      drawVisH = safeVisH * s;
+    } else if (options.fitMode === 'cover') {
+      const s = Math.max(availW / safeVisW, availH / safeVisH);
+      drawVisW = safeVisW * s;
+      drawVisH = safeVisH * s;
+    } else if (options.fitMode === 'stretch') {
+      drawVisW = availW;
+      drawVisH = availH;
+    } else {
+      // center (100% original scale)
+      drawVisW = safeVisW;
+      drawVisH = safeVisH;
+    }
+
+    let boxX = safeMargin + (availW - drawVisW) / 2;
+    let boxY = safeMargin + (availH - drawVisH) / 2;
+
+    if (options.alignMode === 'top-center') {
+      boxX = safeMargin + (availW - drawVisW) / 2;
+      boxY = dstH - safeMargin - drawVisH;
+    } else if (options.alignMode === 'top-left') {
+      boxX = safeMargin;
+      boxY = dstH - safeMargin - drawVisH;
+    }
+
+    const isAlreadyMatching =
+      Math.abs(safeVisW - dstW) <= tol &&
+      Math.abs(safeVisH - dstH) <= tol;
+
+    return {
+      dstW,
+      dstH,
+      drawVisW,
+      drawVisH,
+      boxX,
+      boxY,
+      safeMargin,
+      availW,
+      availH,
+      scaleX: drawVisW / safeVisW,
+      scaleY: drawVisH / safeVisH,
+      isAlreadyMatching,
+    };
+  }
+
+  /**
+   * Resizes and normalizes page dimensions & layouts across a PDF while preserving vector text and graphics.
+   */
+  static async normalizePages(
+    pdfBytes: Uint8Array,
+    options: NormalizePagesOptions,
+    onProgress?: (percent: number, statusText: string) => void
+  ): Promise<{ bytes: Uint8Array; resizedCount: number; skippedCount: number }> {
+    onProgress?.(10, 'Loading document structure...');
+
+    const srcDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
+    const outputDoc = await PDFDocument.create();
+
+    // Preserve core metadata cleanly
+    try {
+      const title = srcDoc.getTitle();
+      if (title) outputDoc.setTitle(title);
+      const author = srcDoc.getAuthor();
+      if (author) outputDoc.setAuthor(author);
+      const subject = srcDoc.getSubject();
+      if (subject) outputDoc.setSubject(subject);
+      const creator = srcDoc.getCreator();
+      if (creator) outputDoc.setCreator(creator);
+    } catch (_) {}
+
+    const srcPages = srcDoc.getPages();
+    const totalPages = srcPages.length;
+    const selectedSet = options.pageIndices ? new Set(options.pageIndices) : null;
+
+    interface PagePlan {
+      index: number;
+      action: 'copy' | 'blank' | 'embed';
+      dstW: number;
+      dstH: number;
+      rawW: number;
+      rawH: number;
+      visW: number;
+      visH: number;
+      rotAngle: number;
+      layout: ReturnType<typeof ExportEngine.computeNormalizedPageLayout>;
+      embedSlot?: number;
+      copySlot?: number;
+    }
+
+    const plans: PagePlan[] = [];
+    const pagesToEmbed: any[] = [];
+    const boxesToEmbed: Array<{ left: number; bottom: number; right: number; top: number }> = [];
+    const indicesToCopy: number[] = [];
+
+    onProgress?.(25, 'Analyzing page boxes and rotations...');
+
+    for (let i = 0; i < totalPages; i++) {
+      const srcPage = srcPages[i];
+      const mediaBox = srcPage.getMediaBox();
+      const cropBox = srcPage.getCropBox();
+
+      let left = Math.max(mediaBox.x, cropBox.x);
+      let bottom = Math.max(mediaBox.y, cropBox.y);
+      let right = Math.min(mediaBox.x + mediaBox.width, cropBox.x + cropBox.width);
+      let top = Math.min(mediaBox.y + mediaBox.height, cropBox.y + cropBox.height);
+
+      if (right - left <= 1 || top - bottom <= 1) {
+        left = mediaBox.x;
+        bottom = mediaBox.y;
+        right = mediaBox.x + mediaBox.width;
+        top = mediaBox.y + mediaBox.height;
+      }
+
+      const rawW = Math.max(1, right - left);
+      const rawH = Math.max(1, top - bottom);
+
+      const rawRot = ((srcPage.getRotation().angle % 360) + 360) % 360;
+      const rotAngle = Math.round(rawRot / 90) * 90 % 360;
+      const isQuarterTurn = rotAngle === 90 || rotAngle === 270;
+      const visW = isQuarterTurn ? rawH : rawW;
+      const visH = isQuarterTurn ? rawW : rawH;
+
+      const layout = ExportEngine.computeNormalizedPageLayout(visW, visH, options);
+
+      let inScope = true;
+      if (options.scope === 'mismatched') {
+        inScope = !layout.isAlreadyMatching;
+      } else if ((options.scope === 'current' || options.scope === 'custom') && selectedSet) {
+        inScope = selectedSet.has(i);
+      }
+
+      const alreadyCleanExact =
+        options.marginPt === 0 &&
+        rotAngle === 0 &&
+        Math.abs(left) <= 0.5 &&
+        Math.abs(bottom) <= 0.5 &&
+        Math.abs(visW - layout.dstW) <= 0.5 &&
+        Math.abs(visH - layout.dstH) <= 0.5;
+
+      if (!inScope || alreadyCleanExact) {
+        const copySlot = indicesToCopy.length;
+        indicesToCopy.push(i);
+        plans.push({
+          index: i,
+          action: 'copy',
+          dstW: layout.dstW,
+          dstH: layout.dstH,
+          rawW,
+          rawH,
+          visW,
+          visH,
+          rotAngle,
+          layout,
+          copySlot,
+        });
+        continue;
+      }
+
+      const contents = srcPage.node.Contents();
+      const hasContents = !!(
+        contents &&
+        (typeof (contents as any).size !== 'function' || (contents as any).size() > 0)
+      );
+
+      if (!hasContents) {
+        plans.push({
+          index: i,
+          action: 'blank',
+          dstW: layout.dstW,
+          dstH: layout.dstH,
+          rawW,
+          rawH,
+          visW,
+          visH,
+          rotAngle,
+          layout,
+        });
+        continue;
+      }
+
+      const embedSlot = pagesToEmbed.length;
+      pagesToEmbed.push(srcPage);
+      boxesToEmbed.push({ left, bottom, right, top });
+      plans.push({
+        index: i,
+        action: 'embed',
+        dstW: layout.dstW,
+        dstH: layout.dstH,
+        rawW,
+        rawH,
+        visW,
+        visH,
+        rotAngle,
+        layout,
+        embedSlot,
+      });
+    }
+
+    onProgress?.(45, 'Embedding vector page streams...');
+
+    const embeddedPages = pagesToEmbed.length > 0
+      ? await outputDoc.embedPages(pagesToEmbed, boxesToEmbed)
+      : [];
+    const copiedPages = indicesToCopy.length > 0
+      ? await outputDoc.copyPages(srcDoc, indicesToCopy)
+      : [];
+
+    let resizedCount = 0;
+    let skippedCount = 0;
+
+    for (let i = 0; i < plans.length; i++) {
+      const plan = plans[i];
+      onProgress?.(
+        Math.round(50 + ((i + 1) / plans.length) * 35),
+        `Resizing page ${i + 1} of ${totalPages}...`
+      );
+
+      if (plan.action === 'copy') {
+        const copied = copiedPages[plan.copySlot!];
+        outputDoc.addPage(copied);
+        skippedCount++;
+        continue;
+      }
+
+      if (plan.action === 'blank') {
+        const blankPage = outputDoc.addPage([plan.dstW, plan.dstH]);
+        blankPage.setMediaBox(0, 0, plan.dstW, plan.dstH);
+        blankPage.setCropBox(0, 0, plan.dstW, plan.dstH);
+        resizedCount++;
+        continue;
+      }
+
+      const embeddedPage = embeddedPages[plan.embedSlot!];
+      let embedSucceeded = false;
+      try {
+        await embeddedPage.embed();
+        embedSucceeded = true;
+      } catch (embedErr) {
+        console.warn(`Embed warning on page ${i + 1}, checking fallback:`, embedErr);
+      }
+
+      if (!embedSucceeded) {
+        // Safe fallback: if page had no valid content stream or failed Form XObject embedding,
+        // copy page directly and apply proportional scale/translate or leave blank if missing contents
+        const errMsg = String(plans[i]);
+        void errMsg;
+        try {
+          const [fallbackCopied] = await outputDoc.copyPages(srcDoc, [i]);
+          const np = outputDoc.addPage(fallbackCopied);
+          const { dstW, dstH, boxX, boxY, scaleX, scaleY } = plan.layout;
+          np.setMediaBox(0, 0, dstW, dstH);
+          np.setCropBox(0, 0, dstW, dstH);
+          np.scaleContent(scaleX, scaleY);
+          np.translateContent(boxX, boxY);
+          resizedCount++;
+        } catch (_) {
+          const blankFallback = outputDoc.addPage([plan.dstW, plan.dstH]);
+          blankFallback.setMediaBox(0, 0, plan.dstW, plan.dstH);
+          blankFallback.setCropBox(0, 0, plan.dstW, plan.dstH);
+          resizedCount++;
+        }
+        continue;
+      }
+
+      const newPage = outputDoc.addPage([plan.dstW, plan.dstH]);
+      newPage.setMediaBox(0, 0, plan.dstW, plan.dstH);
+      newPage.setCropBox(0, 0, plan.dstW, plan.dstH);
+
+      const { drawVisW, drawVisH, boxX, boxY, safeMargin, availW, availH } = plan.layout;
+      const needsMarginClip =
+        safeMargin > 0 && (drawVisW > availW + 0.1 || drawVisH > availH + 0.1);
+
+      if (needsMarginClip) {
+        newPage.pushOperators(
+          pushGraphicsState(),
+          rectangle(safeMargin, safeMargin, availW, availH),
+          clip(),
+          endPath()
+        );
+      }
+
+      if (plan.rotAngle === 90) {
+        newPage.drawPage(embeddedPage, {
+          x: boxX,
+          y: boxY + drawVisH,
+          xScale: drawVisH / plan.rawW,
+          yScale: drawVisW / plan.rawH,
+          rotate: degrees(-90),
+        });
+      } else if (plan.rotAngle === 180) {
+        newPage.drawPage(embeddedPage, {
+          x: boxX + drawVisW,
+          y: boxY + drawVisH,
+          xScale: drawVisW / plan.rawW,
+          yScale: drawVisH / plan.rawH,
+          rotate: degrees(180),
+        });
+      } else if (plan.rotAngle === 270) {
+        newPage.drawPage(embeddedPage, {
+          x: boxX + drawVisW,
+          y: boxY,
+          xScale: drawVisH / plan.rawW,
+          yScale: drawVisW / plan.rawH,
+          rotate: degrees(90),
+        });
+      } else {
+        newPage.drawPage(embeddedPage, {
+          x: boxX,
+          y: boxY,
+          xScale: drawVisW / plan.rawW,
+          yScale: drawVisH / plan.rawH,
+          rotate: degrees(0),
+        });
+      }
+
+      if (needsMarginClip) {
+        newPage.pushOperators(popGraphicsState());
+      }
+
+      resizedCount++;
+    }
+
+    onProgress?.(90, 'Saving normalized PDF...');
+    const bytes = await outputDoc.save();
+    onProgress?.(100, 'Page sizes unified!');
+    return { bytes, resizedCount, skippedCount };
   }
 }

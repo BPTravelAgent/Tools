@@ -1,9 +1,19 @@
 import * as pdfjsLib from 'pdfjs-dist';
-import type { ExtractedTextItem, PageMetadata } from './types';
+import type { ExtractedTextItem, PageMetadata, PageSizeDetail, PageSizeSummary } from './types';
 import { getAssetUrl } from './utils';
 
 // Set up the PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = getAssetUrl('pdf.worker.min.js');
+
+const STANDARD_PAPER_SIZES: Array<{ name: string; width: number; height: number }> = [
+  { name: 'A4', width: 595.28, height: 841.89 },
+  { name: 'Letter', width: 612, height: 792 },
+  { name: 'Legal', width: 612, height: 1008 },
+  { name: 'A3', width: 841.89, height: 1190.55 },
+  { name: 'A5', width: 419.53, height: 595.28 },
+  { name: 'B5', width: 498.90, height: 708.66 },
+  { name: 'Tabloid', width: 792, height: 1224 },
+];
 
 export class PDFManager {
   private pdfDocument: pdfjsLib.PDFDocumentProxy | null = null;
@@ -13,11 +23,13 @@ export class PDFManager {
   private extractedTexts: Map<number, ExtractedTextItem[]> = new Map();
   private thumbnailDataUrls: Map<number, string> = new Map();
   private docSessionId: number = 0;
+  private hasStructuralEdits: boolean = false;
 
   async loadPDF(data: ArrayBuffer, fileName: string = 'document.pdf'): Promise<void> {
     this.docSessionId++;
     this.pdfBytes = data.slice(0); // clone buffer
     this.fileName = fileName;
+    this.hasStructuralEdits = false;
     this.extractedTexts.clear();
     this.thumbnailDataUrls.clear();
 
@@ -393,6 +405,7 @@ export class PDFManager {
         meta.width = meta.height;
         meta.height = tmp;
       }
+      this.hasStructuralEdits = true;
       // Invalidate thumbnail
       this.thumbnailDataUrls.delete(pageIndex);
     }
@@ -408,17 +421,20 @@ export class PDFManager {
       }
       this.thumbnailDataUrls.delete(idx);
     });
+    if (this.pagesMeta.length > 0) this.hasStructuralEdits = true;
   }
 
   setPageCrop(pageIndex: number, cropBox: { x: number; y: number; width: number; height: number } | null): void {
     const meta = this.pagesMeta[pageIndex];
     if (meta) {
       meta.cropBox = cropBox ? { ...cropBox } : undefined;
+      this.hasStructuralEdits = true;
       this.thumbnailDataUrls.delete(pageIndex);
     }
   }
 
   setAllPagesCrop(cropBox: { x: number; y: number; width: number; height: number } | null): void {
+    if (this.pagesMeta.length > 0) this.hasStructuralEdits = true;
     if (!cropBox) {
       this.pagesMeta.forEach((meta, idx) => {
         meta.cropBox = undefined;
@@ -464,6 +480,7 @@ export class PDFManager {
     this.pagesMeta.forEach((m, idx) => {
       m.pageIndex = idx;
     });
+    this.hasStructuralEdits = true;
 
     const newExtracted = new Map<number, ExtractedTextItem[]>();
     for (const [pIdx, items] of this.extractedTexts.entries()) {
@@ -486,6 +503,7 @@ export class PDFManager {
     this.pagesMeta.forEach((m, idx) => {
       m.pageIndex = idx;
     });
+    this.hasStructuralEdits = true;
 
     const newExtracted = new Map<number, ExtractedTextItem[]>();
     for (const [pIdx, items] of this.extractedTexts.entries()) {
@@ -517,6 +535,7 @@ export class PDFManager {
     this.pagesMeta.forEach((m, idx) => {
       m.pageIndex = idx;
     });
+    this.hasStructuralEdits = true;
 
     const newExtracted = new Map<number, ExtractedTextItem[]>();
     for (const [pIdx, items] of this.extractedTexts.entries()) {
@@ -544,6 +563,7 @@ export class PDFManager {
     this.pagesMeta.forEach((m, idx) => {
       m.pageIndex = idx;
     });
+    this.hasStructuralEdits = true;
 
     const newExtracted = new Map<number, ExtractedTextItem[]>();
     for (const [pIdx, items] of this.extractedTexts.entries()) {
@@ -569,6 +589,7 @@ export class PDFManager {
     this.pagesMeta.forEach((m, idx) => {
       m.pageIndex = idx;
     });
+    this.hasStructuralEdits = true;
 
     const extractedList: ExtractedTextItem[][] = [];
     for (let i = 0; i < this.pagesMeta.length; i++) {
@@ -584,6 +605,95 @@ export class PDFManager {
     });
     this.extractedTexts = newExtracted;
     this.thumbnailDataUrls.clear();
+  }
+
+  hasStructuralModifications(): boolean {
+    return this.hasStructuralEdits;
+  }
+
+  getEffectivePageSize(pageIndex: number): { width: number; height: number } {
+    const meta = this.pagesMeta[pageIndex];
+    if (!meta) return { width: 595.28, height: 841.89 };
+    return {
+      width: meta.cropBox ? meta.cropBox.width : meta.width,
+      height: meta.cropBox ? meta.cropBox.height : meta.height,
+    };
+  }
+
+  static identifyPaperSize(width: number, height: number): string {
+    const tol = 5.5;
+    for (const s of STANDARD_PAPER_SIZES) {
+      if (Math.abs(width - s.width) <= tol && Math.abs(height - s.height) <= tol) {
+        return `${s.name} Portrait`;
+      }
+      if (Math.abs(width - s.height) <= tol && Math.abs(height - s.width) <= tol) {
+        return `${s.name} Landscape`;
+      }
+    }
+    return `${Math.round(width)} × ${Math.round(height)} pt`;
+  }
+
+  analyzePageSizes(): PageSizeSummary {
+    const totalPages = this.pagesMeta.length;
+    const pageDetails: PageSizeDetail[] = [];
+    const buckets: Array<{ width: number; height: number; count: number; label: string }> = [];
+
+    let hasPortrait = false;
+    let hasLandscape = false;
+    let largest = { width: 595.28, height: 841.89, label: 'A4 Portrait', area: 0 };
+    let smallest = { width: 595.28, height: 841.89, label: 'A4 Portrait', area: Infinity };
+
+    for (let i = 0; i < totalPages; i++) {
+      const meta = this.pagesMeta[i];
+      const { width, height } = this.getEffectivePageSize(i);
+      const orientation: 'portrait' | 'landscape' | 'square' =
+        Math.abs(width - height) <= 2 ? 'square' : width > height ? 'landscape' : 'portrait';
+
+      if (orientation === 'portrait') hasPortrait = true;
+      if (orientation === 'landscape') hasLandscape = true;
+
+      const label = PDFManager.identifyPaperSize(width, height);
+      pageDetails.push({
+        pageIndex: i,
+        width,
+        height,
+        orientation,
+        label,
+        isCropped: !!meta.cropBox,
+        rotation: meta.rotation,
+      });
+
+      const area = width * height;
+      if (area > largest.area) {
+        largest = { width, height, label, area };
+      }
+      if (area < smallest.area) {
+        smallest = { width, height, label, area };
+      }
+
+      const existing = buckets.find(
+        (b) => Math.abs(b.width - width) <= 2.5 && Math.abs(b.height - height) <= 2.5
+      );
+      if (existing) {
+        existing.count++;
+      } else {
+        buckets.push({ width, height, count: 1, label });
+      }
+    }
+
+    buckets.sort((a, b) => b.count - a.count);
+    const mostCommon = buckets[0] || { width: 595.28, height: 841.89, count: 0, label: 'A4 Portrait' };
+
+    return {
+      totalPages,
+      uniqueSizeCount: buckets.length,
+      hasMixedSizes: buckets.length > 1,
+      hasMixedOrientations: hasPortrait && hasLandscape,
+      pageDetails,
+      mostCommonSize: mostCommon,
+      largestSize: { width: largest.width, height: largest.height, label: largest.label },
+      smallestSize: { width: smallest.width, height: smallest.height, label: smallest.label },
+    };
   }
 
   getPagesMeta(): PageMetadata[] {

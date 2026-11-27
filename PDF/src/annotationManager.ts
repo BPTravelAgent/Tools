@@ -483,6 +483,13 @@ export class AnnotationManager {
     this.notifyChange();
   }
 
+  hasAnyAnnotations(): boolean {
+    for (const list of this.annotations.values()) {
+      if (list && list.length > 0) return true;
+    }
+    return false;
+  }
+
   clearAll(pageIndex?: number) {
     if (pageIndex !== undefined) {
       this.annotations.delete(pageIndex);

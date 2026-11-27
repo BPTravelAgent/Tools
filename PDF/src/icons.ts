@@ -283,5 +283,15 @@ export const ICONS = {
       <line x1="21" y1="14" x2="3" y2="14"></line>
       <line x1="21" y1="18" x2="7" y2="18"></line>
     </svg>
+  `,
+
+  pageSize: `
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="4" y="3" width="16" height="18" rx="2"/>
+      <path d="M8 9h8"/>
+      <path d="M8 15h8"/>
+      <polyline points="10 7 8 9 10 11"/>
+      <polyline points="14 13 16 15 14 17"/>
+    </svg>
   `
 };

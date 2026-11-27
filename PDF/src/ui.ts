@@ -4,6 +4,7 @@ import { AnnotationManager } from './annotationManager';
 import { TrueEditManager } from './trueEditManager';
 import { ExportEngine } from './exportEngine';
 import { fontManager, createSearchableFontPicker } from './fontManager';
+import { PageSizeNormalizerModal } from './pageSizeNormalizer';
 import { getAssetUrl } from './utils';
 import confetti from 'canvas-confetti';
 import type {
@@ -169,6 +170,10 @@ export class PDFEditorUI {
   private pendingDonorPageCount: number = 0;
   private lastCompressedBytes: Uint8Array | null = null;
   private draggedThumbnailIndex: number | null = null;
+  private pageSizeModal!: PageSizeNormalizerModal;
+  private preNormalizeSnapshot: { bytes: Uint8Array; fileName: string; activePageIndex: number } | null = null;
+  private dismissedMixedBannerForSession: boolean = false;
+  private activeToastTimer: any = null;
 
   // Cached DOM elements
   private root: HTMLElement;
@@ -194,6 +199,7 @@ export class PDFEditorUI {
     fontManager.init().catch((err) => console.warn('fontManager init error:', err));
 
     this.initLayout();
+    this.initPageSizeModal();
     this.setupEventListeners();
   }
 
@@ -260,6 +266,9 @@ export class PDFEditorUI {
             <div class="thumbnails-header">
               <span>Pages</span>
               <div style="display: flex; align-items: center; gap: 4px;">
+                <button id="btnSidebarNormalizePages" class="btn-icon" title="Unify & Resize Page Sizes">
+                  ${ICONS.pageSize}
+                </button>
                 <button id="btnSidebarMergePDF" class="btn-icon" title="Merge / Insert pages from another PDF">
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
                 </button>
@@ -351,6 +360,10 @@ export class PDFEditorUI {
                     <div class="rotate-option" data-rotate="ccw-all">${ICONS.rotateCcw} Rotate All Pages Left (90°)</div>
                   </div>
                 </div>
+                <button class="tool-btn" id="btnNormalizePages" title="Unify & Resize Page Sizes (Make all pages the same layout & size)">
+                  ${ICONS.pageSize}
+                  <span class="mixed-size-dot hidden" id="mixedSizeDot"></span>
+                </button>
               </div>
 
               <div class="toolbar-divider"></div>
@@ -372,6 +385,9 @@ export class PDFEditorUI {
                 <!-- Dynamically populated based on active tool / selected element -->
               </div>
             </div>
+
+            <!-- Floating Toast Notification -->
+            <div class="editor-toast hidden" id="editorToast"></div>
 
             <!-- Scrollable Pages Viewport -->
             <div class="viewport-scroller" id="viewportScroller">
@@ -1141,6 +1157,8 @@ export class PDFEditorUI {
       const newIdx = this.pdfManager.addBlankPage(this.activePageIndex);
       this.renderDocumentPages();
       this.renderThumbnails();
+      this.updateMixedSizeIndicators();
+      this.updateSubmenu();
       this.scrollToPage(newIdx);
     });
 
@@ -1182,6 +1200,9 @@ export class PDFEditorUI {
                   this.activePageIndex = p;
                   this.updateViewbar();
                   this.renderLayersSidebar();
+                  if (!this.annotationManager.getSelectedAnnotation() && (this.currentTool === 'select' || this.currentTool === 'hand')) {
+                    this.updateSubmenu();
+                  }
                   document.querySelectorAll('.thumb-item').forEach((item, idx) => {
                     item.classList.toggle('active', idx === p);
                   });
@@ -1392,6 +1413,11 @@ export class PDFEditorUI {
     document.getElementById('btnStartExportImages')?.addEventListener('click', async () => {
       await this.executeExportImages();
     });
+
+    // Normalize / Resize Page Sizes Modal Triggers
+    const openNormModal = () => this.pageSizeModal.open();
+    document.getElementById('btnNormalizePages')?.addEventListener('click', openNormModal);
+    document.getElementById('btnSidebarNormalizePages')?.addEventListener('click', openNormModal);
   }
 
   private getVisiblePageIndex(): number {
@@ -1417,9 +1443,19 @@ export class PDFEditorUI {
     await this.loadPDFBuffer(buffer, file.name);
   }
 
-  async loadPDFBuffer(buffer: ArrayBuffer, fileName: string) {
+  async loadPDFBuffer(
+    buffer: ArrayBuffer,
+    fileName: string,
+    options?: { preservePreNormalizeSnapshot?: boolean; restorePageIndex?: number }
+  ) {
     try {
       this.showProcessingModal('Opening PDF...', 'Loading and parsing pages...');
+
+      if (!options?.preservePreNormalizeSnapshot) {
+        this.preNormalizeSnapshot = null;
+        this.hideEditorToast();
+      }
+      this.dismissedMixedBannerForSession = false;
 
       // CRITICAL FIX: Reset all previous document edits, TrueEdit modifications, and annotations
       // so changes from previous PDF sessions never bleed into or overlap with the new document!
@@ -1443,12 +1479,20 @@ export class PDFEditorUI {
       this.uploaderContainer.classList.add('hidden');
       this.pagesWrapper.classList.remove('hidden');
 
-      this.activePageIndex = 0;
+      const totalPages = this.pdfManager.getPageCount();
+      this.activePageIndex =
+        options?.restorePageIndex !== undefined
+          ? Math.max(0, Math.min(options.restorePageIndex, Math.max(0, totalPages - 1)))
+          : 0;
       await this.renderDocumentPages();
       await this.renderThumbnails();
+      this.updateMixedSizeIndicators();
       this.updateViewbar();
       this.updateSubmenu();
       this.renderLayersSidebar();
+      if (options?.restorePageIndex !== undefined && this.activePageIndex > 0) {
+        this.scrollToPage(this.activePageIndex);
+      }
     } catch (err) {
       this.hideProcessingModal();
       console.error('Failed to load PDF:', err);
@@ -3907,11 +3951,53 @@ export class PDFEditorUI {
       document.getElementById('btnCropReset')?.addEventListener('click', () => this.resetCrop(this.activePageIndex));
       document.getElementById('btnCropCancel')?.addEventListener('click', () => this.setTool('select'));
     } else {
-      sub.innerHTML = `
-        <span class="submenu-hint">
-          ${this.currentMode === 'trueedit' ? 'TrueEdit™ Pro: Click on any existing text in the document to edit directly.' : 'Select a tool or click on any element to adjust its properties.'}
-        </span>
-      `;
+      const pageCount = this.pdfManager.getPageCount();
+      if (pageCount > 0) {
+        const summary = this.pdfManager.analyzePageSizes();
+        const curSize = this.pdfManager.getEffectivePageSize(this.activePageIndex);
+        const curLabel = PDFManager.identifyPaperSize(curSize.width, curSize.height);
+        const defaultHint =
+          this.currentMode === 'trueedit'
+            ? 'TrueEdit™ Pro: Click on any existing text in the document to edit directly.'
+            : 'Select a tool or click on any element to adjust its properties.';
+
+        if ((summary.hasMixedSizes || summary.hasMixedOrientations) && !this.dismissedMixedBannerForSession) {
+          sub.innerHTML = `
+            <div class="submenu-page-size-bar mixed">
+              <span class="submenu-mixed-badge">⚠️ Mixed Page Sizes (${summary.uniqueSizeCount} layouts)</span>
+              <span class="submenu-size-detail">Current page: ${Math.round(curSize.width)} × ${Math.round(curSize.height)} pt (${curLabel}) · Smallest ${Math.round(summary.smallestSize.width)}×${Math.round(summary.smallestSize.height)} vs Largest ${Math.round(summary.largestSize.width)}×${Math.round(summary.largestSize.height)}</span>
+              <button type="button" class="btn-submenu-unify" id="btnSubmenuUnifySizes">📐 Unify Page Sizes</button>
+              <button type="button" class="btn-submenu-dismiss" id="btnDismissMixedNotice" title="Dismiss notice">×</button>
+            </div>
+          `;
+          document.getElementById('btnSubmenuUnifySizes')?.addEventListener('click', () => {
+            this.pageSizeModal.open();
+          });
+          document.getElementById('btnDismissMixedNotice')?.addEventListener('click', () => {
+            this.dismissedMixedBannerForSession = true;
+            this.updateSubmenu();
+          });
+        } else {
+          sub.innerHTML = `
+            <div class="submenu-default-row">
+              <span class="submenu-hint">${defaultHint}</span>
+              <div class="submenu-size-actions">
+                <span class="submenu-dim-pill" title="Active page size">${Math.round(curSize.width)} × ${Math.round(curSize.height)} pt (${curLabel})</span>
+                <button type="button" class="btn-submenu-resize" id="btnSubmenuUnifySizes" title="Resize or unify all pages to same layout &amp; size">📐 Page Size</button>
+              </div>
+            </div>
+          `;
+          document.getElementById('btnSubmenuUnifySizes')?.addEventListener('click', () => {
+            this.pageSizeModal.open();
+          });
+        }
+      } else {
+        sub.innerHTML = `
+          <span class="submenu-hint">
+            ${this.currentMode === 'trueedit' ? 'TrueEdit™ Pro: Click on any existing text in the document to edit directly.' : 'Select a tool or click on any element to adjust its properties.'}
+          </span>
+        `;
+      }
     }
   }
 
@@ -4028,11 +4114,20 @@ export class PDFEditorUI {
   private async renderThumbnails() {
     this.previewPagesContainer.innerHTML = '';
     const pagesMeta = this.pdfManager.getPagesMeta();
+    const sizeSummary = this.pdfManager.analyzePageSizes();
 
     for (let i = 0; i < pagesMeta.length; i++) {
+      const effSize = this.pdfManager.getEffectivePageSize(i);
+      const isMismatch =
+        sizeSummary.hasMixedSizes &&
+        (Math.abs(effSize.width - sizeSummary.mostCommonSize.width) > 2.5 ||
+          Math.abs(effSize.height - sizeSummary.mostCommonSize.height) > 2.5);
+      const sizeLabel = PDFManager.identifyPaperSize(effSize.width, effSize.height);
+
       const thumbItem = document.createElement('div');
       thumbItem.className = `thumb-item ${i === this.activePageIndex ? 'active' : ''}`;
       thumbItem.id = `thumbItem-${i}`;
+      thumbItem.title = `Page ${i + 1}: ${Math.round(effSize.width)} × ${Math.round(effSize.height)} pt (${sizeLabel})`;
       thumbItem.setAttribute('draggable', 'true');
 
       // Drag and drop events for reordering
@@ -4090,9 +4185,23 @@ export class PDFEditorUI {
       img.className = 'thumb-img';
       img.alt = `Page ${i + 1}`;
 
+      const metaRow = document.createElement('div');
+      metaRow.className = 'thumb-meta-row';
+
       const pageNumber = document.createElement('span');
       pageNumber.className = 'thumb-number';
       pageNumber.innerText = (i + 1).toString();
+      metaRow.appendChild(pageNumber);
+
+      if (sizeSummary.hasMixedSizes || sizeSummary.hasMixedOrientations) {
+        const sizeBadge = document.createElement('span');
+        sizeBadge.className = `thumb-size-badge ${isMismatch ? 'mismatch' : ''}`;
+        sizeBadge.innerText = `${Math.round(effSize.width)}×${Math.round(effSize.height)}`;
+        sizeBadge.title = isMismatch
+          ? `Different size from majority (${sizeLabel}) — click Page Size tool to unify`
+          : sizeLabel;
+        metaRow.appendChild(sizeBadge);
+      }
 
       // Page action buttons overlay (Up, Down, Duplicate, Quick Image Export, Rotate Left/Right, Delete)
       const actions = document.createElement('div');
@@ -4116,7 +4225,7 @@ export class PDFEditorUI {
       `;
 
       thumbItem.appendChild(img);
-      thumbItem.appendChild(pageNumber);
+      thumbItem.appendChild(metaRow);
       thumbItem.appendChild(actions);
       this.previewPagesContainer.appendChild(thumbItem);
 
@@ -4160,6 +4269,8 @@ export class PDFEditorUI {
         this.pdfManager.rotatePage(i, -90);
         await this.renderDocumentPages();
         await this.renderThumbnails();
+        this.updateMixedSizeIndicators();
+        this.updateSubmenu();
       });
 
       actions.querySelector('[data-act="rot-cw"]')?.addEventListener('click', async (e) => {
@@ -4167,6 +4278,8 @@ export class PDFEditorUI {
         this.pdfManager.rotatePage(i, 90);
         await this.renderDocumentPages();
         await this.renderThumbnails();
+        this.updateMixedSizeIndicators();
+        this.updateSubmenu();
       });
 
       actions.querySelector('[data-act="del"]')?.addEventListener('click', async (e) => {
@@ -4189,6 +4302,8 @@ export class PDFEditorUI {
     this.activePageIndex = toIndex;
     await this.renderDocumentPages();
     await this.renderThumbnails();
+    this.updateMixedSizeIndicators();
+    this.updateSubmenu();
     this.scrollToPage(toIndex);
     this.updateViewbar();
   }
@@ -4201,6 +4316,8 @@ export class PDFEditorUI {
     this.activePageIndex = newIndex;
     await this.renderDocumentPages();
     await this.renderThumbnails();
+    this.updateMixedSizeIndicators();
+    this.updateSubmenu();
     this.scrollToPage(newIndex);
     this.updateViewbar();
   }
@@ -4218,6 +4335,8 @@ export class PDFEditorUI {
       this.activePageIndex = Math.max(0, Math.min(pageIndex, this.pdfManager.getPageCount() - 1));
       await this.renderDocumentPages();
       await this.renderThumbnails();
+      this.updateMixedSizeIndicators();
+      this.updateSubmenu();
       this.scrollToPage(this.activePageIndex);
       this.updateViewbar();
     }
@@ -4750,6 +4869,8 @@ export class PDFEditorUI {
     this.pdfManager.rotatePage(this.activePageIndex, deltaDeg);
     await this.renderDocumentPages();
     await this.renderThumbnails();
+    this.updateMixedSizeIndicators();
+    this.updateSubmenu();
     this.scrollToPage(this.activePageIndex);
   }
 
@@ -4759,6 +4880,8 @@ export class PDFEditorUI {
     this.pdfManager.rotateAllPages(deltaDeg);
     await this.renderDocumentPages();
     await this.renderThumbnails();
+    this.updateMixedSizeIndicators();
+    this.updateSubmenu();
     this.scrollToPage(this.activePageIndex);
   }
 
@@ -4805,6 +4928,8 @@ export class PDFEditorUI {
       this.hideProcessingModal();
       await this.renderDocumentPages();
       await this.renderThumbnails();
+      this.updateMixedSizeIndicators();
+      this.updateSubmenu();
       this.scrollToPage(lastIndex);
     } catch (err) {
       this.hideProcessingModal();
@@ -5042,6 +5167,8 @@ export class PDFEditorUI {
     this.setTool('select');
     await this.renderDocumentPages();
     await this.renderThumbnails();
+    this.updateMixedSizeIndicators();
+    this.updateSubmenu();
   }
 
   // Reset / remove crop on active page
@@ -5051,6 +5178,8 @@ export class PDFEditorUI {
     this.setTool('select');
     await this.renderDocumentPages();
     await this.renderThumbnails();
+    this.updateMixedSizeIndicators();
+    this.updateSubmenu();
   }
 
   // Auto-Trim Margins by inspecting canvas pixels
@@ -5112,6 +5241,91 @@ export class PDFEditorUI {
     } catch (err) {
       console.warn('Auto-trim margins error:', err);
     }
+  }
+
+  private initPageSizeModal() {
+    this.pageSizeModal = new PageSizeNormalizerModal({
+      getPDFManager: () => this.pdfManager,
+      getAnnotationManager: () => this.annotationManager,
+      getTrueEditManager: () => this.trueEditManager,
+      getActivePageIndex: () => this.activePageIndex,
+      parsePageRange: (rangeStr, totalPages) => this.parsePageRange(rangeStr, totalPages),
+      showProcessing: (title, desc) => this.showProcessingModal(title, desc),
+      updateProcessing: (percent, statusText) => this.updateProcessingProgress(percent, statusText),
+      hideProcessing: () => this.hideProcessingModal(),
+      onNormalized: async (newBytes, preNormalizeBytes, resizedCount, targetLabel, restorePageIndex) => {
+        const currentFileName = this.pdfManager.getFileName();
+        this.preNormalizeSnapshot = {
+          bytes: preNormalizeBytes.slice(),
+          fileName: currentFileName,
+          activePageIndex: restorePageIndex,
+        };
+        await this.loadPDFBuffer(newBytes.slice().buffer as ArrayBuffer, currentFileName, {
+          preservePreNormalizeSnapshot: true,
+          restorePageIndex,
+        });
+        confetti({ particleCount: 70, spread: 60, origin: { y: 0.6 } });
+        this.showNormalizeSuccessToast(resizedCount, targetLabel);
+      },
+    });
+    const appEl = this.root.querySelector('.ilovepdf-app') as HTMLElement | null;
+    if (appEl) {
+      this.pageSizeModal.mount(appEl);
+    }
+  }
+
+  private updateMixedSizeIndicators() {
+    const dot = document.getElementById('mixedSizeDot');
+    if (!dot) return;
+    if (this.pdfManager.getPageCount() <= 1) {
+      dot.classList.add('hidden');
+      return;
+    }
+    const summary = this.pdfManager.analyzePageSizes();
+    if (summary.hasMixedSizes || summary.hasMixedOrientations) {
+      dot.classList.remove('hidden');
+    } else {
+      dot.classList.add('hidden');
+    }
+  }
+
+  private showNormalizeSuccessToast(resizedCount: number, targetLabel: string) {
+    const toast = document.getElementById('editorToast');
+    if (!toast) return;
+    if (this.activeToastTimer) clearTimeout(this.activeToastTimer);
+
+    toast.innerHTML = `
+      <span>✅ Unified ${resizedCount} page${resizedCount === 1 ? '' : 's'} to ${targetLabel}</span>
+      <button type="button" class="editor-toast-btn" id="btnUndoNormalizeToast">↺ Undo Resize</button>
+      <button type="button" class="editor-toast-close" id="btnCloseEditorToast" title="Dismiss">&times;</button>
+    `;
+    toast.classList.remove('hidden');
+
+    document.getElementById('btnUndoNormalizeToast')?.addEventListener('click', async () => {
+      const snap = this.preNormalizeSnapshot;
+      if (!snap) return;
+      this.preNormalizeSnapshot = null;
+      this.hideEditorToast();
+      await this.loadPDFBuffer(snap.bytes.slice().buffer as ArrayBuffer, snap.fileName, {
+        restorePageIndex: snap.activePageIndex,
+      });
+    });
+
+    document.getElementById('btnCloseEditorToast')?.addEventListener('click', () => {
+      this.hideEditorToast();
+    });
+
+    this.activeToastTimer = setTimeout(() => {
+      this.hideEditorToast();
+    }, 15000);
+  }
+
+  private hideEditorToast() {
+    if (this.activeToastTimer) {
+      clearTimeout(this.activeToastTimer);
+      this.activeToastTimer = null;
+    }
+    document.getElementById('editorToast')?.classList.add('hidden');
   }
 }
 

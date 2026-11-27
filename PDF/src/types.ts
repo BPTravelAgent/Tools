@@ -153,3 +153,55 @@ export interface PageMetadata {
   imageSrc?: string;
   cropBox?: { x: number; y: number; width: number; height: number };
 }
+
+export type PageSizePresetId =
+  | 'a4'
+  | 'letter'
+  | 'legal'
+  | 'a3'
+  | 'a5'
+  | 'b5'
+  | 'match_first'
+  | 'match_current'
+  | 'match_common'
+  | 'match_largest'
+  | 'match_smallest'
+  | 'custom';
+
+export type PageOrientationMode = 'portrait' | 'landscape' | 'keep';
+export type PageFitMode = 'contain' | 'cover' | 'stretch' | 'center';
+export type PageAlignMode = 'center' | 'top-center' | 'top-left';
+export type NormalizeScope = 'all' | 'mismatched' | 'current' | 'custom';
+
+export interface NormalizePagesOptions {
+  targetWidth: number;
+  targetHeight: number;
+  orientationMode: PageOrientationMode;
+  fitMode: PageFitMode;
+  alignMode: PageAlignMode;
+  marginPt: number;
+  scope: NormalizeScope;
+  pageIndices?: number[];
+  tolerancePt?: number;
+}
+
+export interface PageSizeDetail {
+  pageIndex: number;
+  width: number;
+  height: number;
+  orientation: 'portrait' | 'landscape' | 'square';
+  label: string;
+  isCropped: boolean;
+  rotation: number;
+}
+
+export interface PageSizeSummary {
+  totalPages: number;
+  uniqueSizeCount: number;
+  hasMixedSizes: boolean;
+  hasMixedOrientations: boolean;
+  pageDetails: PageSizeDetail[];
+  mostCommonSize: { width: number; height: number; count: number; label: string };
+  largestSize: { width: number; height: number; label: string };
+  smallestSize: { width: number; height: number; label: string };
+}
